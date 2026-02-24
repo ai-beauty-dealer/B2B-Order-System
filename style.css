@@ -452,6 +452,31 @@ input[type=number]::-webkit-outer-spin-button {
     padding-bottom: 0;
 }
 
+.history-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding-top: 12px;
+    margin-top: 12px;
+    border-top: 1px dashed var(--border-color);
+}
+
+.history-actions button {
+    padding: 6px 12px;
+    font-size: 0.8rem;
+    border-radius: var(--radius-full);
+}
+
+.btn-danger {
+    background-color: transparent;
+    color: var(--danger);
+    border: 1px solid var(--danger);
+}
+
+.btn-danger:hover {
+    background-color: #fef2f2;
+}
+
 /* --- Loading Overlay --- */
 #loading-overlay {
     position: fixed;

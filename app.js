@@ -22,6 +22,9 @@ document.addEventListener('DOMContentLoaded', () => {
     let itemsData = [];
     let favoriteItems = []; // Array of item codes
     let currentFilter = 'all'; // 'all' or 'favorites'
+    let editingOrderId = null; // Store orderId if editing an existing order
+
+    const cancelEditBtn = document.getElementById('cancel-edit-btn');
 
     // --- Utility Functions ---
     const showLoading = () => loadingOverlay.classList.remove('hidden');
@@ -160,6 +163,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
                 <div class="history-body hidden">
                     ${detailsHtml}
+                    <div class="history-actions">
+                        <button class="btn-secondary edit-order-btn" data-order-id="${items[0].orderId}">変更</button>
+                        <button class="btn-danger cancel-order-btn" data-order-id="${items[0].orderId}">キャンセル</button>
+                    </div>
                 </div>
             `;
 
@@ -179,9 +186,95 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
 
+            // Action Buttons
+            const editBtn = card.querySelector('.edit-order-btn');
+            const cancelBtn = card.querySelector('.cancel-order-btn');
+
+            cancelBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if(confirm('この発注をキャンセルします。よろしいですか？')) {
+                    cancelOrder(e.target.dataset.orderId);
+                }
+            });
+
+            editBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                startEditingOrder(e.target.dataset.orderId, items);
+            });
+
             historyListContainer.appendChild(card);
         });
     };
+
+    // --- Cancel Order ---
+    const cancelOrder = async (orderId) => {
+        showLoading();
+        try {
+            const response = await fetch(CONFIG.API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify({
+                    action: 'cancel_order',
+                    clientName: currentClientName,
+                    orderId: orderId
+                })
+            });
+            const result = await response.json();
+            if (result.status === 'success') {
+                alert('発注をキャンセルしました。');
+                fetchHistory(); // Refresh
+            } else {
+                alert('失敗しました: ' + result.message);
+            }
+        } catch (error) {
+            console.error(error);
+            alert('通信エラーが発生しました。');
+        } finally {
+            hideLoading();
+        }
+    };
+
+    // --- Start Editing Order ---
+    const startEditingOrder = (orderId, items) => {
+        editingOrderId = orderId;
+        
+        // Reset all inputs to 0 first
+        document.querySelectorAll('.qty-input').forEach(input => input.value = 0);
+        
+        // Restore quantities from the history items
+        items.forEach(item => {
+            const input = document.querySelector(`.qty-input[data-code="${item.code}"]`);
+            if(input) {
+                input.value = item.qty;
+            }
+        });
+        
+        calculateTotal();
+        
+        // Update UI for Edit Mode
+        orderSubmitBtn.textContent = '変更を保存する';
+        cancelEditBtn.classList.remove('hidden');
+        
+        // Switch back to 'all' tab
+        switchTab('tab-all');
+        window.scrollTo(0, 0);
+    };
+
+    // --- Cancel Edit Mode ---
+    cancelEditBtn.addEventListener('click', () => {
+        resetEditMode();
+    });
+
+    const resetEditMode = () => {
+        editingOrderId = null;
+        orderSubmitBtn.textContent = '発注する';
+        cancelEditBtn.classList.add('hidden');
+        document.querySelectorAll('.qty-input').forEach(input => input.value = 0);
+        calculateTotal();
+        searchInput.value = '';
+        renderItems(itemsData); // Clear search filters
+    };
+
 
     // --- Fetch History from API ---
     const fetchHistory = async () => {
@@ -363,31 +456,38 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
-        if (!confirm(`${total}点の商品を発注します。よろしいですか？`)) return;
+        const isEditing = editingOrderId !== null;
+        const confirmMsg = isEditing 
+            ? `${total}点で発注内容を変更します。よろしいですか？`
+            : `${total}点の商品を発注します。よろしいですか？`;
+
+        if (!confirm(confirmMsg)) return;
 
         showLoading();
         try {
+            const requestBody = {
+                action: isEditing ? 'update_order' : 'order',
+                clientName: currentClientName,
+                orders: orders
+            };
+
+            if (isEditing) {
+                requestBody.orderId = editingOrderId;
+            }
+
             const response = await fetch(CONFIG.API_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                body: JSON.stringify({
-                    action: 'order',
-                    clientName: currentClientName,
-                    orders: orders
-                })
+                body: JSON.stringify(requestBody)
             });
 
             const result = await response.json();
 
             if (result.status === 'success') {
-                alert('発注が完了しました！\n引き続き発注いただけます。');
-                // Reset inputs
-                document.querySelectorAll('.qty-input').forEach(input => input.value = 0);
-                calculateTotal();
-                searchInput.value = '';
-                renderItems(itemsData); // Re-render to clear search
+                alert(isEditing ? '発注内容を変更しました。' : '発注が完了しました！\n引き続き発注いただけます。');
+                resetEditMode();
             } else {
-                alert('発注に失敗しました: ' + result.message);
+                alert('失敗しました: ' + result.message);
             }
         } catch (error) {
             console.error(error);

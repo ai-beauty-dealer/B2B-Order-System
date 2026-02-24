@@ -49,8 +49,10 @@ function doGet(e) {
       for (let i = values.length - 1; i >= 1; i--) {
           const row = values[i];
           if (row[4] === clientName) {
+              const orderDate = new Date(row[0]);
               history.push({
-                  date: Utilities.formatDate(new Date(row[0]), Session.getScriptTimeZone(), "yyyy/MM/dd HH:mm"),
+                  orderId: orderDate.getTime(), // Use epoch time as unique ID
+                  date: Utilities.formatDate(orderDate, Session.getScriptTimeZone(), "yyyy/MM/dd HH:mm"),
                   code: row[1],
                   qty: row[2],
                   name: row[3]
@@ -70,18 +72,25 @@ function doGet(e) {
 }
 
 // ==========================================
-// 2. POST リクエスト処理 (ログイン / 発注記録)
+// 2. POST リクエスト処理 (ログイン / 発注記録 / キャンセル / 変更)
 // ==========================================
 function doPost(e) {
     try {
         // GASのdoPostで生JSONを受け取る場合は e.postData.contents をパースする
+        if (!e.postData || !e.postData.contents) {
+             throw new Error("No POST data received.");
+        }
         const postData = JSON.parse(e.postData.contents);
-        const action = postData.action; // 'login' or 'order'
+        const action = postData.action; // 'login' or 'order' or 'cancel_order' or 'update_order'
 
         if (action === 'login') {
              return handleLogin(postData);
         } else if (action === 'order') {
              return handleOrder(postData);
+        } else if (action === 'cancel_order') {
+             return handleCancelOrder(postData);
+        } else if (action === 'update_order') {
+             return handleUpdateOrder(postData);
         } else {
              throw new Error("Invalid action parameter.");
         }
@@ -170,5 +179,99 @@ function handleOrder(data) {
      return ContentService.createTextOutput(JSON.stringify({ 
          status: 'success', 
          message: 'Order recorded successfully' 
+     })).setMimeType(ContentService.MimeType.JSON);
+}
+
+// ------------------------------------------
+// 注文キャンセル処理
+// ------------------------------------------
+function handleCancelOrder(data) {
+     const clientName = data.clientName;
+     const orderId = data.orderId;
+
+     if(!clientName || !orderId) {
+         throw new Error("Invalid cancel data format.");
+     }
+
+     const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+     const sheet = ss.getSheetByName(SHEET_NAMES.ORDERS);
+     if(!sheet) throw new Error("Orders sheet not found.");
+
+     const values = sheet.getDataRange().getValues();
+     
+     // Note: We need to delete from the bottom up to avoid shifting row indices
+     let deletedCount = 0;
+     for(let i = values.length - 1; i >= 1; i--) {
+          const row = values[i];
+          // Match by ClientName and Epoch Time (orderId)
+          if(row[4] === clientName && new Date(row[0]).getTime() === parseInt(orderId)) {
+               // i is 0-indexed array, getRange is 1-indexed (row 1 is header, so i=1 is row 2)
+               sheet.deleteRow(i + 1);
+               deletedCount++;
+          }
+     }
+
+     if(deletedCount > 0) {
+          return ContentService.createTextOutput(JSON.stringify({ 
+               status: 'success', 
+               message: 'Order canceled successfully' 
+          })).setMimeType(ContentService.MimeType.JSON);
+     } else {
+          return ContentService.createTextOutput(JSON.stringify({ 
+               status: 'error', 
+               message: 'Order to cancel not found' 
+          })).setMimeType(ContentService.MimeType.JSON);
+     }
+}
+
+// ------------------------------------------
+// 注文変更（再発注）処理
+// ------------------------------------------
+function handleUpdateOrder(data) {
+     const clientName = data.clientName;
+     const orderId = data.orderId;
+     const orders = data.orders;
+
+     if(!clientName || !orderId || !orders || !Array.isArray(orders) || orders.length === 0) {
+         throw new Error("Invalid update data format.");
+     }
+
+     const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+     const sheet = ss.getSheetByName(SHEET_NAMES.ORDERS);
+     if(!sheet) throw new Error("Orders sheet not found.");
+
+     // 1. Delete old rows
+     const values = sheet.getDataRange().getValues();
+     for(let i = values.length - 1; i >= 1; i--) {
+          const row = values[i];
+          if(row[4] === clientName && new Date(row[0]).getTime() === parseInt(orderId)) {
+               sheet.deleteRow(i + 1);
+          }
+     }
+
+     // 2. Append new rows using the ORIGINAL timestamp (orderId)
+     const originalTimestamp = new Date(parseInt(orderId));
+     const rowsToAdd = [];
+
+     orders.forEach(order => {
+         if(order.qty > 0) {
+             rowsToAdd.push([
+                 originalTimestamp, // <-- Use the old timestamp
+                 order.code,
+                 order.qty,
+                 order.name,
+                 clientName
+             ]);
+         }
+     });
+
+     if(rowsToAdd.length > 0) {
+         const startRow = sheet.getLastRow() + 1;
+         sheet.getRange(startRow, 1, rowsToAdd.length, rowsToAdd[0].length).setValues(rowsToAdd);
+     }
+
+     return ContentService.createTextOutput(JSON.stringify({ 
+         status: 'success', 
+         message: 'Order updated successfully' 
      })).setMimeType(ContentService.MimeType.JSON);
 }
