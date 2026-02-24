@@ -128,13 +128,57 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        // Group history by date string
+        const groupedHistory = {};
         historyData.forEach(hist => {
+            if (!groupedHistory[hist.date]) {
+                groupedHistory[hist.date] = [];
+            }
+            groupedHistory[hist.date].push(hist);
+        });
+
+        Object.keys(groupedHistory).forEach(date => {
+            const items = groupedHistory[date];
+            let totalItems = 0;
+            let detailsHtml = '';
+
+            items.forEach(item => {
+                totalItems += parseInt(item.qty);
+                detailsHtml += `<div class="history-item"><span>${item.name}</span><span>${item.qty}点</span></div>`;
+            });
+
             const card = document.createElement('div');
-            card.className = 'history-card';
+            card.className = 'history-group-card';
+
             card.innerHTML = `
-                <div class="history-date">${hist.date}</div>
-                <div class="history-detail">${hist.name} × ${hist.qty}</div>
+                <div class="history-header">
+                    <div>
+                        <div class="history-date">${date}</div>
+                        <div class="history-summary">計 ${totalItems}点</div>
+                    </div>
+                    <div class="history-toggle">▼</div>
+                </div>
+                <div class="history-body hidden">
+                    ${detailsHtml}
+                </div>
             `;
+
+            // Accordion toggle logic
+            const header = card.querySelector('.history-header');
+            const body = card.querySelector('.history-body');
+            const toggleIcon = card.querySelector('.history-toggle');
+
+            header.addEventListener('click', () => {
+                const isHidden = body.classList.contains('hidden');
+                if (isHidden) {
+                    body.classList.remove('hidden');
+                    toggleIcon.textContent = '▲';
+                } else {
+                    body.classList.add('hidden');
+                    toggleIcon.textContent = '▼';
+                }
+            });
+
             historyListContainer.appendChild(card);
         });
     };
