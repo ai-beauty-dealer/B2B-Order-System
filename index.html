@@ -40,14 +40,19 @@
         <div class="filter-tabs">
             <button id="tab-all" class="tab-btn active">すべて</button>
             <button id="tab-favorites" class="tab-btn">お気に入り ★</button>
+            <button id="tab-history" class="tab-btn">発注履歴 🕒</button>
         </div>
 
-        <div class="search-container">
+        <div class="search-container" id="search-wrapper">
             <input type="text" id="search-input" placeholder="商品名で検索...">
         </div>
 
         <div id="item-list">
             <!-- Items will be loaded here dynamically -->
+        </div>
+
+        <div id="history-list" class="hidden">
+            <!-- Order history will be loaded here dynamically -->
         </div>
 
         <div class="cart-summary">

@@ -11,6 +11,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const loadingOverlay = document.getElementById('loading-overlay');
     const tabAll = document.getElementById('tab-all');
     const tabFavorites = document.getElementById('tab-favorites');
+    const tabHistory = document.getElementById('tab-history');
+    const historyListContainer = document.getElementById('history-list');
+    const searchWrapper = document.getElementById('search-wrapper');
+    const cartSummary = document.querySelector('.cart-summary');
 
     // State
     let currentUsername = ''; // Use username for unique localstorage key
@@ -115,22 +119,78 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
-    // --- Tab Filtering ---
-    tabAll.addEventListener('click', () => {
-        currentFilter = 'all';
-        tabAll.classList.add('active');
-        tabFavorites.classList.remove('active');
-        searchInput.value = ''; // Reset search focus
-        renderItems(itemsData);
-    });
+    // --- Render History ---
+    const renderHistory = (historyData) => {
+        historyListContainer.innerHTML = '';
 
-    tabFavorites.addEventListener('click', () => {
-        currentFilter = 'favorites';
-        tabFavorites.classList.add('active');
+        if (historyData.length === 0) {
+            historyListContainer.innerHTML = '<p>発注履歴がありません。</p>';
+            return;
+        }
+
+        historyData.forEach(hist => {
+            const card = document.createElement('div');
+            card.className = 'history-card';
+            card.innerHTML = `
+                <div class="history-date">${hist.date}</div>
+                <div class="history-detail">${hist.name} × ${hist.qty}</div>
+            `;
+            historyListContainer.appendChild(card);
+        });
+    };
+
+    // --- Fetch History from API ---
+    const fetchHistory = async () => {
+        showLoading();
+        try {
+            const url = `${CONFIG.API_URL}?action=history&clientName=${encodeURIComponent(currentClientName)}`;
+            const response = await fetch(url);
+            const result = await response.json();
+
+            if (result.status === 'success') {
+                renderHistory(result.data);
+            } else {
+                alert('履歴の取得に失敗しました: ' + result.message);
+            }
+        } catch (error) {
+            console.error(error);
+            alert('通信エラーが発生しました。');
+        } finally {
+            hideLoading();
+        }
+    };
+
+    // --- Tab Filtering ---
+    const switchTab = (tabId) => {
+        // Reset all
         tabAll.classList.remove('active');
-        searchInput.value = ''; // Reset search focus
-        renderItems(itemsData);
-    });
+        tabFavorites.classList.remove('active');
+        tabHistory.classList.remove('active');
+
+        document.getElementById(tabId).classList.add('active');
+
+        if (tabId === 'tab-history') {
+            itemListContainer.classList.add('hidden');
+            searchWrapper.classList.add('hidden');
+            cartSummary.classList.add('hidden');
+            historyListContainer.classList.remove('hidden');
+            fetchHistory();
+        } else {
+            itemListContainer.classList.remove('hidden');
+            searchWrapper.classList.remove('hidden');
+            cartSummary.classList.remove('hidden');
+            historyListContainer.classList.add('hidden');
+
+            // Re-render items based on all/favs
+            currentFilter = tabId === 'tab-favorites' ? 'favorites' : 'all';
+            searchInput.value = ''; // Reset search focus
+            renderItems(itemsData);
+        }
+    };
+
+    tabAll.addEventListener('click', () => switchTab('tab-all'));
+    tabFavorites.addEventListener('click', () => switchTab('tab-favorites'));
+    tabHistory.addEventListener('click', () => switchTab('tab-history'));
 
     // --- Search Logic ---
     searchInput.addEventListener('input', (e) => {
@@ -148,8 +208,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const fetchItems = async () => {
         showLoading();
         try {
-            // Setup for GAS doGet
-            const response = await fetch(CONFIG.API_URL);
+            // Setup for GAS doGet with item parameter (default behavior)
+            const url = `${CONFIG.API_URL}?action=items`;
+            const response = await fetch(url);
             const result = await response.json();
 
             if (result.status === 'success') {
@@ -224,16 +285,17 @@ document.addEventListener('DOMContentLoaded', () => {
         currentUsername = '';
         currentClientName = '';
         favoriteItems = [];
-        currentFilter = 'all';
-        tabAll.classList.add('active');
-        tabFavorites.classList.remove('active');
 
         orderContainer.classList.add('hidden');
         loginContainer.classList.remove('hidden');
         loginForm.reset();
         itemListContainer.innerHTML = '';
+        historyListContainer.innerHTML = '';
         totalQtySpan.textContent = '0';
         searchInput.value = '';
+
+        // Reset to default tab
+        switchTab('tab-all');
     });
 
     // --- Submit Order (API) ---

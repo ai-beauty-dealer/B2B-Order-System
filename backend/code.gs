@@ -12,47 +12,59 @@ const SHEET_NAMES = {
 };
 
 // ==========================================
-// 1. GET リクエスト処理 (商品マスタの取得)
+// 1. GET リクエスト処理 (商品マスタ または 発注履歴 の取得)
 // ==========================================
 function doGet(e) {
   try {
+    const action = e.parameter.action || 'items'; // default is fetching items
     const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-    const sheet = ss.getSheetByName(SHEET_NAMES.MASTER);
     
-    if (!sheet) {
-      throw new Error(`Sheet '${SHEET_NAMES.MASTER}' not found.`);
+    if (action === 'items') {
+      const sheet = ss.getSheetByName(SHEET_NAMES.MASTER);
+      if (!sheet) throw new Error(`Sheet '${SHEET_NAMES.MASTER}' not found.`);
+      
+      const values = sheet.getDataRange().getValues();
+      const items = [];
+      for (let i = 1; i < values.length; i++) {
+          const row = values[i];
+          if (row[0] && row[1]) {
+              items.push({ code: row[0], name: row[1] });
+          }
+      }
+      return ContentService.createTextOutput(JSON.stringify({ status: 'success', data: items }))
+        .setMimeType(ContentService.MimeType.JSON);
+        
+    } else if (action === 'history') {
+      const clientName = e.parameter.clientName;
+      if (!clientName) throw new Error("clientName parameter is required for history.");
+      
+      const sheet = ss.getSheetByName(SHEET_NAMES.ORDERS);
+      if (!sheet) throw new Error(`Sheet '${SHEET_NAMES.ORDERS}' not found.`);
+      
+      const values = sheet.getDataRange().getValues();
+      const history = [];
+      
+      // A: Timestamp, B: Code, C: Qty, D: Name, E: ClientName
+      // Read from latest to oldest
+      for (let i = values.length - 1; i >= 1; i--) {
+          const row = values[i];
+          if (row[4] === clientName) {
+              history.push({
+                  date: Utilities.formatDate(new Date(row[0]), Session.getScriptTimeZone(), "yyyy/MM/dd HH:mm"),
+                  code: row[1],
+                  qty: row[2],
+                  name: row[3]
+              });
+          }
+      }
+      return ContentService.createTextOutput(JSON.stringify({ status: 'success', data: history }))
+        .setMimeType(ContentService.MimeType.JSON);
+    } else {
+        throw new Error("Invalid action parameter for GET.");
     }
-
-    // A列: 商品コード(不要だが取得はする), B列: 商品名 を想定
-    const dataRange = sheet.getDataRange();
-    const values = dataRange.getValues();
-    
-    // ヘッダー行(1行目)を除外して構築
-    const items = [];
-    for (let i = 1; i < values.length; i++) {
-        const row = values[i];
-        if (row[0] && row[1]) {
-            items.push({
-                code: row[0],
-                name: row[1]
-            });
-        }
-    }
-
-    const result = {
-      status: 'success',
-      data: items
-    };
-
-    return ContentService.createTextOutput(JSON.stringify(result))
-      .setMimeType(ContentService.MimeType.JSON);
 
   } catch (error) {
-    const result = {
-      status: 'error',
-      message: error.toString()
-    };
-    return ContentService.createTextOutput(JSON.stringify(result))
+    return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: error.toString() }))
       .setMimeType(ContentService.MimeType.JSON);
   }
 }
