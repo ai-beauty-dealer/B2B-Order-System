@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>B2B Order System</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="hidden">
+        <div class="spinner"></div>
+    </div>
+
+    <!-- Login Screen -->
+    <div id="login-container" class="container">
+        <h2>ログイン</h2>
+        <form id="login-form">
+            <div class="input-group">
+                <label for="username">ログインID</label>
+                <input type="text" id="username" name="username" required>
+            </div>
+            <div class="input-group">
+                <label for="password">パスワード</label>
+                <input type="password" id="password" name="password" required>
+            </div>
+            <button type="submit" class="btn-primary">ログイン</button>
+        </form>
+    </div>
+
+    <!-- Order Screen (Initially Hidden) -->
+    <div id="order-container" class="container hidden">
+        <header>
+            <h2>商品一覧</h2>
+            <button id="logout-btn" class="btn-secondary">ログアウト</button>
+        </header>
+
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="商品名で検索...">
+        </div>
+
+        <div id="item-list">
+            <!-- Items will be loaded here dynamically -->
+        </div>
+
+        <div class="cart-summary">
+            <p>選択中: <span id="total-qty">0</span>点</p>
+            <button id="order-submit-btn" class="btn-primary">発注する</button>
+        </div>
+    </div>
+    <script src="config.js"></script>
+    <script src="app.js"></script>
+</body>
+
+</html>
