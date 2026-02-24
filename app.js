@@ -27,6 +27,53 @@ document.addEventListener('DOMContentLoaded', () => {
     const cancelEditBtn = document.getElementById('cancel-edit-btn');
 
     // --- Utility Functions ---
+    // Normalize string for fuzzy search (half-width, katakana, lowercase, no spaces)
+    const normalizeForSearch = (str) => {
+        if (!str) return '';
+        // 1. Convert Full-width Alphanumeric to Half-width
+        let normalized = str.replace(/[Ａ-Ｚａ-ｚ０-９]/g, (s) => {
+            return String.fromCharCode(s.charCodeAt(0) - 0xFEE0);
+        });
+        
+        // 2. Convert Hiragana to Katakana
+        normalized = normalized.replace(/[ぁ-ん]/g, (s) => {
+            return String.fromCharCode(s.charCodeAt(0) + 0x60);
+        });
+        
+        // 3. Convert Half-width Katakana to Full-width Katakana (Standardize on Full-width for comparison)
+        const kanaMap = {
+            'ｶﾞ': 'ガ', 'ｷﾞ': 'ギ', 'ｸﾞ': 'グ', 'ｹﾞ': 'ゲ', 'ｺﾞ': 'ゴ',
+            'ｻﾞ': 'ザ', 'ｼﾞ': 'ジ', 'ｽﾞ': 'ズ', 'ｾﾞ': 'ゼ', 'ｿﾞ': 'ゾ',
+            'ﾀﾞ': 'ダ', 'ﾁﾞ': 'ヂ', 'ﾂﾞ': 'ヅ', 'ﾃﾞ': 'デ', 'ﾄﾞ': 'ド',
+            'ﾊﾞ': 'バ', 'ﾋﾞ': 'ビ', 'ﾌﾞ': 'ブ', 'ﾍﾞ': 'ベ', 'ﾎﾞ': 'ボ',
+            'ﾊﾟ': 'パ', 'ﾋﾟ': 'ピ', 'ﾌﾟ': 'プ', 'ﾍﾟ': 'ペ', 'ﾎﾟ': 'ポ',
+            'ｳﾞ': 'ヴ', 'ﾜﾞ': 'ヷ', 'ｦﾞ': 'ヺ',
+            'ｱ': 'ア', 'ｲ': 'イ', 'ｳ': 'ウ', 'ｴ': 'エ', 'ｵ': 'オ',
+            'ｶ': 'カ', 'ｷ': 'キ', 'ｸ': 'ク', 'ｹ': 'ケ', 'ｺ': 'コ',
+            'ｻ': 'サ', 'ｼ': 'シ', 'ｽ': 'ス', 'ｾ': 'セ', 'ｿ': 'ソ',
+            'ﾀ': 'タ', 'ﾁ': 'チ', 'ﾂ': 'ツ', 'ﾃ': 'テ', 'ﾄ': 'ト',
+            'ﾅ': 'ナ', 'ﾆ': 'ニ', 'ﾇ': 'ヌ', 'ﾈ': 'ネ', 'ﾉ': 'ノ',
+            'ﾊ': 'ハ', 'ﾋ': 'ヒ', 'ﾌ': 'フ', 'ﾍ': 'ヘ', 'ﾎ': 'ホ',
+            'ﾏ': 'マ', 'ﾐ': 'ミ', 'ﾑ': 'ム', 'ﾒ': 'メ', 'ﾓ': 'モ',
+            'ﾔ': 'ヤ', 'ﾕ': 'ユ', 'ﾖ': 'ヨ',
+            'ﾗ': 'ラ', 'ﾘ': 'リ', 'ﾙ': 'ル', 'ﾚ': 'レ', 'ﾛ': 'ロ',
+            'ﾜ': 'ワ', 'ｦ': 'ヲ', 'ﾝ': 'ン',
+            'ｧ': 'ァ', 'ｨ': 'ィ', 'ｩ': 'ゥ', 'ｪ': 'ェ', 'ｫ': 'ォ',
+            'ｯ': 'ッ', 'ｬ': 'ャ', 'ｭ': 'ュ', 'ｮ': 'ョ',
+            'ｰ': 'ー', '･': '・', '､': '、', 'ﾟ': '゜', 'ﾞ': '゛'
+        };
+        
+        normalized = normalized.replace(/[ｶ-ﾝｧ-ｮｰ･､ﾟﾞ]{1,2}/g, (match) => {
+            return kanaMap[match] || match; // Try to match 2 chars (dakuon) first, then 1 char
+        });
+        
+        // Re-run single char replacement just in case
+        normalized = normalized.split('').map(char => kanaMap[char] || char).join('');
+
+        // 4. Lowercase and remove all spaces/symbols
+        return normalized.toLowerCase().replace(/[\s　\-\_\/\.,:;]/g, '');
+    };
+
     const showLoading = () => loadingOverlay.classList.remove('hidden');
     const hideLoading = () => loadingOverlay.classList.add('hidden');
 
@@ -98,9 +145,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Note: Re-rendering clears quantity inputs. For MVP this is acceptable.
                 if (currentFilter === 'favorites') {
                     // Re-apply search filter if there's any text in the input
-                    const searchTerm = searchInput.value.toLowerCase();
-                    const filtered = itemsData.filter(i => i.name.toLowerCase().includes(searchTerm));
-                    renderItems(filtered);
+                    const rawSearch = searchInput.value;
+                    if (rawSearch.trim() === '') {
+                        renderItems(itemsData);
+                    } else {
+                        const searchTokens = rawSearch.trim().split(/[\s　]+/);
+                        const filtered = itemsData.filter(item => {
+                            const normalizedName = normalizeForSearch(item.name);
+                            const normalizedCode = normalizeForSearch(item.code);
+                            const searchableText = normalizedName + normalizedCode;
+                            return searchTokens.every(token => searchableText.includes(normalizeForSearch(token)));
+                        });
+                        renderItems(filtered);
+                    }
                 }
             });
 
