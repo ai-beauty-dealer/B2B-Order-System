@@ -192,7 +192,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             cancelBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
-                if(confirm('この発注をキャンセルします。よろしいですか？')) {
+                if (confirm('この発注をキャンセルします。よろしいですか？')) {
                     cancelOrder(e.target.dataset.orderId);
                 }
             });
@@ -237,27 +237,27 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Start Editing Order ---
     const startEditingOrder = (orderId, items) => {
         editingOrderId = orderId;
-        
+
+        // Switch back to 'all' tab first so the items are rendered
+        switchTab('tab-all');
+        window.scrollTo(0, 0);
+
         // Reset all inputs to 0 first
         document.querySelectorAll('.qty-input').forEach(input => input.value = 0);
-        
+
         // Restore quantities from the history items
         items.forEach(item => {
             const input = document.querySelector(`.qty-input[data-code="${item.code}"]`);
-            if(input) {
+            if (input) {
                 input.value = item.qty;
             }
         });
-        
+
         calculateTotal();
-        
+
         // Update UI for Edit Mode
         orderSubmitBtn.textContent = '変更を保存する';
         cancelEditBtn.classList.remove('hidden');
-        
-        // Switch back to 'all' tab
-        switchTab('tab-all');
-        window.scrollTo(0, 0);
     };
 
     // --- Cancel Edit Mode ---
@@ -457,7 +457,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         const isEditing = editingOrderId !== null;
-        const confirmMsg = isEditing 
+        const confirmMsg = isEditing
             ? `${total}点で発注内容を変更します。よろしいですか？`
             : `${total}点の商品を発注します。よろしいですか？`;
 
