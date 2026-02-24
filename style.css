@@ -101,6 +101,27 @@ header {
     margin-bottom: 20px;
 }
 
+/* --- Filter Tabs & Search --- */
+.filter-tabs {
+    display: flex;
+    margin-bottom: 15px;
+    border-bottom: 2px solid var(--border-color);
+}
+
+.tab-btn {
+    flex: 1;
+    background: transparent;
+    color: var(--text-muted);
+    padding: 10px 0;
+    font-weight: bold;
+    border-radius: 4px 4px 0 0;
+}
+
+.tab-btn.active {
+    color: var(--primary-color);
+    border-bottom: 3px solid var(--primary-color);
+}
+
 .search-container {
     margin-bottom: 20px;
 }
@@ -114,6 +135,7 @@ header {
     background-color: var(--card-bg);
 }
 
+/* --- Item Cards --- */
 .item-card {
     background-color: var(--card-bg);
     border-radius: 8px;
@@ -171,6 +193,22 @@ input[type=number]::-webkit-inner-spin-button,
 input[type=number]::-webkit-outer-spin-button {
     -webkit-appearance: none;
     margin: 0;
+}
+
+/* --- Favorites --- */
+.btn-fav {
+    background: transparent;
+    border: none;
+    font-size: 1.5rem;
+    color: #ccc;
+    cursor: pointer;
+    margin-right: 15px;
+    transition: color 0.2s;
+}
+
+.btn-fav.active {
+    color: #ffc107;
+    /* Star yellow */
 }
 
 .cart-summary {

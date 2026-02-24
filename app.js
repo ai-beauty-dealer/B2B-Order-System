@@ -9,10 +9,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const searchInput = document.getElementById('search-input');
     const itemListContainer = document.getElementById('item-list');
     const loadingOverlay = document.getElementById('loading-overlay');
+    const tabAll = document.getElementById('tab-all');
+    const tabFavorites = document.getElementById('tab-favorites');
 
     // State
+    let currentUsername = ''; // Use username for unique localstorage key
     let currentClientName = '';
     let itemsData = [];
+    let favoriteItems = []; // Array of item codes
+    let currentFilter = 'all'; // 'all' or 'favorites'
 
     // --- Utility Functions ---
     const showLoading = () => loadingOverlay.classList.remove('hidden');
@@ -30,18 +35,30 @@ document.addEventListener('DOMContentLoaded', () => {
     const renderItems = (items) => {
         itemListContainer.innerHTML = ''; // Clear current
 
-        if (items.length === 0) {
+        // Filter by current tab selection before rendering
+        let displayItems = items;
+        if (currentFilter === 'favorites') {
+            displayItems = items.filter(item => favoriteItems.includes(item.code));
+        }
+
+        if (displayItems.length === 0) {
             itemListContainer.innerHTML = '<p>商品が見つかりません。</p>';
             return;
         }
 
-        items.forEach(item => {
+        displayItems.forEach(item => {
+            const isFav = favoriteItems.includes(item.code);
             const card = document.createElement('div');
             card.className = 'item-card';
             card.innerHTML = `
                 <div class="item-info">
                     <span class="item-code">${item.code}</span>
-                    <h3 class="item-name">${item.name}</h3>
+                    <h3 class="item-name">
+                        <button type="button" class="btn-fav ${isFav ? 'active' : ''}" data-code="${item.code}">
+                            ${isFav ? '★' : '☆'}
+                        </button>
+                        ${item.name}
+                    </h3>
                 </div>
                 <div class="order-controls">
                     <button type="button" class="btn-qty minus">-</button>
@@ -52,6 +69,34 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Attach Events for this card
             const input = card.querySelector('.qty-input');
+            const favBtn = card.querySelector('.btn-fav');
+
+            // Favorite toggle
+            favBtn.addEventListener('click', () => {
+                if (favoriteItems.includes(item.code)) {
+                    // Remove
+                    favoriteItems = favoriteItems.filter(c => c !== item.code);
+                    favBtn.classList.remove('active');
+                    favBtn.textContent = '☆';
+                } else {
+                    // Add
+                    favoriteItems.push(item.code);
+                    favBtn.classList.add('active');
+                    favBtn.textContent = '★';
+                }
+                // Save to local storage
+                localStorage.setItem(`b2b_favs_${currentUsername}`, JSON.stringify(favoriteItems));
+
+                // If we are on the favorites tab, re-render to hide removed item instantly
+                // Note: Re-rendering clears quantity inputs. For MVP this is acceptable.
+                if (currentFilter === 'favorites') {
+                    // Re-apply search filter if there's any text in the input
+                    const searchTerm = searchInput.value.toLowerCase();
+                    const filtered = itemsData.filter(i => i.name.toLowerCase().includes(searchTerm));
+                    renderItems(filtered);
+                }
+            });
+
             card.querySelector('.minus').addEventListener('click', () => {
                 let val = parseInt(input.value) || 0;
                 if (val > 0) { input.value = val - 1; calculateTotal(); }
@@ -69,6 +114,23 @@ document.addEventListener('DOMContentLoaded', () => {
             itemListContainer.appendChild(card);
         });
     };
+
+    // --- Tab Filtering ---
+    tabAll.addEventListener('click', () => {
+        currentFilter = 'all';
+        tabAll.classList.add('active');
+        tabFavorites.classList.remove('active');
+        searchInput.value = ''; // Reset search focus
+        renderItems(itemsData);
+    });
+
+    tabFavorites.addEventListener('click', () => {
+        currentFilter = 'favorites';
+        tabFavorites.classList.add('active');
+        tabAll.classList.remove('active');
+        searchInput.value = ''; // Reset search focus
+        renderItems(itemsData);
+    });
 
     // --- Search Logic ---
     searchInput.addEventListener('input', (e) => {
@@ -128,7 +190,19 @@ document.addEventListener('DOMContentLoaded', () => {
             const result = await response.json();
 
             if (result.status === 'success') {
+                currentUsername = username;
                 currentClientName = result.clientName;
+
+                // Load favorites
+                const savedFavs = localStorage.getItem(`b2b_favs_${currentUsername}`);
+                if (savedFavs) {
+                    try {
+                        favoriteItems = JSON.parse(savedFavs);
+                    } catch (e) { favoriteItems = []; }
+                } else {
+                    favoriteItems = [];
+                }
+
                 // Switch screen
                 loginContainer.classList.add('hidden');
                 orderContainer.classList.remove('hidden');
@@ -147,7 +221,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Logout ---
     logoutBtn.addEventListener('click', () => {
+        currentUsername = '';
         currentClientName = '';
+        favoriteItems = [];
+        currentFilter = 'all';
+        tabAll.classList.add('active');
+        tabFavorites.classList.remove('active');
+
         orderContainer.classList.add('hidden');
         loginContainer.classList.remove('hidden');
         loginForm.reset();
