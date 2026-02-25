@@ -408,9 +408,12 @@ input[type=number]::-webkit-outer-spin-button {
 }
 
 .cart-summary button {
-    width: auto;
-    padding: 12px 32px;
+    padding: 10px 16px;
     border-radius: var(--radius-full);
+    font-size: 0.95rem;
+    /* slightly smaller font to fit buttons */
+    white-space: nowrap;
+    /* Prevent text wrapping */
 }
 
 /* --- History List --- */
