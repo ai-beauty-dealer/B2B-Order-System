@@ -760,8 +760,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 localStorage.removeItem(`b2b_draft_${currentUsername}`);
 
                 // Clear custom item fields safely
-                if (customItemNameInput) customItemNameInput.value = '';
-                if (customItemQtyInput) customItemQtyInput.value = 0;
+                if (customItemsList) customItemsList.innerHTML = '';
 
                 resetEditMode();
             } else {
