@@ -31,14 +31,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const normalizeForSearch = (str) => {
         if (!str) return '';
         
-        // 1. Full-width Alphanumeric to Half-width
-        let normalized = str.replace(/[Ａ-Ｚａ-ｚ０-９]/g, (s) => {
+        // 1. Full-width Alphanumeric to Half-width (more explicit unicode range)
+        let normalized = str.replace(/[\uFF01-\uFF5E]/g, (s) => {
             return String.fromCharCode(s.charCodeAt(0) - 0xFEE0);
         });
         
-        // 2. Hiragana to Katakana
-        normalized = normalized.replace(/[ぁ-ん]/g, (s) => {
-            return String.fromCharCode(s.charCodeAt(0) + 0x60);
+        // 2. Hiragana to Katakana (explicit unicode range)
+        normalized = normalized.replace(/[\u3041-\u3096]/g, (s) => {
+            return String.fromCharCode(s.charCodeAt(0) + 0x0060);
         });
         
         // 3. Half-width Katakana to Full-width Katakana
