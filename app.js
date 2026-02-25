@@ -130,7 +130,9 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) { /* ignore invalid data */ }
     };
 
-    saveDraftBtn.addEventListener('click', saveDraft);
+    if (saveDraftBtn) {
+        saveDraftBtn.addEventListener('click', saveDraft);
+    }
 
     // --- Render Items ---
     const renderItems = (items) => {
@@ -561,75 +563,17 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('tab-all');
     });
 
-    // --- Submit Order (API) ---
-    orderSubmitBtn.addEventListener('click', () => {
-        const total = parseInt(totalQtySpan.textContent);
-        if (total === 0) {
-            alert('商品を1点以上選択してください。');
-            return;
-        }
-
-        // Collect order data
-        const orders = [];
-        confirmItemList.innerHTML = ''; // Reset modal list
-
-        document.querySelectorAll('.qty-input').forEach(input => {
-            const qty = parseInt(input.value) || 0;
-            if (qty > 0) {
-                const name = input.dataset.name;
-                orders.push({
-                    code: input.dataset.code,
-                    name: name,
-                    qty: qty
-                });
-
-                // Add to modal UI
-                const row = document.createElement('div');
-                row.className = 'confirm-item-row';
-                row.innerHTML = `<span class="confirm-item-name">${name}</span><span class="confirm-item-qty">${qty}点</span>`;
-                confirmItemList.appendChild(row);
-            }
-        });
-
-        // Show Modal instead of confirming via native dialog
-        confirmationModal.classList.remove('hidden');
-    });
-
-    // Close Modal
-    modalCancelBtn.addEventListener('click', () => {
-        confirmationModal.classList.add('hidden');
-    });
-
-    // Actually Execute Order
-    modalConfirmBtn.addEventListener('click', async () => {
-        confirmationModal.classList.add('hidden'); // Hide modal immediately
-
-        // Re-collect orders (or we could store them in a higher scope, but re-collecting is safe)
-        const orders = [];
-        let total = 0;
-        document.querySelectorAll('.qty-input').forEach(input => {
-            const qty = parseInt(input.value) || 0;
-            if (qty > 0) {
-                total += qty;
-                orders.push({
-                    code: input.dataset.code,
-                    name: input.dataset.name,
-                    qty: qty
-                });
-            }
-        });
-
-        const isEditing = editingOrderId !== null;
-
+    // --- Extract Execute Order Logic ---
+    const executeOrderActual = async (ordersToSubmit, isEditingOrder) => {
         showLoading();
         try {
             const requestBody = {
-                action: isEditing ? 'update_order' : 'order',
+                action: isEditingOrder ? 'update_order' : 'order',
                 clientName: currentClientName,
-                orders: orders
+                orders: ordersToSubmit
             };
 
-            if (isEditing) {
+            if (isEditingOrder) {
                 requestBody.orderId = editingOrderId;
             }
 
@@ -642,11 +586,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const result = await response.json();
 
             if (result.status === 'success') {
-                alert(isEditing ? '発注内容を変更しました。' : '発注が完了しました！\n引き続き発注いただけます。');
-
-                // Clear draft upon successful order
+                alert(isEditingOrder ? '発注内容を変更しました。' : '発注が完了しました！\n引き続き発注いただけます。');
                 localStorage.removeItem(`b2b_draft_${currentUsername}`);
-
                 resetEditMode();
             } else {
                 alert('失敗しました: ' + result.message);
@@ -657,5 +598,93 @@ document.addEventListener('DOMContentLoaded', () => {
         } finally {
             hideLoading();
         }
-    });
+    };
+
+    // --- Submit Order (API) ---
+    if (orderSubmitBtn) {
+        orderSubmitBtn.addEventListener('click', () => {
+            const total = parseInt(totalQtySpan.textContent);
+            if (total === 0) {
+                alert('商品を1点以上選択してください。');
+                return;
+            }
+
+            const orders = [];
+
+            // Check if Modal elements exist safely
+            if (confirmationModal && confirmItemList) {
+                confirmItemList.innerHTML = ''; // Reset modal list
+
+                document.querySelectorAll('.qty-input').forEach(input => {
+                    const qty = parseInt(input.value) || 0;
+                    if (qty > 0) {
+                        const name = input.dataset.name;
+                        orders.push({
+                            code: input.dataset.code,
+                            name: name,
+                            qty: qty
+                        });
+
+                        // Add to modal UI
+                        const row = document.createElement('div');
+                        row.className = 'confirm-item-row';
+                        row.innerHTML = `<span class="confirm-item-name">${name}</span><span class="confirm-item-qty">${qty}点</span>`;
+                        confirmItemList.appendChild(row);
+                    }
+                });
+
+                // Show Modal
+                confirmationModal.classList.remove('hidden');
+            } else {
+                // FALLBACK: If HTML is cached and missing the modal, use standard confirm()
+                document.querySelectorAll('.qty-input').forEach(input => {
+                    const qty = parseInt(input.value) || 0;
+                    if (qty > 0) {
+                        orders.push({
+                            code: input.dataset.code,
+                            name: input.dataset.name,
+                            qty: qty
+                        });
+                    }
+                });
+
+                const isEditing = editingOrderId !== null;
+                const confirmMsg = isEditing
+                    ? `${total}点で発注内容を変更します。よろしいですか？`
+                    : `${total}点の商品を発注します。よろしいですか？`;
+
+                if (!confirm(confirmMsg)) return;
+                executeOrderActual(orders, isEditing);
+            }
+        });
+    }
+
+    // Close Modal
+    if (modalCancelBtn) {
+        modalCancelBtn.addEventListener('click', () => {
+            if (confirmationModal) confirmationModal.classList.add('hidden');
+        });
+    }
+
+    // Actually Execute Order from Modal
+    if (modalConfirmBtn) {
+        modalConfirmBtn.addEventListener('click', async () => {
+            if (confirmationModal) confirmationModal.classList.add('hidden');
+
+            const orders = [];
+            document.querySelectorAll('.qty-input').forEach(input => {
+                const qty = parseInt(input.value) || 0;
+                if (qty > 0) {
+                    orders.push({
+                        code: input.dataset.code,
+                        name: input.dataset.name,
+                        qty: qty
+                    });
+                }
+            });
+
+            const isEditing = editingOrderId !== null;
+            executeOrderActual(orders, isEditing);
+        });
+    }
 });
