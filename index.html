@@ -63,24 +63,24 @@
                 style="background:#f1f5f9; border-radius: var(--radius-full); color: var(--text-main); font-weight: 500;">一時保存</button>
             <button id="order-submit-btn" class="btn-primary">発注する</button>
         </div>
+    </div> <!-- Close order-container -->
 
-        <!-- Confirmation Screen -->
-        <div id="confirmation-container" class="container hidden">
-            <header>
-                <h2>発注内容の最終確認</h2>
-            </header>
+    <!-- Confirmation Screen -->
+    <div id="confirmation-container" class="container hidden">
+        <header>
+            <h2>発注内容の最終確認</h2>
+        </header>
 
-            <div class="confirm-items-wrapper">
-                <p class="modal-desc" style="margin-bottom: 20px;">以下の内容で発注を確定しますか？</p>
-                <div id="confirm-item-list" class="confirm-items">
-                    <!-- Items injected by JS -->
-                </div>
+        <div class="confirm-items-wrapper">
+            <p class="modal-desc" style="margin-bottom: 20px;">以下の内容で発注を確定しますか？</p>
+            <div id="confirm-item-list" class="confirm-items">
+                <!-- Items injected by JS -->
             </div>
+        </div>
 
-            <div class="modal-actions" style="margin-top: 30px; display: flex; gap: 12px;">
-                <button id="modal-cancel-btn" class="btn-secondary" style="flex: 1;">戻る</button>
-                <button id="modal-confirm-btn" class="btn-primary" style="flex: 1;">注文を確定する</button>
-            </div>
+        <div class="modal-actions" style="margin-top: 30px; display: flex; gap: 12px;">
+            <button id="modal-cancel-btn" class="btn-secondary" style="flex: 1;">戻る</button>
+            <button id="modal-confirm-btn" class="btn-primary" style="flex: 1;">注文を確定する</button>
         </div>
     </div>
     <script src="config.js"></script>
