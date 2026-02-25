@@ -25,6 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let editingOrderId = null; // Store orderId if editing an existing order
 
     const cancelEditBtn = document.getElementById('cancel-edit-btn');
+    const saveDraftBtn = document.getElementById('save-draft-btn');
 
     // --- Utility Functions ---
     // Normalize string for fuzzy search (half-width, katakana, lowercase, no spaces)
@@ -86,6 +87,44 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         totalQtySpan.textContent = total;
     };
+
+    // --- Draft Feature ---
+    const saveDraft = () => {
+        if (!currentUsername) return;
+        const draftData = {};
+        document.querySelectorAll('.qty-input').forEach(input => {
+            const qty = parseInt(input.value) || 0;
+            if (qty > 0) {
+                draftData[input.dataset.code] = qty;
+            }
+        });
+
+        localStorage.setItem(`b2b_draft_${currentUsername}`, JSON.stringify(draftData));
+        alert('入力中の数量を一時保存しました。');
+    };
+
+    const loadDraft = () => {
+        if (!currentUsername) return;
+        const savedDraft = localStorage.getItem(`b2b_draft_${currentUsername}`);
+        if (!savedDraft) return;
+
+        try {
+            const draftData = JSON.parse(savedDraft);
+            if (Object.keys(draftData).length > 0) {
+                if (confirm('前回の一時保存データがあります。復元しますか？')) {
+                    Object.entries(draftData).forEach(([code, qty]) => {
+                        const input = document.querySelector(`.qty-input[data-code="${code}"]`);
+                        if (input) {
+                            input.value = qty;
+                        }
+                    });
+                    calculateTotal();
+                }
+            }
+        } catch (e) { /* ignore invalid data */ }
+    };
+
+    saveDraftBtn.addEventListener('click', saveDraft);
 
     // --- Render Items ---
     const renderItems = (items) => {
@@ -429,6 +468,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (result.status === 'success') {
                 itemsData = result.data;
                 renderItems(itemsData);
+
+                // Attempt to load draft after rendering the items list once
+                if (currentFilter === 'all') { // Only prompt on initial load
+                    loadDraft();
+                }
             } else {
                 alert('商品データの取得に失敗しました: ' + result.message);
             }
@@ -561,6 +605,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (result.status === 'success') {
                 alert(isEditing ? '発注内容を変更しました。' : '発注が完了しました！\n引き続き発注いただけます。');
+
+                // Clear draft upon successful order
+                localStorage.removeItem(`b2b_draft_${currentUsername}`);
+
                 resetEditMode();
             } else {
                 alert('失敗しました: ' + result.message);
