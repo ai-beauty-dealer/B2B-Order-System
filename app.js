@@ -27,6 +27,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const cancelEditBtn = document.getElementById('cancel-edit-btn');
     const saveDraftBtn = document.getElementById('save-draft-btn');
 
+    // Modal Elements
+    const confirmationModal = document.getElementById('confirmation-modal');
+    const confirmItemList = document.getElementById('confirm-item-list');
+    const modalCancelBtn = document.getElementById('modal-cancel-btn');
+    const modalConfirmBtn = document.getElementById('modal-confirm-btn');
+
     // --- Utility Functions ---
     // Normalize string for fuzzy search (half-width, katakana, lowercase, no spaces)
     const normalizeForSearch = (str) => {
@@ -556,7 +562,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // --- Submit Order (API) ---
-    orderSubmitBtn.addEventListener('click', async () => {
+    orderSubmitBtn.addEventListener('click', () => {
         const total = parseInt(totalQtySpan.textContent);
         if (total === 0) {
             alert('商品を1点以上選択してください。');
@@ -565,9 +571,46 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Collect order data
         const orders = [];
+        confirmItemList.innerHTML = ''; // Reset modal list
+
         document.querySelectorAll('.qty-input').forEach(input => {
             const qty = parseInt(input.value) || 0;
             if (qty > 0) {
+                const name = input.dataset.name;
+                orders.push({
+                    code: input.dataset.code,
+                    name: name,
+                    qty: qty
+                });
+
+                // Add to modal UI
+                const row = document.createElement('div');
+                row.className = 'confirm-item-row';
+                row.innerHTML = `<span class="confirm-item-name">${name}</span><span class="confirm-item-qty">${qty}点</span>`;
+                confirmItemList.appendChild(row);
+            }
+        });
+
+        // Show Modal instead of confirming via native dialog
+        confirmationModal.classList.remove('hidden');
+    });
+
+    // Close Modal
+    modalCancelBtn.addEventListener('click', () => {
+        confirmationModal.classList.add('hidden');
+    });
+
+    // Actually Execute Order
+    modalConfirmBtn.addEventListener('click', async () => {
+        confirmationModal.classList.add('hidden'); // Hide modal immediately
+
+        // Re-collect orders (or we could store them in a higher scope, but re-collecting is safe)
+        const orders = [];
+        let total = 0;
+        document.querySelectorAll('.qty-input').forEach(input => {
+            const qty = parseInt(input.value) || 0;
+            if (qty > 0) {
+                total += qty;
                 orders.push({
                     code: input.dataset.code,
                     name: input.dataset.name,
@@ -577,11 +620,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         const isEditing = editingOrderId !== null;
-        const confirmMsg = isEditing
-            ? `${total}点で発注内容を変更します。よろしいですか？`
-            : `${total}点の商品を発注します。よろしいですか？`;
-
-        if (!confirm(confirmMsg)) return;
 
         showLoading();
         try {
