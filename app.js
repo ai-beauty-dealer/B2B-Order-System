@@ -30,6 +30,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Normalize string for fuzzy search (half-width, katakana, lowercase, no spaces)
     const normalizeForSearch = (str) => {
         if (!str) return '';
+        str = String(str); // Prevent TypeError if input is a Number
 
         // 1. Full-width Alphanumeric to Half-width (more explicit unicode range)
         let normalized = str.replace(/[\uFF01-\uFF5E]/g, (s) => {
