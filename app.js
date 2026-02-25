@@ -642,7 +642,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const result = await response.json();
 
             if (result.status === 'success') {
-                alert(isEditingOrder ? '発注内容を変更しました。' : '発注が完了しました！\n引き続き発注いただけます。');
+                alert(isEditing ? '発注内容を変更しました。' : '発注が完了しました！\n引き続き発注いただけます。');
                 localStorage.removeItem(`b2b_draft_${currentUsername}`);
                 resetEditMode();
             } else {
