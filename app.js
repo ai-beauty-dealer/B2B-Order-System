@@ -30,17 +30,17 @@ document.addEventListener('DOMContentLoaded', () => {
     // Normalize string for fuzzy search (half-width, katakana, lowercase, no spaces)
     const normalizeForSearch = (str) => {
         if (!str) return '';
-        
+
         // 1. Full-width Alphanumeric to Half-width (more explicit unicode range)
         let normalized = str.replace(/[\uFF01-\uFF5E]/g, (s) => {
             return String.fromCharCode(s.charCodeAt(0) - 0xFEE0);
         });
-        
+
         // 2. Hiragana to Katakana (explicit unicode range)
         normalized = normalized.replace(/[\u3041-\u3096]/g, (s) => {
             return String.fromCharCode(s.charCodeAt(0) + 0x0060);
         });
-        
+
         // 3. Half-width Katakana to Full-width Katakana
         const kanaMap = {
             'ｶﾞ': 'ガ', 'ｷﾞ': 'ギ', 'ｸﾞ': 'グ', 'ｹﾞ': 'ゲ', 'ｺﾞ': 'ゴ',
@@ -63,9 +63,9 @@ document.addEventListener('DOMContentLoaded', () => {
             'ｯ': 'ッ', 'ｬ': 'ャ', 'ｭ': 'ュ', 'ｮ': 'ョ',
             'ｰ': 'ー', '･': '・', '､': '、', 'ﾟ': '゜', 'ﾞ': '゛'
         };
-        
+
         // Sort keys by length descending so ｶﾞ is matched before ｶ
-        const keys = Object.keys(kanaMap).sort((a,b) => b.length - a.length);
+        const keys = Object.keys(kanaMap).sort((a, b) => b.length - a.length);
         const reg = new RegExp('(' + keys.join('|') + ')', 'g');
         normalized = normalized.replace(reg, (match) => {
             return kanaMap[match] || match;
@@ -389,11 +389,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Search Logic ---
     searchInput.addEventListener('input', (e) => {
-        const searchTerm = e.target.value.toLowerCase();
-        const filteredItems = itemsData.filter(item =>
-            item.name.toLowerCase().includes(searchTerm)
-        );
-        renderItems(filteredItems);
+        const rawSearch = e.target.value;
+        if (rawSearch.trim() === '') {
+            renderItems(itemsData);
+        } else {
+            // Split by space for AND search
+            const searchTokens = rawSearch.trim().split(/[\s　]+/);
+
+            const filteredItems = itemsData.filter(item => {
+                const normalizedName = normalizeForSearch(item.name);
+                const normalizedCode = normalizeForSearch(item.code);
+                const searchableText = normalizedName + normalizedCode;
+
+                // Return true only if ALL tokens are found (AND search)
+                return searchTokens.every(token => {
+                    const normalizedToken = normalizeForSearch(token);
+                    if (!normalizedToken) return true; // skip purely symbolic space
+                    return searchableText.includes(normalizedToken);
+                });
+            });
+            renderItems(filteredItems);
+        }
+
         // Note: Re-rendering clears inputs. In a real app we'd preserve state, 
         // but for MVP it's safer to filter before picking quantities.
         calculateTotal();
