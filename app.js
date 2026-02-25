@@ -27,6 +27,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const categoryChipsContainer = document.getElementById('category-chips-container');
     const orderRemarks = document.getElementById('order-remarks');
 
+    // Custom Item Elements
+    const customItemNameInput = document.getElementById('custom-item-name');
+    const customItemQtyInput = document.getElementById('custom-item-qty');
+    const customQtyMinus = document.getElementById('custom-qty-minus');
+    const customQtyPlus = document.getElementById('custom-qty-plus');
+
     // State
     let currentUsername = ''; // Use username for unique localstorage key
     let currentClientName = '';
@@ -356,6 +362,49 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    // --- Custom Item Logic ---
+    if (customItemQtyInput && customQtyMinus && customQtyPlus && customItemNameInput) {
+        const updateCustomCart = (val) => {
+            if (val > 0) {
+                const customName = customItemNameInput.value.trim() || '（商品名未入力）';
+                currentCart['CUSTOM_ITEM'] = { qty: val, name: customName };
+            } else {
+                delete currentCart['CUSTOM_ITEM'];
+            }
+        };
+
+        customItemNameInput.addEventListener('input', () => {
+            const val = parseInt(customItemQtyInput.value) || 0;
+            if (val > 0) updateCustomCart(val);
+        });
+
+        customQtyMinus.addEventListener('click', () => {
+            let val = parseInt(customItemQtyInput.value) || 0;
+            if (val > 0) { val -= 1; customItemQtyInput.value = val; updateCustomCart(val); calculateTotal(); }
+        });
+
+        customQtyPlus.addEventListener('click', () => {
+            if (!customItemNameInput.value.trim()) {
+                alert('先に特注商品の「商品名や規格」を入力してください。');
+                return;
+            }
+            let val = parseInt(customItemQtyInput.value) || 0;
+            val += 1; customItemQtyInput.value = val; updateCustomCart(val); calculateTotal();
+        });
+
+        customItemQtyInput.addEventListener('change', () => {
+            let val = parseInt(customItemQtyInput.value) || 0;
+            if (val < 0) val = 0;
+            if (val > 0 && !customItemNameInput.value.trim()) {
+                alert('先に特注商品の「商品名や規格」を入力してください。');
+                val = 0;
+            }
+            customItemQtyInput.value = val;
+            updateCustomCart(val);
+            calculateTotal();
+        });
+    }
+
     // --- Start Editing Order ---
     const startEditingOrder = (orderId, items) => {
         editingOrderId = orderId;
@@ -389,6 +438,8 @@ document.addEventListener('DOMContentLoaded', () => {
         currentCart = {}; // Clear cart
         if (orderSubmitBtn) orderSubmitBtn.textContent = '発注する';
         if (cancelEditBtn) cancelEditBtn.classList.add('hidden');
+        if (customItemNameInput) customItemNameInput.value = '';
+        if (customItemQtyInput) customItemQtyInput.value = 0;
         calculateTotal();
         if (searchInput) searchInput.value = '';
         renderItems(itemsData); // Clear search filters
@@ -607,6 +658,9 @@ document.addEventListener('DOMContentLoaded', () => {
         favoriteItems = [];
         currentCart = {};
 
+        if (customItemNameInput) customItemNameInput.value = '';
+        if (customItemQtyInput) customItemQtyInput.value = 0;
+
         orderContainer.classList.add('hidden');
         loginContainer.classList.remove('hidden');
         loginForm.reset();
@@ -645,6 +699,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (result.status === 'success') {
                 alert(isEditing ? '発注内容を変更しました。' : '発注が完了しました！\n引き続き発注いただけます。');
                 localStorage.removeItem(`b2b_draft_${currentUsername}`);
+
+                // Clear custom item fields safely
+                if (customItemNameInput) customItemNameInput.value = '';
+                if (customItemQtyInput) customItemQtyInput.value = 0;
+
                 resetEditMode();
             } else {
                 alert('失敗しました: ' + result.message);

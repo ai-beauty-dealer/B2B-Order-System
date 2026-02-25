@@ -162,6 +162,25 @@ header {
     padding-top: 10px;
 }
 
+/* --- Custom Item Styling --- */
+.custom-item-card {
+    background-color: #f8fafc;
+    /* slight grey tint to distinguish it */
+    transition: all 0.2s ease;
+}
+
+.custom-item-card:focus-within {
+    border-color: var(--primary) !important;
+    box-shadow: var(--shadow-md);
+    background-color: #ffffff;
+}
+
+.custom-item-card input[type="text"]:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px var(--primary-light);
+}
+
 /* --- Filter Tabs --- */
 .filter-tabs {
     display: flex;
