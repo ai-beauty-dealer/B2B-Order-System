@@ -35,6 +35,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentFilter = 'all'; // 'all' or 'favorites'
     let currentCategoryFilter = 'all'; // 'all' or specific category name
     let editingOrderId = null; // Store orderId if editing an existing order
+    let currentCart = {}; // Store qtys to survive re-rendering
 
     const cancelEditBtn = document.getElementById('cancel-edit-btn');
     const saveDraftBtn = document.getElementById('save-draft-btn');
@@ -94,8 +95,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const calculateTotal = () => {
         let total = 0;
-        document.querySelectorAll('.qty-input').forEach(input => {
-            total += parseInt(input.value) || 0;
+        Object.values(currentCart).forEach(item => {
+            total += item.qty || 0;
         });
         totalQtySpan.textContent = total;
     };
@@ -103,15 +104,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Draft Feature ---
     const saveDraft = () => {
         if (!currentUsername) return;
-        const draftData = {};
-        document.querySelectorAll('.qty-input').forEach(input => {
-            const qty = parseInt(input.value) || 0;
-            if (qty > 0) {
-                draftData[input.dataset.code] = qty;
-            }
-        });
-
-        localStorage.setItem(`b2b_draft_${currentUsername}`, JSON.stringify(draftData));
+        localStorage.setItem(`b2b_draft_${currentUsername}`, JSON.stringify(currentCart));
         alert('入力中の数量を一時保存しました。');
     };
 
@@ -124,12 +117,18 @@ document.addEventListener('DOMContentLoaded', () => {
             const draftData = JSON.parse(savedDraft);
             if (Object.keys(draftData).length > 0) {
                 if (confirm('前回の一時保存データがあります。復元しますか？')) {
-                    Object.entries(draftData).forEach(([code, qty]) => {
-                        const input = document.querySelector(`.qty-input[data-code="${code}"]`);
-                        if (input) {
-                            input.value = qty;
-                        }
-                    });
+                    // Backwards compatibility check
+                    const isOldFormat = typeof Object.values(draftData)[0] === 'number';
+                    if (isOldFormat) {
+                        currentCart = {};
+                        Object.entries(draftData).forEach(([code, qty]) => {
+                            const matchedItem = itemsData.find(i => String(i.code) === String(code));
+                            if (matchedItem) currentCart[code] = { qty: qty, name: matchedItem.name };
+                        });
+                    } else {
+                        currentCart = draftData;
+                    }
+                    renderItems(itemsData);
                     calculateTotal();
                 }
             }
@@ -176,7 +175,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
                 <div class="order-controls">
                     <button type="button" class="btn-qty minus">-</button>
-                    <input type="number" class="qty-input" data-code="${item.code}" data-name="${item.name}" value="0" min="0">
+                    <input type="number" class="qty-input" data-code="${item.code}" data-name="${item.name}" value="${currentCart[item.code] ? currentCart[item.code].qty : 0}" min="0">
                     <button type="button" class="btn-qty plus">+</button>
                 </div>
             `;
@@ -221,17 +220,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
 
+            const updateCart = (val) => {
+                if (val > 0) currentCart[item.code] = { qty: val, name: item.name };
+                else delete currentCart[item.code];
+            };
+
             card.querySelector('.minus').addEventListener('click', () => {
                 let val = parseInt(input.value) || 0;
-                if (val > 0) { input.value = val - 1; calculateTotal(); }
+                if (val > 0) { val -= 1; input.value = val; updateCart(val); calculateTotal(); }
             });
             card.querySelector('.plus').addEventListener('click', () => {
                 let val = parseInt(input.value) || 0;
-                input.value = val + 1; calculateTotal();
+                val += 1; input.value = val; updateCart(val); calculateTotal();
             });
             input.addEventListener('change', () => {
                 let val = parseInt(input.value) || 0;
-                if (val < 0) input.value = 0;
+                if (val < 0) { val = 0; input.value = 0; }
+                updateCart(val);
                 calculateTotal();
             });
 
@@ -354,21 +359,16 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Start Editing Order ---
     const startEditingOrder = (orderId, items) => {
         editingOrderId = orderId;
+        currentCart = {}; // Reset cart for editing
+
+        // Restore quantities from the history items into cart
+        items.forEach(item => {
+            currentCart[item.code] = { qty: parseInt(item.qty), name: item.name };
+        });
 
         // Switch back to 'all' tab first so the items are rendered
         switchTab('tab-all');
         window.scrollTo(0, 0);
-
-        // Reset all inputs to 0 first
-        document.querySelectorAll('.qty-input').forEach(input => input.value = 0);
-
-        // Restore quantities from the history items
-        items.forEach(item => {
-            const input = document.querySelector(`.qty-input[data-code="${item.code}"]`);
-            if (input) {
-                input.value = item.qty;
-            }
-        });
 
         calculateTotal();
 
@@ -386,9 +386,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const resetEditMode = () => {
         editingOrderId = null;
+        currentCart = {}; // Clear cart
         if (orderSubmitBtn) orderSubmitBtn.textContent = '発注する';
         if (cancelEditBtn) cancelEditBtn.classList.add('hidden');
-        document.querySelectorAll('.qty-input').forEach(input => input.value = 0);
         calculateTotal();
         if (searchInput) searchInput.value = '';
         renderItems(itemsData); // Clear search filters
@@ -605,6 +605,7 @@ document.addEventListener('DOMContentLoaded', () => {
         currentUsername = '';
         currentClientName = '';
         favoriteItems = [];
+        currentCart = {};
 
         orderContainer.classList.add('hidden');
         loginContainer.classList.remove('hidden');
@@ -671,20 +672,18 @@ document.addEventListener('DOMContentLoaded', () => {
             if (confirmationContainer && confirmItemList) {
                 confirmItemList.innerHTML = ''; // Reset list
 
-                document.querySelectorAll('.qty-input').forEach(input => {
-                    const qty = parseInt(input.value) || 0;
-                    if (qty > 0) {
-                        const name = input.dataset.name;
+                Object.entries(currentCart).forEach(([code, data]) => {
+                    if (data.qty > 0) {
                         orders.push({
-                            code: input.dataset.code,
-                            name: name,
-                            qty: qty
+                            code: code,
+                            name: data.name,
+                            qty: data.qty
                         });
 
                         // Add to UI
                         const row = document.createElement('div');
                         row.className = 'confirm-item-row';
-                        row.innerHTML = `<span class="confirm-item-name">${name}</span><span class="confirm-item-qty">${qty}点</span>`;
+                        row.innerHTML = `<span class="confirm-item-name">${data.name}</span><span class="confirm-item-qty">${data.qty}点</span>`;
                         confirmItemList.appendChild(row);
                     }
                 });
@@ -698,13 +697,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 window.scrollTo(0, 0); // Scroll to top
             } else {
                 // FALLBACK: If HTML is cached and missing the modal, use standard confirm()
-                document.querySelectorAll('.qty-input').forEach(input => {
-                    const qty = parseInt(input.value) || 0;
-                    if (qty > 0) {
+                Object.entries(currentCart).forEach(([code, data]) => {
+                    if (data.qty > 0) {
                         orders.push({
-                            code: input.dataset.code,
-                            name: input.dataset.name,
-                            qty: qty
+                            code: code,
+                            name: data.name,
+                            qty: data.qty
                         });
                     }
                 });
@@ -739,13 +737,12 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const orders = [];
-            document.querySelectorAll('.qty-input').forEach(input => {
-                const qty = parseInt(input.value) || 0;
-                if (qty > 0) {
+            Object.entries(currentCart).forEach(([code, data]) => {
+                if (data.qty > 0) {
                     orders.push({
-                        code: input.dataset.code,
-                        name: input.dataset.name,
-                        qty: qty
+                        code: code,
+                        name: data.name,
+                        qty: data.qty
                     });
                 }
             });
