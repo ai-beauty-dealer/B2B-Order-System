@@ -222,6 +222,14 @@ header {
     opacity: 0.5;
 }
 
+/* --- List Container Grid --- */
+#item-list {
+    display: grid;
+    /* responsive 2-column fallback: min 140px, max 1fr */
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 12px;
+}
+
 /* --- Item Cards --- */
 .item-card,
 .history-card {
@@ -230,16 +238,27 @@ header {
     -webkit-backdrop-filter: blur(8px);
     border: 1px solid rgba(255, 255, 255, 0.6);
     border-radius: var(--radius-lg);
-    padding: 20px;
-    margin-bottom: 16px;
+    padding: 16px;
+    margin-bottom: 0px;
+    /* Reset margin because grid uses gap */
     box-shadow: var(--shadow-sm);
     transition: transform 0.2s, box-shadow 0.2s;
 }
 
+.history-card {
+    margin-bottom: 16px;
+    /* Keep margin for history list */
+}
+
 .item-card {
     display: flex;
+    flex-direction: column;
+    /* Stack vertically for 2-column grid */
     justify-content: space-between;
-    align-items: center;
+    align-items: stretch;
+    /* Stretch children to full width */
+    height: 100%;
+    /* Ensure all cards in a row have same height */
 }
 
 .item-card:hover,
@@ -250,7 +269,8 @@ header {
 
 .item-info {
     flex-grow: 1;
-    padding-right: 15px;
+    margin-bottom: 12px;
+    /* Add space below item info since it's stacked */
 }
 
 .item-code {
@@ -258,25 +278,32 @@ header {
 }
 
 .item-name {
-    font-size: 1.125rem;
+    font-size: 0.95rem;
+    /* Slightly smaller for mobile grid */
     font-weight: 600;
     margin: 0;
     color: var(--text-main);
     display: flex;
     align-items: flex-start;
     line-height: 1.4;
+    word-break: break-word;
+    /* Ensure long names wrap safely */
 }
 
 /* --- Favorites Toggle --- */
 .btn-fav {
     background: transparent;
     border: none;
-    font-size: 1.5rem;
+    font-size: 1.25rem;
+    /* Slightly smaller star */
     color: #cbd5e1;
     cursor: pointer;
-    margin-right: 12px;
-    margin-top: -4px;
+    margin-right: 8px;
+    /* Less margin */
+    margin-top: -2px;
     transition: color 0.2s, transform 0.2s;
+    flex-shrink: 0;
+    /* Prevent star from squishing */
 }
 
 .btn-fav:hover {
@@ -290,22 +317,29 @@ header {
 /* --- Order Controls --- */
 .order-controls {
     display: flex;
+    justify-content: space-between;
+    /* Spread buttons */
     align-items: center;
     background: #f1f5f9;
     padding: 6px;
     border-radius: var(--radius-full);
+    width: 100%;
+    /* Take full width of parent card */
+    margin-top: auto;
+    /* Push to bottom of flex card */
 }
 
 .btn-qty {
     background-color: #ffffff;
     color: var(--text-main);
-    width: 36px;
-    height: 36px;
+    width: 32px;
+    /* Slightly smaller buttons for grid */
+    height: 32px;
     border-radius: 50%;
     display: flex;
     justify-content: center;
     align-items: center;
-    font-size: 1.25rem;
+    font-size: 1.125rem;
     box-shadow: var(--shadow-sm);
     border: 1px solid var(--border-color);
 }
