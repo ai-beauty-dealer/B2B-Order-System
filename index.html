@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>AI Beauty Dealer - B2B Order System</title>
-    <link rel="stylesheet" href="style.css?v=1.4">
+    <link rel="stylesheet" href="style.css?v=1.9">
 </head>
 
 <body>
@@ -37,6 +37,11 @@
             <button id="logout-btn" class="btn-secondary">ログアウト</button>
         </header>
 
+        <!-- Announcement Banner -->
+        <div id="announcement-banner" class="banner hidden">
+            <p id="announcement-text">システムアップデートのお知らせ：備考欄と絞り込み機能が追加されました🎉</p>
+        </div>
+
         <div class="filter-tabs">
             <button id="tab-all" class="tab-btn active">すべて</button>
             <button id="tab-favorites" class="tab-btn">お気に入り ★</button>
@@ -45,6 +50,11 @@
 
         <div class="search-container" id="search-wrapper">
             <input type="text" id="search-input" placeholder="商品名で検索...">
+        </div>
+
+        <!-- Category Chips -->
+        <div id="category-chips-container" class="category-scroll-wrapper">
+            <!-- Chips injected by JS -->
         </div>
 
         <div id="item-list">
@@ -78,13 +88,20 @@
             </div>
         </div>
 
+        <div class="remarks-container" style="margin-top: 20px;">
+            <label for="order-remarks"
+                style="display: block; font-weight: bold; margin-bottom: 8px; color: var(--text-main);">備考・ご要望</label>
+            <textarea id="order-remarks" placeholder="納品日時のご指定や注意事項があればご記入ください..." rows="3"
+                style="width: 100%; border-radius: var(--radius-md); padding: 12px; border: 1px solid var(--border-color); font-family: inherit; resize: vertical;"></textarea>
+        </div>
+
         <div class="modal-actions" style="margin-top: 30px; display: flex; gap: 12px;">
             <button id="modal-cancel-btn" class="btn-secondary" style="flex: 1;">戻る</button>
             <button id="modal-confirm-btn" class="btn-primary" style="flex: 1;">注文を確定する</button>
         </div>
     </div>
     <script src="config.js"></script>
-    <script src="app.js?v=1.8"></script>
+    <script src="app.js?v=1.9"></script>
 </body>
 
 </html>

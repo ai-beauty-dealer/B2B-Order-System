@@ -16,22 +16,28 @@ document.addEventListener('DOMContentLoaded', () => {
     const searchWrapper = document.getElementById('search-wrapper');
     const cartSummary = document.querySelector('.cart-summary');
 
+    // Screen Elements
+    const confirmationContainer = document.getElementById('confirmation-container');
+    const confirmItemList = document.getElementById('confirm-item-list');
+    const modalCancelBtn = document.getElementById('modal-cancel-btn');
+    const modalConfirmBtn = document.getElementById('modal-confirm-btn');
+
+    // Phase 3 Elements
+    const announcementBanner = document.getElementById('announcement-banner');
+    const categoryChipsContainer = document.getElementById('category-chips-container');
+    const orderRemarks = document.getElementById('order-remarks');
+
     // State
     let currentUsername = ''; // Use username for unique localstorage key
     let currentClientName = '';
     let itemsData = [];
     let favoriteItems = []; // Array of item codes
     let currentFilter = 'all'; // 'all' or 'favorites'
+    let currentCategoryFilter = 'all'; // 'all' or specific category name
     let editingOrderId = null; // Store orderId if editing an existing order
 
     const cancelEditBtn = document.getElementById('cancel-edit-btn');
     const saveDraftBtn = document.getElementById('save-draft-btn');
-
-    // Screen Elements
-    const confirmationContainer = document.getElementById('confirmation-container');
-    const confirmItemList = document.getElementById('confirm-item-list');
-    const modalCancelBtn = document.getElementById('modal-cancel-btn');
-    const modalConfirmBtn = document.getElementById('modal-confirm-btn');
 
     // --- Utility Functions ---
     // Normalize string for fuzzy search (half-width, katakana, lowercase, no spaces)
@@ -141,7 +147,12 @@ document.addEventListener('DOMContentLoaded', () => {
         // Filter by current tab selection before rendering
         let displayItems = items;
         if (currentFilter === 'favorites') {
-            displayItems = items.filter(item => favoriteItems.includes(item.code));
+            displayItems = displayItems.filter(item => favoriteItems.includes(item.code));
+        }
+
+        // Filter by selected category
+        if (currentCategoryFilter !== 'all') {
+            displayItems = displayItems.filter(item => item.category === currentCategoryFilter);
         }
 
         if (displayItems.length === 0) {
@@ -466,6 +477,41 @@ document.addEventListener('DOMContentLoaded', () => {
         calculateTotal();
     });
 
+    // --- Render Category Chips ---
+    const renderCategoryChips = () => {
+        if (!categoryChipsContainer) return;
+        categoryChipsContainer.innerHTML = '';
+
+        // Extract unique categories (filter out empty strings)
+        const categories = [...new Set(itemsData.map(item => item.category))].filter(Boolean);
+        if (categories.length === 0) return; // Hide chips if no categories exist
+
+        // Add "All" chip
+        const allChip = document.createElement('div');
+        allChip.className = `category-chip ${currentCategoryFilter === 'all' ? 'active' : ''}`;
+        allChip.textContent = 'すべて';
+        allChip.addEventListener('click', () => {
+            currentCategoryFilter = 'all';
+            renderCategoryChips(); // Re-render chips to update active state
+            if (searchInput) searchInput.value = ''; // Reset search focus
+            renderItems(itemsData);
+        });
+        categoryChipsContainer.appendChild(allChip);
+
+        categories.forEach(category => {
+            const chip = document.createElement('div');
+            chip.className = `category-chip ${currentCategoryFilter === category ? 'active' : ''}`;
+            chip.textContent = category;
+            chip.addEventListener('click', () => {
+                currentCategoryFilter = category;
+                renderCategoryChips();
+                if (searchInput) searchInput.value = '';
+                renderItems(itemsData);
+            });
+            categoryChipsContainer.appendChild(chip);
+        });
+    };
+
     // --- Fetch Items from API ---
     const fetchItems = async () => {
         showLoading();
@@ -477,7 +523,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (result.status === 'success') {
                 itemsData = result.data;
+                renderCategoryChips(); // Build chips before rendering items
                 renderItems(itemsData);
+
+                // Show Announcement banner
+                if (announcementBanner) {
+                    announcementBanner.classList.remove('hidden');
+                }
 
                 // Attempt to load draft after rendering the items list once
                 if (currentFilter === 'all') { // Only prompt on initial load
@@ -565,19 +617,19 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('tab-all');
     });
 
-    // --- Extract Execute Order Logic ---
-    const executeOrderActual = async (ordersToSubmit, isEditingOrder) => {
+    // --- Execute Order Helper ---
+    const executeOrderActual = async (orders, isEditing, remarks) => {
         showLoading();
         try {
-            const requestBody = {
-                action: isEditingOrder ? 'update_order' : 'order',
+            const action = isEditing ? 'update_order' : 'order';
+            const payload = {
+                action: action,
                 clientName: currentClientName,
-                orders: ordersToSubmit
+                orders: orders,
+                remarks: remarks
             };
 
-            if (isEditingOrder) {
-                requestBody.orderId = editingOrderId;
-            }
+            const requestBody = isEditing ? { ...payload, orderId: String(editingOrderId) } : payload;
 
             const response = await fetch(CONFIG.API_URL, {
                 method: 'POST',
@@ -634,6 +686,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         confirmItemList.appendChild(row);
                     }
                 });
+
+                // Clear order remarks
+                if (orderRemarks) orderRemarks.value = '';
 
                 // Show Confirmation Screen, Hide Order Screen
                 orderContainer.classList.add('hidden');
@@ -693,8 +748,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
 
+            const remarks = orderRemarks ? orderRemarks.value.trim() : '';
             const isEditing = editingOrderId !== null;
-            executeOrderActual(orders, isEditing);
+            executeOrderActual(orders, isEditing, remarks);
         });
     }
 });

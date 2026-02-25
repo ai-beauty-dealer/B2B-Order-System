@@ -28,7 +28,7 @@ function doGet(e) {
       for (let i = 1; i < values.length; i++) {
           const row = values[i];
           if (row[0] && row[1]) {
-              items.push({ code: row[0], name: row[1] });
+              items.push({ code: row[0], name: row[1], category: row[2] || '' });
           }
       }
       return ContentService.createTextOutput(JSON.stringify({ status: 'success', data: items }))
@@ -143,6 +143,7 @@ function handleLogin(data) {
 function handleOrder(data) {
      const clientName = data.clientName; // ログイン時に取得した得意先名
      const orders = data.orders; // 発注データの配列 [{code: "A", name: "商品A", qty: 2}, ...]
+     const remarks = data.remarks || ''; // 備考
 
      if(!clientName || !orders || !Array.isArray(orders) || orders.length === 0) {
          throw new Error("Invalid order data format.");
@@ -153,20 +154,24 @@ function handleOrder(data) {
      
      if(!sheet) throw new Error("Orders sheet not found.");
 
-     // 「タイムスタンプ, 商品コード, 個数, 商品名, 得意先名」 の形式で書き込み
+     // 「タイムスタンプ, 商品コード, 個数, 商品名, 得意先名, 備考」 の形式で書き込み
      const timestamp = new Date(); // GAS実行サーバーの時間
      const rowsToAdd = [];
+     
+     let orderSummaryForLINE = `【新規発注】\nサロン名: ${clientName}\n\n`;
 
      orders.forEach(order => {
          if(order.qty > 0) {
-             // Append: A:タイムスタンプ, B:商品コード, C:個数, D:商品名, E:得意先名
+             // Append: A:タイムスタンプ, B:商品コード, C:個数, D:商品名, E:得意先名, F:備考
              rowsToAdd.push([
                  timestamp,
                  order.code,
                  order.qty,
                  order.name,
-                 clientName
+                 clientName,
+                 remarks // F列に備考を追加
              ]);
+             orderSummaryForLINE += `・${order.name}: ${order.qty}点\n`;
          }
      });
 
@@ -175,6 +180,10 @@ function handleOrder(data) {
          const startRow = sheet.getLastRow() + 1;
          sheet.getRange(startRow, 1, rowsToAdd.length, rowsToAdd[0].length).setValues(rowsToAdd);
      }
+     
+     // 備考があればLINE通知に追加
+     if (remarks) orderSummaryForLINE += `\n【備考】\n${remarks}`;
+     sendLineNotification(orderSummaryForLINE);
 
      return ContentService.createTextOutput(JSON.stringify({ 
          status: 'success', 
@@ -231,6 +240,7 @@ function handleUpdateOrder(data) {
      const clientName = data.clientName;
      const orderId = data.orderId;
      const orders = data.orders;
+     const remarks = data.remarks || ''; // 備考
 
      if(!clientName || !orderId || !orders || !Array.isArray(orders) || orders.length === 0) {
          throw new Error("Invalid update data format.");
@@ -252,6 +262,8 @@ function handleUpdateOrder(data) {
      // 2. Append new rows using the ORIGINAL timestamp (orderId)
      const originalTimestamp = new Date(parseInt(orderId));
      const rowsToAdd = [];
+     
+     let orderSummaryForLINE = `【発注内容変更】\nサロン名: ${clientName}\n\n`;
 
      orders.forEach(order => {
          if(order.qty > 0) {
@@ -260,8 +272,10 @@ function handleUpdateOrder(data) {
                  order.code,
                  order.qty,
                  order.name,
-                 clientName
+                 clientName,
+                 remarks // F列に備考を追加
              ]);
+             orderSummaryForLINE += `・${order.name}: ${order.qty}点\n`;
          }
      });
 
@@ -269,9 +283,47 @@ function handleUpdateOrder(data) {
          const startRow = sheet.getLastRow() + 1;
          sheet.getRange(startRow, 1, rowsToAdd.length, rowsToAdd[0].length).setValues(rowsToAdd);
      }
+     
+     if (remarks) orderSummaryForLINE += `\n【備考】\n${remarks}`;
+     sendLineNotification(orderSummaryForLINE);
 
      return ContentService.createTextOutput(JSON.stringify({ 
          status: 'success', 
          message: 'Order updated successfully' 
      })).setMimeType(ContentService.MimeType.JSON);
+}
+
+// ------------------------------------------
+// LINE通知処理
+// ------------------------------------------
+function sendLineNotification(message) {
+    try {
+        const token = PropertiesService.getScriptProperties().getProperty('LINE_CHANNEL_ACCESS_TOKEN');
+        const groupId = PropertiesService.getScriptProperties().getProperty('GROUP_ID');
+
+        // Only send if properties are set, otherwise silently skip
+        if (!token || !groupId) {
+            console.log("LINE Notification skipped: Credentials not found in Script Properties.");
+            return;
+        }
+
+        const url = 'https://api.line.me/v2/bot/message/push';
+        const payload = {
+            to: groupId,
+            messages: [{ type: 'text', text: message }]
+        };
+
+        const options = {
+            method: 'post',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + token
+            },
+            payload: JSON.stringify(payload)
+        };
+
+        UrlFetchApp.fetch(url, options);
+    } catch (error) {
+        console.error("Failed to send LINE Notification: " + error.toString());
+    }
 }
