@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>AI Beauty Dealer - B2B Order System</title>
-    <link rel="stylesheet" href="style.css?v=1.13">
+    <link rel="stylesheet" href="style.css?v=1.14">
 </head>
 
 <body>
@@ -61,20 +61,15 @@
             <!-- Items will be loaded here dynamically -->
         </div>
 
-        <!-- Custom Item Entry (Phase 3+) -->
-        <div id="custom-item-container" class="item-card custom-item-card"
-            style="margin-top: 20px; border: 2px dashed var(--primary-color);">
-            <div class="item-info" style="width: 100%;">
-                <span class="item-code" style="color: var(--primary-color); font-weight: bold;">+ 特注・その他の商品</span>
-                <input type="text" id="custom-item-name" placeholder="商品名や規格を入力してください..."
-                    style="width: 100%; margin-top: 8px; padding: 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+        <!-- Custom Items Wrapper -->
+        <div id="custom-items-wrapper" style="margin-top: 20px;">
+            <div id="custom-items-list">
+                <!-- Dynamic custom items injected here -->
             </div>
-            <div class="order-controls" style="margin-top: 12px; justify-content: flex-end; width: 100%;">
-                <button type="button" class="btn-qty minus" id="custom-qty-minus">-</button>
-                <input type="number" class="qty-input custom-qty-input" id="custom-item-qty" data-code="CUSTOM_ITEM"
-                    value="0" min="0">
-                <button type="button" class="btn-qty plus" id="custom-qty-plus">+</button>
-            </div>
+            <button id="add-custom-item-btn" type="button" class="btn-secondary"
+                style="width: 100%; border: 2px dashed var(--primary-color); background: #f8fafc; color: var(--primary-color); padding: 12px; font-weight: bold; margin-top: 10px;">
+                ＋ 特注・その他の商品を追加する
+            </button>
         </div>
 
         <div id="history-list" class="hidden">
@@ -117,7 +112,7 @@
         </div>
     </div>
     <script src="config.js"></script>
-    <script src="app.js?v=1.13"></script>
+    <script src="app.js?v=1.14"></script>
 </body>
 
 </html>

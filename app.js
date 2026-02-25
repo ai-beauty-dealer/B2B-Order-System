@@ -28,10 +28,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const orderRemarks = document.getElementById('order-remarks');
 
     // Custom Item Elements
-    const customItemNameInput = document.getElementById('custom-item-name');
-    const customItemQtyInput = document.getElementById('custom-item-qty');
-    const customQtyMinus = document.getElementById('custom-qty-minus');
-    const customQtyPlus = document.getElementById('custom-qty-plus');
+    const addCustomItemBtn = document.getElementById('add-custom-item-btn');
+    const customItemsList = document.getElementById('custom-items-list');
 
     // State
     let currentUsername = ''; // Use username for unique localstorage key
@@ -129,12 +127,17 @@ document.addEventListener('DOMContentLoaded', () => {
                         currentCart = {};
                         Object.entries(draftData).forEach(([code, qty]) => {
                             const matchedItem = itemsData.find(i => String(i.code) === String(code));
-                            if (matchedItem) currentCart[code] = { qty: qty, name: matchedItem.name };
+                            if (matchedItem) {
+                                currentCart[code] = { qty: qty, name: matchedItem.name };
+                            } else if (code.startsWith('CUSTOM_ITEM')) {
+                                currentCart[code] = { qty: qty, name: '（商品名未入力）' };
+                            }
                         });
                     } else {
                         currentCart = draftData;
                     }
                     renderItems(itemsData);
+                    renderCustomItemsFromCart();
                     calculateTotal();
                 }
             }
@@ -362,46 +365,104 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // --- Custom Item Logic ---
-    if (customItemQtyInput && customQtyMinus && customQtyPlus && customItemNameInput) {
-        const updateCustomCart = (val) => {
+    // --- Custom Item Logic (Dynamic) ---
+    const renderCustomItemsFromCart = () => {
+        if (!customItemsList) return;
+        customItemsList.innerHTML = '';
+        Object.keys(currentCart).forEach(code => {
+            if (code.startsWith('CUSTOM_ITEM')) {
+                addCustomItemUI(code, currentCart[code].name, currentCart[code].qty);
+            }
+        });
+    };
+
+    const addCustomItemUI = (code = null, initialName = '', initialQty = 0) => {
+        if (!customItemsList) return;
+        const itemCode = code || `CUSTOM_ITEM_${Date.now()}`;
+
+        const card = document.createElement('div');
+        card.className = 'item-card custom-item-card';
+        card.style.marginBottom = '12px';
+        card.innerHTML = `
+            <div class="item-info" style="width: 100%;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span class="item-code" style="color: var(--primary-color); font-weight: bold;">+ 特注・その他の商品</span>
+                    <button type="button" class="btn-remove-custom" style="background: none; border: none; font-size: 1.2rem; cursor: pointer; color: #94a3b8;">×</button>
+                </div>
+                <input type="text" class="custom-name-input" placeholder="商品名や規格を入力してください..." value="${initialName === '（商品名未入力）' ? '' : initialName}"
+                       style="width: 100%; margin-top: 8px; padding: 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+            </div>
+            <div class="order-controls" style="margin-top: 12px; justify-content: flex-end; width: 100%;">
+                <button type="button" class="btn-qty minus">-</button>
+                <input type="number" class="qty-input custom-qty-input" data-code="${itemCode}" value="${initialQty}" min="0">
+                <button type="button" class="btn-qty plus">+</button>
+            </div>
+        `;
+
+        const nameInput = card.querySelector('.custom-name-input');
+        const qtyInput = card.querySelector('.custom-qty-input');
+        const minusBtn = card.querySelector('.minus');
+        const plusBtn = card.querySelector('.plus');
+        const removeBtn = card.querySelector('.btn-remove-custom');
+
+        const updateCart = (val) => {
             if (val > 0) {
-                const customName = customItemNameInput.value.trim() || '（商品名未入力）';
-                currentCart['CUSTOM_ITEM'] = { qty: val, name: customName };
+                const customName = nameInput.value.trim() || '（商品名未入力）';
+                currentCart[itemCode] = { qty: val, name: customName };
             } else {
-                delete currentCart['CUSTOM_ITEM'];
+                delete currentCart[itemCode];
             }
         };
 
-        customItemNameInput.addEventListener('input', () => {
-            const val = parseInt(customItemQtyInput.value) || 0;
-            if (val > 0) updateCustomCart(val);
+        nameInput.addEventListener('input', () => {
+            const val = parseInt(qtyInput.value) || 0;
+            if (val > 0) updateCart(val);
         });
 
-        customQtyMinus.addEventListener('click', () => {
-            let val = parseInt(customItemQtyInput.value) || 0;
-            if (val > 0) { val -= 1; customItemQtyInput.value = val; updateCustomCart(val); calculateTotal(); }
+        minusBtn.addEventListener('click', () => {
+            let val = parseInt(qtyInput.value) || 0;
+            if (val > 0) { val -= 1; qtyInput.value = val; updateCart(val); calculateTotal(); }
         });
 
-        customQtyPlus.addEventListener('click', () => {
-            if (!customItemNameInput.value.trim()) {
+        plusBtn.addEventListener('click', () => {
+            if (!nameInput.value.trim()) {
                 alert('先に特注商品の「商品名や規格」を入力してください。');
                 return;
             }
-            let val = parseInt(customItemQtyInput.value) || 0;
-            val += 1; customItemQtyInput.value = val; updateCustomCart(val); calculateTotal();
+            let val = parseInt(qtyInput.value) || 0;
+            val += 1; qtyInput.value = val; updateCart(val); calculateTotal();
         });
 
-        customItemQtyInput.addEventListener('change', () => {
-            let val = parseInt(customItemQtyInput.value) || 0;
+        qtyInput.addEventListener('change', () => {
+            let val = parseInt(qtyInput.value) || 0;
             if (val < 0) val = 0;
-            if (val > 0 && !customItemNameInput.value.trim()) {
+            if (val > 0 && !nameInput.value.trim()) {
                 alert('先に特注商品の「商品名や規格」を入力してください。');
                 val = 0;
             }
-            customItemQtyInput.value = val;
-            updateCustomCart(val);
+            qtyInput.value = val;
+            updateCart(val);
             calculateTotal();
+        });
+
+        removeBtn.addEventListener('click', () => {
+            if (confirm('この特注商品を削除しますか？')) {
+                delete currentCart[itemCode];
+                card.remove();
+                calculateTotal();
+            }
+        });
+
+        customItemsList.appendChild(card);
+        // Focus the name input if it's a new empty item
+        if (!code) {
+            nameInput.focus();
+        }
+    };
+
+    if (addCustomItemBtn) {
+        addCustomItemBtn.addEventListener('click', () => {
+            addCustomItemUI();
         });
     }
 
@@ -438,8 +499,7 @@ document.addEventListener('DOMContentLoaded', () => {
         currentCart = {}; // Clear cart
         if (orderSubmitBtn) orderSubmitBtn.textContent = '発注する';
         if (cancelEditBtn) cancelEditBtn.classList.add('hidden');
-        if (customItemNameInput) customItemNameInput.value = '';
-        if (customItemQtyInput) customItemQtyInput.value = 0;
+        if (customItemsList) customItemsList.innerHTML = '';
         calculateTotal();
         if (searchInput) searchInput.value = '';
         renderItems(itemsData); // Clear search filters
@@ -658,8 +718,7 @@ document.addEventListener('DOMContentLoaded', () => {
         favoriteItems = [];
         currentCart = {};
 
-        if (customItemNameInput) customItemNameInput.value = '';
-        if (customItemQtyInput) customItemQtyInput.value = 0;
+        if (customItemsList) customItemsList.innerHTML = '';
 
         orderContainer.classList.add('hidden');
         loginContainer.classList.remove('hidden');
