@@ -362,22 +362,24 @@ document.addEventListener('DOMContentLoaded', () => {
         calculateTotal();
 
         // Update UI for Edit Mode
-        orderSubmitBtn.textContent = '変更を保存する';
-        cancelEditBtn.classList.remove('hidden');
+        if (orderSubmitBtn) orderSubmitBtn.textContent = '変更を保存する';
+        if (cancelEditBtn) cancelEditBtn.classList.remove('hidden');
     };
 
     // --- Cancel Edit Mode ---
-    cancelEditBtn.addEventListener('click', () => {
-        resetEditMode();
-    });
+    if (cancelEditBtn) {
+        cancelEditBtn.addEventListener('click', () => {
+            resetEditMode();
+        });
+    }
 
     const resetEditMode = () => {
         editingOrderId = null;
-        orderSubmitBtn.textContent = '発注する';
-        cancelEditBtn.classList.add('hidden');
+        if (orderSubmitBtn) orderSubmitBtn.textContent = '発注する';
+        if (cancelEditBtn) cancelEditBtn.classList.add('hidden');
         document.querySelectorAll('.qty-input').forEach(input => input.value = 0);
         calculateTotal();
-        searchInput.value = '';
+        if (searchInput) searchInput.value = '';
         renderItems(itemsData); // Clear search filters
     };
 
@@ -431,9 +433,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    tabAll.addEventListener('click', () => switchTab('tab-all'));
-    tabFavorites.addEventListener('click', () => switchTab('tab-favorites'));
-    tabHistory.addEventListener('click', () => switchTab('tab-history'));
+    if (tabAll) tabAll.addEventListener('click', () => switchTab('tab-all'));
+    if (tabFavorites) tabFavorites.addEventListener('click', () => switchTab('tab-favorites'));
+    if (tabHistory) tabHistory.addEventListener('click', () => switchTab('tab-history'));
 
     // --- Search Logic ---
     searchInput.addEventListener('input', (e) => {
