@@ -30,17 +30,18 @@ document.addEventListener('DOMContentLoaded', () => {
     // Normalize string for fuzzy search (half-width, katakana, lowercase, no spaces)
     const normalizeForSearch = (str) => {
         if (!str) return '';
-        // 1. Convert Full-width Alphanumeric to Half-width
+        
+        // 1. Full-width Alphanumeric to Half-width
         let normalized = str.replace(/[Ａ-Ｚａ-ｚ０-９]/g, (s) => {
             return String.fromCharCode(s.charCodeAt(0) - 0xFEE0);
         });
         
-        // 2. Convert Hiragana to Katakana
+        // 2. Hiragana to Katakana
         normalized = normalized.replace(/[ぁ-ん]/g, (s) => {
             return String.fromCharCode(s.charCodeAt(0) + 0x60);
         });
         
-        // 3. Convert Half-width Katakana to Full-width Katakana (Standardize on Full-width for comparison)
+        // 3. Half-width Katakana to Full-width Katakana
         const kanaMap = {
             'ｶﾞ': 'ガ', 'ｷﾞ': 'ギ', 'ｸﾞ': 'グ', 'ｹﾞ': 'ゲ', 'ｺﾞ': 'ゴ',
             'ｻﾞ': 'ザ', 'ｼﾞ': 'ジ', 'ｽﾞ': 'ズ', 'ｾﾞ': 'ゼ', 'ｿﾞ': 'ゾ',
@@ -63,12 +64,12 @@ document.addEventListener('DOMContentLoaded', () => {
             'ｰ': 'ー', '･': '・', '､': '、', 'ﾟ': '゜', 'ﾞ': '゛'
         };
         
-        normalized = normalized.replace(/[ｶ-ﾝｧ-ｮｰ･､ﾟﾞ]{1,2}/g, (match) => {
-            return kanaMap[match] || match; // Try to match 2 chars (dakuon) first, then 1 char
+        // Sort keys by length descending so ｶﾞ is matched before ｶ
+        const keys = Object.keys(kanaMap).sort((a,b) => b.length - a.length);
+        const reg = new RegExp('(' + keys.join('|') + ')', 'g');
+        normalized = normalized.replace(reg, (match) => {
+            return kanaMap[match] || match;
         });
-        
-        // Re-run single char replacement just in case
-        normalized = normalized.split('').map(char => kanaMap[char] || char).join('');
 
         // 4. Lowercase and remove all spaces/symbols
         return normalized.toLowerCase().replace(/[\s　\-\_\/\.,:;]/g, '');
