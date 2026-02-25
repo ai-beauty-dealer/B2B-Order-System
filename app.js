@@ -27,8 +27,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const cancelEditBtn = document.getElementById('cancel-edit-btn');
     const saveDraftBtn = document.getElementById('save-draft-btn');
 
-    // Modal Elements
-    const confirmationModal = document.getElementById('confirmation-modal');
+    // Screen Elements
+    const confirmationContainer = document.getElementById('confirmation-container');
     const confirmItemList = document.getElementById('confirm-item-list');
     const modalCancelBtn = document.getElementById('modal-cancel-btn');
     const modalConfirmBtn = document.getElementById('modal-confirm-btn');
@@ -613,9 +613,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const orders = [];
 
-            // Check if Modal elements exist safely
-            if (confirmationModal && confirmItemList) {
-                confirmItemList.innerHTML = ''; // Reset modal list
+            // Check if Confirmation Screen elements exist safely
+            if (confirmationContainer && confirmItemList) {
+                confirmItemList.innerHTML = ''; // Reset list
 
                 document.querySelectorAll('.qty-input').forEach(input => {
                     const qty = parseInt(input.value) || 0;
@@ -627,7 +627,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             qty: qty
                         });
 
-                        // Add to modal UI
+                        // Add to UI
                         const row = document.createElement('div');
                         row.className = 'confirm-item-row';
                         row.innerHTML = `<span class="confirm-item-name">${name}</span><span class="confirm-item-qty">${qty}点</span>`;
@@ -635,8 +635,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 });
 
-                // Show Modal
-                confirmationModal.classList.remove('hidden');
+                // Show Confirmation Screen, Hide Order Screen
+                orderContainer.classList.add('hidden');
+                confirmationContainer.classList.remove('hidden');
+                window.scrollTo(0, 0); // Scroll to top
             } else {
                 // FALLBACK: If HTML is cached and missing the modal, use standard confirm()
                 document.querySelectorAll('.qty-input').forEach(input => {
@@ -661,17 +663,23 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Close Modal
+    // Close Confirmation Screen
     if (modalCancelBtn) {
         modalCancelBtn.addEventListener('click', () => {
-            if (confirmationModal) confirmationModal.classList.add('hidden');
+            if (confirmationContainer) {
+                confirmationContainer.classList.add('hidden');
+                orderContainer.classList.remove('hidden');
+            }
         });
     }
 
-    // Actually Execute Order from Modal
+    // Actually Execute Order from Confirmation Screen
     if (modalConfirmBtn) {
         modalConfirmBtn.addEventListener('click', async () => {
-            if (confirmationModal) confirmationModal.classList.add('hidden');
+            if (confirmationContainer) {
+                confirmationContainer.classList.add('hidden');
+                orderContainer.classList.remove('hidden'); // Return immediately so loading overlay shows here
+            }
 
             const orders = [];
             document.querySelectorAll('.qty-input').forEach(input => {
