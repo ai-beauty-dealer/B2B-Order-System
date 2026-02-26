@@ -172,6 +172,20 @@ document.addEventListener('DOMContentLoaded', () => {
             displayItems = displayItems.filter(item => item.category === currentCategoryFilter);
         }
 
+        // --- PERFORMANCE OPTIMIZATION ---
+        // Force the user to select both Manufacturer and Category before rendering anything on the 'all' tab.
+        // This prevents the browser from crashing when trying to render 10,000+ items at once.
+        if (currentFilter === 'all' && (currentManufacturerFilter === 'all' || currentCategoryFilter === 'all')) {
+            itemListContainer.innerHTML = `
+                <div style="text-align: center; padding: 40px 20px; color: #64748b; background: white; border-radius: 12px; margin: 20px 0; border: 1px dashed #cbd5e1;">
+                    <span style="font-size: 2.5rem; display: block; margin-bottom: 12px;">👆</span>
+                    <p style="font-size: 1.1rem; margin-bottom: 8px; font-weight: bold; color: var(--text-color);">メーカーとカテゴリを選択してください</p>
+                    <p style="font-size: 0.9rem; line-height: 1.5;">商品データ量が非常に多いため、<br>絞り込みを行ってから一覧を表示します。</p>
+                </div>
+            `;
+            return;
+        }
+
         if (displayItems.length === 0) {
             itemListContainer.innerHTML = '<p>商品が見つかりません。</p>';
             return;
