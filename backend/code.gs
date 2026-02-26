@@ -28,7 +28,12 @@ function doGet(e) {
       for (let i = 1; i < values.length; i++) {
           const row = values[i];
           if (row[0] && row[1]) {
-              items.push({ code: row[0], name: row[1], category: row[2] || '' });
+              items.push({ 
+                code: row[0], 
+                name: row[1], 
+                category: row[2] || '',
+                manufacturer: row[3] || ''
+              });
           }
       }
       return ContentService.createTextOutput(JSON.stringify({ status: 'success', data: items }))

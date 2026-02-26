@@ -31,12 +31,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const addCustomItemBtn = document.getElementById('add-custom-item-btn');
     const customItemsList = document.getElementById('custom-items-list');
 
+    // Hierarchical Filter Elements
+    const manufacturerChipsContainer = document.getElementById('manufacturer-chips-container');
+
     // State
     let currentUsername = ''; // Use username for unique localstorage key
     let currentClientName = '';
     let itemsData = [];
     let favoriteItems = []; // Array of item codes
     let currentFilter = 'all'; // 'all' or 'favorites'
+    let currentManufacturerFilter = 'all'; // 'all' or manufacturer name
     let currentCategoryFilter = 'all'; // 'all' or specific category name
     let editingOrderId = null; // Store orderId if editing an existing order
     let currentCart = {}; // Store qtys to survive re-rendering
@@ -156,6 +160,11 @@ document.addEventListener('DOMContentLoaded', () => {
         let displayItems = items;
         if (currentFilter === 'favorites') {
             displayItems = displayItems.filter(item => favoriteItems.includes(item.code));
+        }
+
+        // Filter by selected manufacturer
+        if (currentManufacturerFilter !== 'all') {
+            displayItems = displayItems.filter(item => item.manufacturer === currentManufacturerFilter);
         }
 
         // Filter by selected category
@@ -550,7 +559,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Re-render items based on all/favs
             currentFilter = tabId === 'tab-favorites' ? 'favorites' : 'all';
+            currentManufacturerFilter = 'all';
+            currentCategoryFilter = 'all';
             searchInput.value = ''; // Reset search focus
+            renderManufacturerChips();
+            renderCategoryChips();
             renderItems(itemsData);
         }
     };
@@ -588,13 +601,61 @@ document.addEventListener('DOMContentLoaded', () => {
         calculateTotal();
     });
 
+    // --- Render Manufacturer Chips ---
+    const renderManufacturerChips = () => {
+        if (!manufacturerChipsContainer) return;
+        manufacturerChipsContainer.innerHTML = '';
+
+        // Extract unique manufacturers from current data
+        const manufacturers = [...new Set(itemsData.map(item => item.manufacturer))].filter(Boolean);
+        if (manufacturers.length === 0) {
+            manufacturerChipsContainer.style.display = 'none';
+            return;
+        }
+        manufacturerChipsContainer.style.display = 'flex';
+
+        // Add "All" Manufacturer chip
+        const allChip = document.createElement('div');
+        allChip.className = `manufacturer-chip ${currentManufacturerFilter === 'all' ? 'active' : ''}`;
+        allChip.textContent = 'すべてのメーカー';
+        allChip.addEventListener('click', () => {
+            currentManufacturerFilter = 'all';
+            currentCategoryFilter = 'all'; // Reset category when switching manufacturer
+            renderManufacturerChips();
+            renderCategoryChips();
+            if (searchInput) searchInput.value = '';
+            renderItems(itemsData);
+        });
+        manufacturerChipsContainer.appendChild(allChip);
+
+        manufacturers.forEach(m => {
+            const chip = document.createElement('div');
+            chip.className = `manufacturer-chip ${currentManufacturerFilter === m ? 'active' : ''}`;
+            chip.textContent = m;
+            chip.addEventListener('click', () => {
+                currentManufacturerFilter = m;
+                currentCategoryFilter = 'all'; // Reset category when switching manufacturer
+                renderManufacturerChips();
+                renderCategoryChips();
+                if (searchInput) searchInput.value = '';
+                renderItems(itemsData);
+            });
+            manufacturerChipsContainer.appendChild(chip);
+        });
+    };
+
     // --- Render Category Chips ---
     const renderCategoryChips = () => {
         if (!categoryChipsContainer) return;
         categoryChipsContainer.innerHTML = '';
 
+        // Filter items by current manufacturer before extracting categories
+        const filteredByManufacturer = currentManufacturerFilter === 'all'
+            ? itemsData
+            : itemsData.filter(item => item.manufacturer === currentManufacturerFilter);
+
         // Extract unique categories (filter out empty strings)
-        const categories = [...new Set(itemsData.map(item => item.category))].filter(Boolean);
+        const categories = [...new Set(filteredByManufacturer.map(item => item.category))].filter(Boolean);
         if (categories.length === 0) return; // Hide chips if no categories exist
 
         // Add "All" chip
@@ -634,6 +695,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (result.status === 'success') {
                 itemsData = result.data;
+                renderManufacturerChips();
                 renderCategoryChips(); // Build chips before rendering items
                 renderItems(itemsData);
 
