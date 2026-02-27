@@ -107,6 +107,9 @@ document.addEventListener('DOMContentLoaded', () => {
             spinner.className = 'spinner';
             loadingOverlayNode.appendChild(spinner);
             document.body.appendChild(loadingOverlayNode);
+
+            // Force synchronous layout to guarantee it paints before thread locks
+            void loadingOverlayNode.offsetHeight;
         }
     };
 
@@ -914,8 +917,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Switch screen
                 loginContainer.classList.add('hidden');
                 orderContainer.classList.remove('hidden');
-                // Fetch items on successful login
-                await fetchItems();
+
+                // --- CRITICAL PC FREEZE FIX ---
+                // 1. Unfocus any input fields to prevent virtual keyboard/autofill locks
+                if (document.activeElement) {
+                    document.activeElement.blur();
+                }
+                window.scrollTo(0, 0); // Reset scroll position
+
+                // 2. Force a synchronous DOM reflow to guarantee the login screen disappears instantly
+                void loginContainer.offsetHeight;
+
+                // 3. Yield the thread to the browser's paint cycle before fetching heavy data
+                requestAnimationFrame(() => {
+                    setTimeout(async () => {
+                        await fetchItems();
+                    }, 50);
+                });
             } else {
                 alert('ログインに失敗しました: ' + result.message);
             }
