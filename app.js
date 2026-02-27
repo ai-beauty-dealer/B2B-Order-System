@@ -700,10 +700,44 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
-    // --- Fetch Items from API ---
-    const fetchItems = async () => {
+    // --- Fetch Items from API (with Caching) ---
+    const fetchItems = async (forceRefresh = false) => {
         showLoading();
         try {
+            const CACHE_KEY = 'b2b_master_data';
+            const TIME_KEY = 'b2b_master_timestamp';
+            const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+            // Check cache if not forcing refresh
+            if (!forceRefresh) {
+                const cachedData = localStorage.getItem(CACHE_KEY);
+                const cachedTime = localStorage.getItem(TIME_KEY);
+
+                if (cachedData && cachedTime) {
+                    const age = Date.now() - parseInt(cachedTime, 10);
+                    if (age < ONE_DAY_MS) {
+                        console.log('Loading items from local cache...');
+                        itemsData = JSON.parse(cachedData);
+                        renderManufacturerChips();
+                        renderCategoryChips();
+                        renderItems(itemsData);
+
+                        if (announcementBanner) {
+                            announcementBanner.classList.remove('hidden');
+                        }
+                        if (currentFilter === 'all') {
+                            loadDraft();
+                        }
+                        hideLoading();
+                        return; // Exit early since we used cache
+                    } else {
+                        console.log('Cache expired. Fetching fresh data...');
+                    }
+                }
+            } else {
+                console.log('Force refresh requested. Fetching fresh data...');
+            }
+
             // Setup for GAS doGet with item parameter (default behavior)
             const url = `${CONFIG.API_URL}?action=items`;
             const response = await fetch(url);
@@ -711,6 +745,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (result.status === 'success') {
                 itemsData = result.data;
+
+                // Save to Cache
+                try {
+                    localStorage.setItem(CACHE_KEY, JSON.stringify(itemsData));
+                    localStorage.setItem(TIME_KEY, Date.now().toString());
+                } catch (e) {
+                    console.warn('Could not save to localStorage (quota exceeded?).', e);
+                }
+
                 renderManufacturerChips();
                 renderCategoryChips(); // Build chips before rendering items
                 renderItems(itemsData);
@@ -734,6 +777,16 @@ document.addEventListener('DOMContentLoaded', () => {
             hideLoading();
         }
     };
+
+    // Wire up the manual refresh button
+    const refreshDataBtn = document.getElementById('refresh-data-btn');
+    if (refreshDataBtn) {
+        refreshDataBtn.addEventListener('click', () => {
+            if (confirm('最新の商品データをダウンロードしますか？（少し時間がかかります）')) {
+                fetchItems(true); // pass forceRefresh = true
+            }
+        });
+    }
 
     // --- Login (API) ---
     loginForm.addEventListener('submit', async (e) => {
