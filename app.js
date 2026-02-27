@@ -8,7 +8,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const orderSubmitBtn = document.getElementById('order-submit-btn');
     const searchInput = document.getElementById('search-input');
     const itemListContainer = document.getElementById('item-list');
-    const loadingOverlay = document.getElementById('loading-overlay');
     const tabAll = document.getElementById('tab-all');
     const tabFavorites = document.getElementById('tab-favorites');
     const tabHistory = document.getElementById('tab-history');
@@ -98,19 +97,27 @@ document.addEventListener('DOMContentLoaded', () => {
         return normalized.toLowerCase().replace(/[\s　\-\_\/\.,:;]/g, '');
     };
 
+    let loadingOverlayNode = null;
+
     const showLoading = () => {
-        if (loadingOverlay) {
-            loadingOverlay.style.display = 'flex';
-            loadingOverlay.classList.remove('hidden');
+        if (!loadingOverlayNode) {
+            loadingOverlayNode = document.createElement('div');
+            loadingOverlayNode.id = 'loading-overlay';
+            const spinner = document.createElement('div');
+            spinner.className = 'spinner';
+            loadingOverlayNode.appendChild(spinner);
+            document.body.appendChild(loadingOverlayNode);
         }
     };
 
     const hideLoading = () => {
-        if (loadingOverlay) {
-            // Yield to browser paint cycle before hiding, to prevent visual lockups
+        if (loadingOverlayNode) {
+            // Yield to browser paint cycle before destroying to prevent visual lockups
             requestAnimationFrame(() => {
-                loadingOverlay.style.display = 'none';
-                loadingOverlay.classList.add('hidden');
+                if (loadingOverlayNode && loadingOverlayNode.parentNode) {
+                    loadingOverlayNode.parentNode.removeChild(loadingOverlayNode);
+                }
+                loadingOverlayNode = null;
             });
         }
     };
@@ -626,32 +633,37 @@ document.addEventListener('DOMContentLoaded', () => {
     if (tabHistory) tabHistory.addEventListener('click', () => switchTab('tab-history'));
 
     // --- Search Logic ---
+    let searchTimeout;
     searchInput.addEventListener('input', (e) => {
         const rawSearch = e.target.value;
-        if (rawSearch.trim() === '') {
-            renderItems(itemsData);
-        } else {
-            // Split by space for AND search
-            const searchTokens = rawSearch.trim().split(/[\s　]+/);
 
-            const filteredItems = itemsData.filter(item => {
-                const normalizedName = normalizeForSearch(item.name);
-                const normalizedCode = normalizeForSearch(item.code);
-                const searchableText = normalizedName + normalizedCode;
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => {
+            if (rawSearch.trim() === '') {
+                renderItems(itemsData);
+            } else {
+                // Split by space for AND search
+                const searchTokens = rawSearch.trim().split(/[\s　]+/);
 
-                // Return true only if ALL tokens are found (AND search)
-                return searchTokens.every(token => {
-                    const normalizedToken = normalizeForSearch(token);
-                    if (!normalizedToken) return true; // skip purely symbolic space
-                    return searchableText.includes(normalizedToken);
+                const filteredItems = itemsData.filter(item => {
+                    const normalizedName = normalizeForSearch(item.name);
+                    const normalizedCode = normalizeForSearch(item.code);
+                    const searchableText = normalizedName + normalizedCode;
+
+                    // Return true only if ALL tokens are found (AND search)
+                    return searchTokens.every(token => {
+                        const normalizedToken = normalizeForSearch(token);
+                        if (!normalizedToken) return true; // skip purely symbolic space
+                        return searchableText.includes(normalizedToken);
+                    });
                 });
-            });
-            renderItems(filteredItems);
-        }
+                renderItems(filteredItems);
+            }
 
-        // Note: Re-rendering clears inputs. In a real app we'd preserve state, 
-        // but for MVP it's safer to filter before picking quantities.
-        calculateTotal();
+            // Note: Re-rendering clears inputs. In a real app we'd preserve state, 
+            // but for MVP it's safer to filter before picking quantities.
+            calculateTotal();
+        }, 300); // 300ms debounce to prevent UI freezes on rapid typing/autofill
     });
 
     // --- Render Manufacturer Chips ---
