@@ -111,8 +111,6 @@ button:active {
 #login-container {
     margin-top: 10vh;
     background: var(--bg-card);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-lg);
     padding: 40px 30px;
@@ -338,8 +336,6 @@ header {
 .item-card,
 .history-card {
     background: var(--bg-card);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
     border: 1px solid rgba(255, 255, 255, 0.6);
     border-radius: var(--radius-lg);
     padding: 16px;
@@ -482,10 +478,7 @@ input[type=number]::-webkit-outer-spin-button {
     transform: translateX(-50%);
     width: calc(100% - 40px);
     max-width: 600px;
-    background: rgba(15, 23, 42, 0.95);
-    /* Dark modern Glassmorphism */
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    background: rgba(15, 23, 42, 0.98);
     padding: 16px 24px;
     border-radius: var(--radius-full);
     box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.1);
@@ -527,8 +520,6 @@ input[type=number]::-webkit-outer-spin-button {
 
 .history-group-card {
     background: var(--bg-card);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
     border: 1px solid rgba(255, 255, 255, 0.6);
     border-radius: var(--radius-lg);
     margin-bottom: 16px;
@@ -626,8 +617,6 @@ input[type=number]::-webkit-outer-spin-button {
 
 .confirm-items-wrapper {
     background: var(--bg-card);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-md);
     padding: 24px;
@@ -669,9 +658,8 @@ input[type=number]::-webkit-outer-spin-button {
     left: 0;
     width: 100%;
     height: 100%;
-    background: rgba(255, 255, 255, 0.6);
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
+    /* Keep it semi-transparent white, but no blur to prevent GPU crashes */
+    background: rgba(255, 255, 255, 0.85);
     display: flex;
     justify-content: center;
     align-items: center;
