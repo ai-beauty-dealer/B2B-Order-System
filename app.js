@@ -193,9 +193,15 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        // --- PERFORMANCE OPTIMIZATION (Phase 2 LIMIT) ---
+        // Even with DocumentFragment, creating 10,000 DOM nodes at once freezes the browser.
+        // Limit the maximum number of rendered items to 200 to guarantee snappy performance.
+        const MAX_RENDER_LIMIT = 200;
+        const itemsToRender = displayItems.slice(0, MAX_RENDER_LIMIT);
+
         const fragment = document.createDocumentFragment();
 
-        displayItems.forEach(item => {
+        itemsToRender.forEach(item => {
             const isFav = favoriteItems.includes(item.code);
             const card = document.createElement('div');
             card.className = 'item-card';
@@ -278,6 +284,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
             fragment.appendChild(card);
         });
+
+        if (displayItems.length > MAX_RENDER_LIMIT) {
+            const limitMsg = document.createElement('div');
+            limitMsg.style.textAlign = 'center';
+            limitMsg.style.padding = '20px';
+            limitMsg.style.color = '#64748b';
+            limitMsg.style.backgroundColor = '#f8fafc';
+            limitMsg.style.borderRadius = 'var(--radius-md)';
+            limitMsg.style.marginTop = '20px';
+            limitMsg.style.marginBottom = '20px';
+            limitMsg.innerHTML = `<strong>※表示上限（${MAX_RENDER_LIMIT}件）に達しました。</strong><br>さらにカテゴリで絞り込むか、商品名で検索してください。<br>（該当件数: ${displayItems.length}件）`;
+            fragment.appendChild(limitMsg);
+        }
 
         itemListContainer.appendChild(fragment);
     };
