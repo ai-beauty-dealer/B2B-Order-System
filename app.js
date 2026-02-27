@@ -195,37 +195,47 @@ document.addEventListener('DOMContentLoaded', () => {
         showToast('入力内容を一時保存しました。');
     };
 
+    const restoreDraftBtn = document.getElementById('restore-draft-btn');
+
     const loadDraft = () => {
         if (!currentUsername) return;
         const savedDraft = localStorage.getItem(`b2b_draft_${currentUsername}`);
-        if (!savedDraft) return;
+        if (!savedDraft) {
+            if (restoreDraftBtn) restoreDraftBtn.style.display = 'none';
+            return;
+        }
 
         try {
             const draftData = JSON.parse(savedDraft);
             if (Object.keys(draftData).length > 0) {
-                showConfirm('前回の一時保存データがあります。復元しますか？', () => {
-                    // Backwards compatibility check
-                    const isOldFormat = typeof Object.values(draftData)[0] === 'number';
-
-                    if (isOldFormat) {
-                        // Optimizing O(N*M) to O(N+M)
-                        const itemsMap = new Map();
-                        itemsData.forEach(i => itemsMap.set(String(i.code), i.name));
-
-                        currentCart = {};
-                        Object.entries(draftData).forEach(([code, qty]) => {
-                            const name = itemsMap.get(String(code)) || '（商品名未入力）';
-                            currentCart[code] = { qty: qty, name: name };
-                        });
-                    } else {
-                        currentCart = draftData;
-                    }
-                    calculateTotal();
-                    showToast('データを復元しました。');
-                });
+                // Instead of a popup, just show the manual button
+                if (restoreDraftBtn) restoreDraftBtn.style.display = 'inline-block';
             }
         } catch (e) { /* ignore invalid data */ }
     };
+
+    if (restoreDraftBtn) {
+        restoreDraftBtn.addEventListener('click', () => {
+            const savedDraft = localStorage.getItem(`b2b_draft_${currentUsername}`);
+            if (!savedDraft) return;
+            const draftData = JSON.parse(savedDraft);
+
+            showConfirm('前回の一時保存内容を復元しますか？', () => {
+                const itemsMap = new Map();
+                itemsData.forEach(i => itemsMap.set(String(i.code), i.name));
+
+                currentCart = {};
+                Object.entries(draftData).forEach(([code, qty]) => {
+                    const name = itemsMap.get(String(code)) || '（商品名未入力）';
+                    currentCart[code] = { qty: qty, name: name };
+                });
+
+                calculateTotal();
+                showToast('データを復元しました。');
+                restoreDraftBtn.style.display = 'none';
+            });
+        });
+    }
 
     if (saveDraftBtn) {
         saveDraftBtn.addEventListener('click', saveDraft);
@@ -866,7 +876,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 announcementBanner.classList.remove('hidden');
                             }
                             if (currentFilter === 'all') {
-                                loadDraft();
+                                // loadDraft(); // DISABLED Phase 11 - Prevent automatic popups
                             }
                             console.log('[Debug] Cache render complete. Hiding loading overlay.');
                             hideLoading();
@@ -922,7 +932,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     // Attempt to load draft after rendering the items list once
                     if (currentFilter === 'all') { // Only prompt on initial load
-                        loadDraft();
+                        // loadDraft(); // DISABLED Phase 11 - Prevent automatic popups
                     }
                     console.log('[Debug] API data render complete.');
                 } catch (renderError) {
@@ -990,7 +1000,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else {
                     favoriteItems = [];
                 }
-                // Delay screen switch to allow browser autofill to settle and overlay to paint
+                // Phase 11: Ultra-delay to ensure UI is 100% painted and idle before heavy work
                 setTimeout(() => {
                     loginContainer.classList.add('hidden');
                     orderContainer.classList.remove('hidden');
@@ -999,12 +1009,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     void loginContainer.offsetHeight;
 
                     requestAnimationFrame(() => {
+                        // Wait even longer (800ms) to ensure login screen is physically purged from memory
                         setTimeout(async () => {
                             await fetchItems();
-                            loadDraft();
-                        }, 50);
+                            // loadDraft() is NOT called automatically anymore.
+                        }, 800);
                     });
-                }, 100);
+                }, 500);
             } else {
                 showToast('ログインに失敗しました: ' + result.message, 'danger');
             }
