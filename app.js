@@ -106,18 +106,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let loadingOverlayNode = null;
 
-    const showLoading = () => {
+    const showLoading = (message = '読み込み中...') => {
         if (!loadingOverlayNode) {
             loadingOverlayNode = document.createElement('div');
             loadingOverlayNode.id = 'loading-overlay';
-            const spinner = document.createElement('div');
-            spinner.className = 'spinner';
-            loadingOverlayNode.appendChild(spinner);
+            loadingOverlayNode.innerHTML = `
+                <div style="text-align: center;">
+                    <div class="spinner"></div>
+                    <div id="loading-status" style="margin-top: 15px; font-weight: bold; color: #0f172a; font-size: 1rem;">${message}</div>
+                </div>
+            `;
             document.body.appendChild(loadingOverlayNode);
-
-            // Force synchronous layout to guarantee it paints before thread locks
             void loadingOverlayNode.offsetHeight;
+        } else {
+            updateLoadingProgress(message);
         }
+    };
+
+    const updateLoadingProgress = (message) => {
+        const statusEl = document.getElementById('loading-status');
+        if (statusEl) statusEl.textContent = message;
     };
 
     const hideLoading = () => {
@@ -198,22 +206,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 showConfirm('前回の一時保存データがあります。復元しますか？', () => {
                     // Backwards compatibility check
                     const isOldFormat = typeof Object.values(draftData)[0] === 'number';
+
                     if (isOldFormat) {
+                        // Optimizing O(N*M) to O(N+M)
+                        const itemsMap = new Map();
+                        itemsData.forEach(i => itemsMap.set(String(i.code), i.name));
+
                         currentCart = {};
                         Object.entries(draftData).forEach(([code, qty]) => {
-                            const matchedItem = itemsData.find(i => String(i.code) === String(code));
-                            if (matchedItem) {
-                                currentCart[code] = { qty: qty, name: matchedItem.name };
-                            } else if (code.startsWith('CUSTOM_ITEM')) {
-                                currentCart[code] = { qty: qty, name: '（商品名未入力）' };
-                            }
+                            const name = itemsMap.get(String(code)) || '（商品名未入力）';
+                            currentCart[code] = { qty: qty, name: name };
                         });
                     } else {
                         currentCart = draftData;
                     }
-                    // Since we're in 'all' tab visually showing the prompt, 
-                    // a draft load might want to actually SHOW the items. 
-                    // But for stability, we just restore the cart and total.
                     calculateTotal();
                     showToast('データを復元しました。');
                 });
@@ -842,12 +848,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (cachedData && cachedTime) {
                     const age = Date.now() - parseInt(cachedTime, 10);
                     if (age < ONE_DAY_MS) {
-                        console.log('[Debug] Cache is valid. Age:', age, 'ms');
+                        updateLoadingProgress('データの準備中...');
+                        // Yield to allow UI to paint the status message
+                        await new Promise(resolve => setTimeout(resolve, 50));
                         try {
                             itemsData = JSON.parse(cachedData);
-                            console.log('[Debug] Cache parsed successfully. Items count:', itemsData.length);
-
-                            console.log('[Debug] Rendering Manufacturer Chips...');
+                            updateLoadingProgress('メニューを整理中...');
                             renderManufacturerChips();
 
                             // --- CRITICAL PC FREEZE FIX (RENDER AVOIDANCE) ---
@@ -879,28 +885,27 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.log('[Debug] Force refresh requested. Fetching fresh data...');
             }
 
+            updateLoadingProgress('サーバーから取得中...');
             console.log('[Debug] Fetching from GAS API...');
             const url = `${CONFIG.API_URL}?action=items`;
             const response = await fetch(url);
-            console.log('[Debug] Response received. Parsing JSON...');
+            updateLoadingProgress('データ解析中...');
             const result = await response.json();
 
             if (result.status === 'success') {
-                console.log('[Debug] API fetch success. Items count:', result.data.length);
+                updateLoadingProgress('データの保存中...');
                 itemsData = result.data;
 
                 // Save to Cache
                 try {
-                    console.log('[Debug] Saving to localStorage...');
                     localStorage.setItem(CACHE_KEY, JSON.stringify(itemsData));
                     localStorage.setItem(TIME_KEY, Date.now().toString());
-                    console.log('[Debug] Saved to localStorage.');
                 } catch (e) {
-                    console.warn('[Warning] Could not save to localStorage (quota exceeded?).', e);
+                    console.warn('[Warning] Could not save to localStorage.', e);
                 }
 
                 try {
-                    console.log('[Debug] Rendering Manufacturer Chips (API data)...');
+                    updateLoadingProgress('カテゴリを整理中...');
                     renderManufacturerChips();
 
                     // --- CRITICAL PC FREEZE FIX (RENDER AVOIDANCE) ---
@@ -955,13 +960,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!username || !password) return;
 
-        showLoading();
+        showLoading('接続中...');
         try {
             const response = await fetch(CONFIG.API_URL, {
                 method: 'POST',
-                // Using text/plain prevents CORS preflight issues with GAS
                 headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                redirect: 'follow', // GAS requires following redirects for POST responses
+                redirect: 'follow',
                 body: JSON.stringify({
                     action: 'login',
                     username: username,
@@ -969,9 +973,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 })
             });
 
+            updateLoadingProgress('認証情報を検証中...');
             const result = await response.json();
 
             if (result.status === 'success') {
+                updateLoadingProgress('画面を初期化中...');
                 currentUsername = username;
                 currentClientName = result.clientName;
 
@@ -984,27 +990,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else {
                     favoriteItems = [];
                 }
+                // Delay screen switch to allow browser autofill to settle and overlay to paint
+                setTimeout(() => {
+                    loginContainer.classList.add('hidden');
+                    orderContainer.classList.remove('hidden');
 
-                // Switch screen
-                loginContainer.classList.add('hidden');
-                orderContainer.classList.remove('hidden');
+                    window.scrollTo(0, 0);
+                    void loginContainer.offsetHeight;
 
-                // --- CRITICAL PC FREEZE FIX ---
-                // 1. Unfocus any input fields to prevent virtual keyboard/autofill locks
-                if (document.activeElement) {
-                    document.activeElement.blur();
-                }
-                window.scrollTo(0, 0); // Reset scroll position
-
-                // 2. Force a synchronous DOM reflow to guarantee the login screen disappears instantly
-                void loginContainer.offsetHeight;
-
-                // 3. Yield the thread to the browser's paint cycle before fetching heavy data
-                requestAnimationFrame(() => {
-                    setTimeout(async () => {
-                        await fetchItems();
-                    }, 50);
-                });
+                    requestAnimationFrame(() => {
+                        setTimeout(async () => {
+                            await fetchItems();
+                            loadDraft();
+                        }, 50);
+                    });
+                }, 100);
             } else {
                 showToast('ログインに失敗しました: ' + result.message, 'danger');
             }
