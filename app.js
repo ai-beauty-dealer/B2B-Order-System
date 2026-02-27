@@ -132,6 +132,46 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    // --- UI Helpers (Non-blocking) ---
+    const showToast = (message, type = 'info') => {
+        const toast = document.createElement('div');
+        toast.style.cssText = `
+            position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+            background: ${type === 'danger' ? '#ef4444' : '#0f172a'};
+            color: white; padding: 12px 24px; border-radius: 4px; z-index: 10000;
+            font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        `;
+        toast.textContent = message;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 3000);
+    };
+
+    const showConfirm = (message, callback) => {
+        const overlay = document.createElement('div');
+        overlay.style.cssText = `
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5); display: flex; align-items: center;
+            justify-content: center; z-index: 10001;
+        `;
+        const dialog = document.createElement('div');
+        dialog.style.cssText = `
+            background: white; padding: 24px; border-radius: 4px; max-width: 90%;
+            width: 320px; text-align: center;
+        `;
+        dialog.innerHTML = `
+            <p style="margin-bottom: 20px; font-weight: bold; line-height: 1.5;">${message.replace(/\n/g, '<br>')}</p>
+            <div style="display: flex; gap: 10px;">
+                <button id="custom-cancel" style="flex: 1; padding: 10px; border: 1px solid #ccc; background: #eee; border-radius: 4px;">キャンセル</button>
+                <button id="custom-ok" style="flex: 1; padding: 10px; border: none; background: #2563eb; color: white; border-radius: 4px; font-weight: bold;">OK</button>
+            </div>
+        `;
+        overlay.appendChild(dialog);
+        document.body.appendChild(overlay);
+
+        dialog.querySelector('#custom-cancel').onclick = () => { overlay.remove(); };
+        dialog.querySelector('#custom-ok').onclick = () => { overlay.remove(); callback(); };
+    };
+
     const calculateTotal = () => {
         let total = 0;
         Object.values(currentCart).forEach(item => {
@@ -144,7 +184,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const saveDraft = () => {
         if (!currentUsername) return;
         localStorage.setItem(`b2b_draft_${currentUsername}`, JSON.stringify(currentCart));
-        alert('入力中の数量を一時保存しました。');
+        showToast('入力内容を一時保存しました。');
     };
 
     const loadDraft = () => {
@@ -155,7 +195,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const draftData = JSON.parse(savedDraft);
             if (Object.keys(draftData).length > 0) {
-                if (confirm('前回の一時保存データがあります。復元しますか？')) {
+                showConfirm('前回の一時保存データがあります。復元しますか？', () => {
                     // Backwards compatibility check
                     const isOldFormat = typeof Object.values(draftData)[0] === 'number';
                     if (isOldFormat) {
@@ -171,10 +211,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     } else {
                         currentCart = draftData;
                     }
-                    renderItems(itemsData);
-                    renderCustomItemsFromCart();
+                    // Since we're in 'all' tab visually showing the prompt, 
+                    // a draft load might want to actually SHOW the items. 
+                    // But for stability, we just restore the cart and total.
                     calculateTotal();
-                }
+                    showToast('データを復元しました。');
+                });
             }
         } catch (e) { /* ignore invalid data */ }
     };
@@ -400,11 +442,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const editBtn = card.querySelector('.edit-order-btn');
             const cancelBtn = card.querySelector('.cancel-order-btn');
 
-            cancelBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                if (confirm('この発注をキャンセルします。よろしいですか？')) {
-                    cancelOrder(e.target.dataset.orderId);
-                }
+            showConfirm('この発注をキャンセルします。よろしいですか？', () => {
+                cancelOrder(e.target.dataset.orderId);
             });
 
             editBtn.addEventListener('click', (e) => {
@@ -431,14 +470,14 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             const result = await response.json();
             if (result.status === 'success') {
-                alert('発注をキャンセルしました。');
+                showToast('発注をキャンセルしました。');
                 fetchHistory(); // Refresh
             } else {
-                alert('失敗しました: ' + result.message);
+                showToast('失敗しました: ' + result.message, 'danger');
             }
         } catch (error) {
             console.error(error);
-            alert('通信エラーが発生しました。');
+            showToast('通信エラーが発生しました。', 'danger');
         } finally {
             hideLoading();
         }
@@ -505,7 +544,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         plusBtn.addEventListener('click', () => {
             if (!nameInput.value.trim()) {
-                alert('先に特注商品の「商品名や規格」を入力してください。');
+                showToast('先に特注商品の「商品名や規格」を入力してください。', 'danger');
                 return;
             }
             let val = parseInt(qtyInput.value) || 0;
@@ -516,7 +555,7 @@ document.addEventListener('DOMContentLoaded', () => {
             let val = parseInt(qtyInput.value) || 0;
             if (val < 0) val = 0;
             if (val > 0 && !nameInput.value.trim()) {
-                alert('先に特注商品の「商品名や規格」を入力してください。');
+                showToast('先に特注商品の「商品名や規格」を入力してください。', 'danger');
                 val = 0;
             }
             qtyInput.value = val;
@@ -601,11 +640,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (result.status === 'success') {
                 renderHistory(result.data);
             } else {
-                alert('履歴の取得に失敗しました: ' + result.message);
+                showToast('履歴の取得に失敗しました: ' + result.message, 'danger');
             }
         } catch (error) {
             console.error(error);
-            alert('通信エラーが発生しました。');
+            showToast('通信エラーが発生しました。', 'danger');
         } finally {
             hideLoading();
         }
@@ -828,7 +867,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             return; // Exit early since we used cache
                         } catch (renderError) {
                             console.error('[Error] Failed during cache rendering:', renderError);
-                            alert('画面の描画中にエラーが発生しました。開発者ツールのConsoleを確認してください。');
+                            showToast('画面の描画中にエラーが発生しました。開発者ツールのConsoleを確認してください。', 'danger');
                         }
                     } else {
                         console.log('[Debug] Cache expired (older than 24h). Fetching fresh data...');
@@ -883,15 +922,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     console.log('[Debug] API data render complete.');
                 } catch (renderError) {
                     console.error('[Error] Failed during API rendering:', renderError);
-                    alert('画面の描画中にエラーが発生しました。');
+                    showToast('画面の描画中にエラーが発生しました。', 'danger');
                 }
             } else {
                 console.error('[Error] API returned failure status:', result.message);
-                alert('商品データの取得に失敗しました: ' + result.message);
+                showToast('商品データの取得に失敗しました: ' + result.message, 'danger');
             }
         } catch (error) {
             console.error('[Error] Network or fatal error in fetchItems:', error);
-            alert('通信エラーが発生しました。再度お試しください。');
+            showToast('通信エラーが発生しました。再度お試しください。', 'danger');
         } finally {
             console.log('[Debug] fetchItems finally block reached. Hiding loading overlay.');
             hideLoading();
@@ -902,9 +941,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const refreshDataBtn = document.getElementById('refresh-data-btn');
     if (refreshDataBtn) {
         refreshDataBtn.addEventListener('click', () => {
-            if (confirm('最新の商品データをダウンロードしますか？（少し時間がかかります）')) {
+            showConfirm('最新の商品データをダウンロードしますか？（少し時間がかかります）', () => {
                 fetchItems(true); // pass forceRefresh = true
-            }
+            });
         });
     }
 
@@ -967,11 +1006,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     }, 50);
                 });
             } else {
-                alert('ログインに失敗しました: ' + result.message);
+                showToast('ログインに失敗しました: ' + result.message, 'danger');
             }
         } catch (error) {
             console.error(error);
-            alert('通信に失敗しました。');
+            showToast('通信に失敗しました。', 'danger');
         } finally {
             hideLoading();
         }
@@ -1022,7 +1061,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const result = await response.json();
 
             if (result.status === 'success') {
-                alert(isEditing ? '発注内容を変更しました。' : '発注が完了しました！\n引き続き発注いただけます。');
+                showToast(isEditing ? '発注内容を変更しました。' : '発注が完了しました！\n引き続き発注いただけます。');
                 localStorage.removeItem(`b2b_draft_${currentUsername}`);
 
                 // Clear custom item fields safely
@@ -1030,11 +1069,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 resetEditMode();
             } else {
-                alert('失敗しました: ' + result.message);
+                showToast('失敗しました: ' + result.message, 'danger');
             }
         } catch (error) {
             console.error(error);
-            alert('通信エラーが発生しました。発注が完了していない可能性があります。');
+            showToast('通信エラーが発生しました。発注が完了していない可能性があります。', 'danger');
         } finally {
             hideLoading();
         }
@@ -1045,7 +1084,7 @@ document.addEventListener('DOMContentLoaded', () => {
         orderSubmitBtn.addEventListener('click', () => {
             const total = parseInt(totalQtySpan.textContent);
             if (total === 0) {
-                alert('商品を1点以上選択してください。');
+                showToast('商品を1点以上選択してください。', 'danger');
                 return;
             }
 
