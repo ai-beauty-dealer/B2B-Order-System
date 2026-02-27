@@ -193,6 +193,8 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        const fragment = document.createDocumentFragment();
+
         displayItems.forEach(item => {
             const isFav = favoriteItems.includes(item.code);
             const card = document.createElement('div');
@@ -274,8 +276,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 calculateTotal();
             });
 
-            itemListContainer.appendChild(card);
+            fragment.appendChild(card);
         });
+
+        itemListContainer.appendChild(fragment);
     };
 
     // --- Render History ---
@@ -830,7 +834,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 loginContainer.classList.add('hidden');
                 orderContainer.classList.remove('hidden');
                 // Fetch items on successful login
-                fetchItems();
+                await fetchItems();
             } else {
                 alert('ログインに失敗しました: ' + result.message);
             }
