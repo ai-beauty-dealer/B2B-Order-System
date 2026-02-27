@@ -1,4 +1,11 @@
 document.addEventListener('DOMContentLoaded', () => {
+    const RENDER_PROMPT_HTML = `
+        <div style="grid-column: 1 / -1; text-align: center; padding: 60px 20px; color: #64748b; background: white; border-radius: 12px; margin: 20px 0; border: 1px dashed #cbd5e1;">
+            <span style="font-size: 3rem; display: block; margin-bottom: 16px;">🏢</span>
+            <p style="font-size: 1.2rem; margin-bottom: 8px; font-weight: bold; color: var(--text-color);">メーカーを選択してください</p>
+            <p style="font-size: 0.95rem; line-height: 1.6;">商品数が非常に多いため、<br>まずは上のボタンからメーカーを絞り込んでください。<br>（※ 上部の検索バーから直接商品名で探すことも可能です）</p>
+        </div>
+    `;
     // UI Elements
     const loginForm = document.getElementById('login-form');
     const loginContainer = document.getElementById('login-container');
@@ -574,7 +581,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (customItemsList) customItemsList.innerHTML = '';
         calculateTotal();
         if (searchInput) searchInput.value = '';
-        renderItems(itemsData); // Clear search filters
+
+        if (currentManufacturerFilter === 'all') {
+            itemListContainer.innerHTML = RENDER_PROMPT_HTML;
+        } else {
+            renderItems(itemsData); // Clear search filters
+        }
     };
 
 
@@ -626,8 +638,15 @@ document.addEventListener('DOMContentLoaded', () => {
             currentCategoryFilter = 'all';
             searchInput.value = ''; // Reset search focus
             renderManufacturerChips();
-            renderCategoryChips();
-            renderItems(itemsData);
+
+            if (currentFilter === 'all') {
+                // --- CRITICAL PC FREEZE FIX (RENDER AVOIDANCE) ---
+                categoryChipsContainer.innerHTML = '';
+                itemListContainer.innerHTML = RENDER_PROMPT_HTML;
+            } else {
+                renderCategoryChips();
+                renderItems(itemsData);
+            }
         }
     };
 
@@ -643,7 +662,11 @@ document.addEventListener('DOMContentLoaded', () => {
         clearTimeout(searchTimeout);
         searchTimeout = setTimeout(() => {
             if (rawSearch.trim() === '') {
-                renderItems(itemsData);
+                if (currentManufacturerFilter === 'all') {
+                    itemListContainer.innerHTML = RENDER_PROMPT_HTML;
+                } else {
+                    renderItems(itemsData);
+                }
             } else {
                 // Split by space for AND search
                 const searchTokens = rawSearch.trim().split(/[\s　]+/);
@@ -691,9 +714,10 @@ document.addEventListener('DOMContentLoaded', () => {
             currentManufacturerFilter = 'all';
             currentCategoryFilter = 'all'; // Reset category when switching manufacturer
             renderManufacturerChips();
-            renderCategoryChips();
+            categoryChipsContainer.innerHTML = ''; // Clear category chips since 'all' is selected
             if (searchInput) searchInput.value = '';
-            renderItems(itemsData);
+
+            itemListContainer.innerHTML = RENDER_PROMPT_HTML;
         });
         fragment.appendChild(allChip);
 
@@ -737,7 +761,12 @@ document.addEventListener('DOMContentLoaded', () => {
             currentCategoryFilter = 'all';
             renderCategoryChips(); // Re-render chips to update active state
             if (searchInput) searchInput.value = ''; // Reset search focus
-            renderItems(itemsData);
+
+            if (currentManufacturerFilter === 'all') {
+                itemListContainer.innerHTML = RENDER_PROMPT_HTML;
+            } else {
+                renderItems(itemsData);
+            }
         });
         fragment.appendChild(allChip);
 
@@ -782,11 +811,11 @@ document.addEventListener('DOMContentLoaded', () => {
                             console.log('[Debug] Rendering Manufacturer Chips...');
                             renderManufacturerChips();
 
-                            console.log('[Debug] Rendering Category Chips...');
-                            renderCategoryChips();
-
-                            console.log('[Debug] Rendering Items List...');
-                            renderItems(itemsData);
+                            // --- CRITICAL PC FREEZE FIX (RENDER AVOIDANCE) ---
+                            // Do NOT render categories or items from cache on initial load. 
+                            console.log('[Debug] Rendering Initial Prompt (Cache)...');
+                            categoryChipsContainer.innerHTML = '';
+                            itemListContainer.innerHTML = RENDER_PROMPT_HTML;
 
                             if (announcementBanner) {
                                 announcementBanner.classList.remove('hidden');
@@ -834,10 +863,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 try {
                     console.log('[Debug] Rendering Manufacturer Chips (API data)...');
                     renderManufacturerChips();
-                    console.log('[Debug] Rendering Category Chips (API data)...');
-                    renderCategoryChips(); // Build chips before rendering items
-                    console.log('[Debug] Rendering Items List (API data)...');
-                    renderItems(itemsData);
+
+                    // --- CRITICAL PC FREEZE FIX (RENDER AVOIDANCE) ---
+                    // Do NOT render categories or items on initial load. The sheer DOM size of 11K items 
+                    // instantly freezes the PC Chromium engine.
+                    categoryChipsContainer.innerHTML = '';
+                    itemListContainer.innerHTML = RENDER_PROMPT_HTML;
+                    console.log('[Debug] Rendered initial manufacturer prompt.');
 
                     // Show Announcement banner
                     if (announcementBanner) {
