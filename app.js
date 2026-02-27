@@ -98,8 +98,22 @@ document.addEventListener('DOMContentLoaded', () => {
         return normalized.toLowerCase().replace(/[\s　\-\_\/\.,:;]/g, '');
     };
 
-    const showLoading = () => loadingOverlay.classList.remove('hidden');
-    const hideLoading = () => loadingOverlay.classList.add('hidden');
+    const showLoading = () => {
+        if (loadingOverlay) {
+            loadingOverlay.style.display = 'flex';
+            loadingOverlay.classList.remove('hidden');
+        }
+    };
+
+    const hideLoading = () => {
+        if (loadingOverlay) {
+            // Yield to browser paint cycle before hiding, to prevent visual lockups
+            requestAnimationFrame(() => {
+                loadingOverlay.style.display = 'none';
+                loadingOverlay.classList.add('hidden');
+            });
+        }
+    };
 
     const calculateTotal = () => {
         let total = 0;
@@ -654,6 +668,7 @@ document.addEventListener('DOMContentLoaded', () => {
         manufacturerChipsContainer.style.display = 'flex';
 
         // Add "All" Manufacturer chip
+        const fragment = document.createDocumentFragment();
         const allChip = document.createElement('div');
         allChip.className = `manufacturer-chip ${currentManufacturerFilter === 'all' ? 'active' : ''}`;
         allChip.textContent = 'すべてのメーカー';
@@ -665,7 +680,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (searchInput) searchInput.value = '';
             renderItems(itemsData);
         });
-        manufacturerChipsContainer.appendChild(allChip);
+        fragment.appendChild(allChip);
 
         manufacturers.forEach(m => {
             const chip = document.createElement('div');
@@ -679,8 +694,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (searchInput) searchInput.value = '';
                 renderItems(itemsData);
             });
-            manufacturerChipsContainer.appendChild(chip);
+            fragment.appendChild(chip);
         });
+        manufacturerChipsContainer.appendChild(fragment);
     };
 
     // --- Render Category Chips ---
@@ -698,6 +714,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (categories.length === 0) return; // Hide chips if no categories exist
 
         // Add "All" chip
+        const fragment = document.createDocumentFragment();
         const allChip = document.createElement('div');
         allChip.className = `category-chip ${currentCategoryFilter === 'all' ? 'active' : ''}`;
         allChip.textContent = 'すべて';
@@ -707,7 +724,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (searchInput) searchInput.value = ''; // Reset search focus
             renderItems(itemsData);
         });
-        categoryChipsContainer.appendChild(allChip);
+        fragment.appendChild(allChip);
 
         categories.forEach(category => {
             const chip = document.createElement('div');
@@ -719,8 +736,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (searchInput) searchInput.value = '';
                 renderItems(itemsData);
             });
-            categoryChipsContainer.appendChild(chip);
+            fragment.appendChild(chip);
         });
+        categoryChipsContainer.appendChild(fragment);
     };
 
     // --- Fetch Items from API (with Caching) ---
