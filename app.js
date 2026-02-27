@@ -725,6 +725,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Fetch Items from API (with Caching) ---
     const fetchItems = async (forceRefresh = false) => {
+        console.log('[Debug] fetchItems started. forceRefresh:', forceRefresh);
         showLoading();
         try {
             const CACHE_KEY = 'b2b_master_data';
@@ -733,70 +734,101 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Check cache if not forcing refresh
             if (!forceRefresh) {
+                console.log('[Debug] Checking local cache...');
                 const cachedData = localStorage.getItem(CACHE_KEY);
                 const cachedTime = localStorage.getItem(TIME_KEY);
 
                 if (cachedData && cachedTime) {
                     const age = Date.now() - parseInt(cachedTime, 10);
                     if (age < ONE_DAY_MS) {
-                        console.log('Loading items from local cache...');
-                        itemsData = JSON.parse(cachedData);
-                        renderManufacturerChips();
-                        renderCategoryChips();
-                        renderItems(itemsData);
+                        console.log('[Debug] Cache is valid. Age:', age, 'ms');
+                        try {
+                            itemsData = JSON.parse(cachedData);
+                            console.log('[Debug] Cache parsed successfully. Items count:', itemsData.length);
 
-                        if (announcementBanner) {
-                            announcementBanner.classList.remove('hidden');
+                            console.log('[Debug] Rendering Manufacturer Chips...');
+                            renderManufacturerChips();
+
+                            console.log('[Debug] Rendering Category Chips...');
+                            renderCategoryChips();
+
+                            console.log('[Debug] Rendering Items List...');
+                            renderItems(itemsData);
+
+                            if (announcementBanner) {
+                                announcementBanner.classList.remove('hidden');
+                            }
+                            if (currentFilter === 'all') {
+                                loadDraft();
+                            }
+                            console.log('[Debug] Cache render complete. Hiding loading overlay.');
+                            hideLoading();
+                            return; // Exit early since we used cache
+                        } catch (renderError) {
+                            console.error('[Error] Failed during cache rendering:', renderError);
+                            alert('画面の描画中にエラーが発生しました。開発者ツールのConsoleを確認してください。');
                         }
-                        if (currentFilter === 'all') {
-                            loadDraft();
-                        }
-                        hideLoading();
-                        return; // Exit early since we used cache
                     } else {
-                        console.log('Cache expired. Fetching fresh data...');
+                        console.log('[Debug] Cache expired (older than 24h). Fetching fresh data...');
                     }
+                } else {
+                    console.log('[Debug] No cache found. Fetching fresh data...');
                 }
             } else {
-                console.log('Force refresh requested. Fetching fresh data...');
+                console.log('[Debug] Force refresh requested. Fetching fresh data...');
             }
 
-            // Setup for GAS doGet with item parameter (default behavior)
+            console.log('[Debug] Fetching from GAS API...');
             const url = `${CONFIG.API_URL}?action=items`;
             const response = await fetch(url);
+            console.log('[Debug] Response received. Parsing JSON...');
             const result = await response.json();
 
             if (result.status === 'success') {
+                console.log('[Debug] API fetch success. Items count:', result.data.length);
                 itemsData = result.data;
 
                 // Save to Cache
                 try {
+                    console.log('[Debug] Saving to localStorage...');
                     localStorage.setItem(CACHE_KEY, JSON.stringify(itemsData));
                     localStorage.setItem(TIME_KEY, Date.now().toString());
+                    console.log('[Debug] Saved to localStorage.');
                 } catch (e) {
-                    console.warn('Could not save to localStorage (quota exceeded?).', e);
+                    console.warn('[Warning] Could not save to localStorage (quota exceeded?).', e);
                 }
 
-                renderManufacturerChips();
-                renderCategoryChips(); // Build chips before rendering items
-                renderItems(itemsData);
+                try {
+                    console.log('[Debug] Rendering Manufacturer Chips (API data)...');
+                    renderManufacturerChips();
+                    console.log('[Debug] Rendering Category Chips (API data)...');
+                    renderCategoryChips(); // Build chips before rendering items
+                    console.log('[Debug] Rendering Items List (API data)...');
+                    renderItems(itemsData);
 
-                // Show Announcement banner
-                if (announcementBanner) {
-                    announcementBanner.classList.remove('hidden');
-                }
+                    // Show Announcement banner
+                    if (announcementBanner) {
+                        announcementBanner.classList.remove('hidden');
+                    }
 
-                // Attempt to load draft after rendering the items list once
-                if (currentFilter === 'all') { // Only prompt on initial load
-                    loadDraft();
+                    // Attempt to load draft after rendering the items list once
+                    if (currentFilter === 'all') { // Only prompt on initial load
+                        loadDraft();
+                    }
+                    console.log('[Debug] API data render complete.');
+                } catch (renderError) {
+                    console.error('[Error] Failed during API rendering:', renderError);
+                    alert('画面の描画中にエラーが発生しました。');
                 }
             } else {
+                console.error('[Error] API returned failure status:', result.message);
                 alert('商品データの取得に失敗しました: ' + result.message);
             }
         } catch (error) {
-            console.error(error);
-            alert('通信エラーが発生しました。');
+            console.error('[Error] Network or fatal error in fetchItems:', error);
+            alert('通信エラーが発生しました。再度お試しください。');
         } finally {
+            console.log('[Debug] fetchItems finally block reached. Hiding loading overlay.');
             hideLoading();
         }
     };
