@@ -39,12 +39,10 @@
 
 body {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background-color: var(--bg-main);
+    background-color: #f8fafc;
     color: var(--text-main);
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
-    /* Soft gradient background */
-    background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%);
     min-height: 100vh;
 }
 
@@ -110,13 +108,11 @@ button:active {
 /* --- Login Form --- */
 #login-container {
     margin-top: 10vh;
-    background: var(--bg-card);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+    background: #ffffff;
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-lg);
     padding: 40px 30px;
-    border: 1px solid rgba(255, 255, 255, 0.5);
+    border: 1px solid var(--border-color);
 }
 
 #login-container h2 {
@@ -337,16 +333,12 @@ header {
 /* --- Item Cards --- */
 .item-card,
 .history-card {
-    background: var(--bg-card);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border: 1px solid rgba(255, 255, 255, 0.6);
+    background: #ffffff;
+    border: 1px solid var(--border-color);
     border-radius: var(--radius-lg);
     padding: 16px;
     margin-bottom: 0px;
-    /* Reset margin because grid uses gap */
     box-shadow: var(--shadow-sm);
-    transition: transform 0.2s, box-shadow 0.2s;
 }
 
 .history-card {
@@ -482,19 +474,15 @@ input[type=number]::-webkit-outer-spin-button {
     transform: translateX(-50%);
     width: calc(100% - 40px);
     max-width: 600px;
-    background: rgba(15, 23, 42, 0.95);
-    /* Dark modern Glassmorphism */
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    background: #0f172a;
     padding: 16px 24px;
     border-radius: var(--radius-full);
-    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2);
     display: flex;
     justify-content: space-between;
     align-items: center;
     z-index: 100;
     color: white;
-    border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .cart-summary p {
@@ -526,15 +514,12 @@ input[type=number]::-webkit-outer-spin-button {
 }
 
 .history-group-card {
-    background: var(--bg-card);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border: 1px solid rgba(255, 255, 255, 0.6);
+    background: #ffffff;
+    border: 1px solid var(--border-color);
     border-radius: var(--radius-lg);
     margin-bottom: 16px;
     box-shadow: var(--shadow-sm);
     overflow: hidden;
-    transition: transform 0.2s, box-shadow 0.2s;
 }
 
 .history-group-card:hover {
@@ -625,13 +610,11 @@ input[type=number]::-webkit-outer-spin-button {
 }
 
 .confirm-items-wrapper {
-    background: var(--bg-card);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+    background: #ffffff;
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-md);
     padding: 24px;
-    border: 1px solid rgba(255, 255, 255, 0.5);
+    border: 1px solid var(--border-color);
     margin-bottom: 24px;
 }
 
@@ -669,9 +652,7 @@ input[type=number]::-webkit-outer-spin-button {
     left: 0;
     width: 100%;
     height: 100%;
-    background: rgba(255, 255, 255, 0.6);
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
+    background: #ffffff;
     display: flex;
     justify-content: center;
     align-items: center;

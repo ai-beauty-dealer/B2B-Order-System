@@ -1,4 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
+    console.log('--- B2B Order System v2.01 (SAFE MODE) Loaded ---');
+
     // UI Elements
     const loginForm = document.getElementById('login-form');
     const loginContainer = document.getElementById('login-container');

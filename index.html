@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>AI Beauty Dealer - B2B Order System</title>
-    <link rel="stylesheet" href="style.css?v=1.19">
+    <link rel="stylesheet" href="style.css?v=2.01">
 </head>
 
 <body>
@@ -28,6 +28,11 @@
             </div>
             <button type="submit" class="btn-primary">ログイン</button>
         </form>
+        <div style="margin-top: 24px; text-align: center; border-top: 1px solid #eee; padding-top: 16px;">
+            <p style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 8px;">画面が動かない・真っ黒な場合：</p>
+            <button onclick="localStorage.clear(); location.reload();"
+                style="font-size: 0.75rem; background: #fee2e2; color: #b91c1c; padding: 6px 12px; border-radius: 6px; border: 1px solid #fecaca; font-weight: 600;">ブラウザのキャッシュを強制消去</button>
+        </div>
     </div>
 
     <!-- Order Screen (Initially Hidden) -->
@@ -117,8 +122,8 @@
             <button id="modal-confirm-btn" class="btn-primary" style="flex: 1;">注文を確定する</button>
         </div>
     </div>
-    <script src="config.js?v=1.19"></script>
-    <script src="app.js?v=1.19"></script>
+    <script src="config.js?v=2.01"></script>
+    <script src="app.js?v=2.01"></script>
 </body>
 
 </html>
