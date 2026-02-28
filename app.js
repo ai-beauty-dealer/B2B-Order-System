@@ -34,33 +34,37 @@ document.addEventListener('DOMContentLoaded', () => {
     // Hierarchical Filter Elements
     const manufacturerChipsContainer = document.getElementById('manufacturer-chips-container');
 
-    // Draft Restore Button (non-blocking)
-    const restoreDraftBtn = document.getElementById('restore-draft-btn');
-
     // State
-    let currentUsername = '';
+    let currentUsername = ''; // Use username for unique localstorage key
     let currentClientName = '';
     let itemsData = [];
-    let favoriteItems = [];
-    let currentFilter = 'all';
-    let currentManufacturerFilter = 'all';
-    let currentCategoryFilter = 'all';
-    let editingOrderId = null;
-    let currentCart = {};
+    let favoriteItems = []; // Array of item codes
+    let currentFilter = 'all'; // 'all' or 'favorites'
+    let currentManufacturerFilter = 'all'; // 'all' or manufacturer name
+    let currentCategoryFilter = 'all'; // 'all' or specific category name
+    let editingOrderId = null; // Store orderId if editing an existing order
+    let currentCart = {}; // Store qtys to survive re-rendering
 
     const cancelEditBtn = document.getElementById('cancel-edit-btn');
     const saveDraftBtn = document.getElementById('save-draft-btn');
 
     // --- Utility Functions ---
+    // Normalize string for fuzzy search (half-width, katakana, lowercase, no spaces)
     const normalizeForSearch = (str) => {
         if (!str) return '';
-        str = String(str);
+        str = String(str); // Prevent TypeError if input is a Number
+
+        // 1. Full-width Alphanumeric to Half-width (more explicit unicode range)
         let normalized = str.replace(/[\uFF01-\uFF5E]/g, (s) => {
             return String.fromCharCode(s.charCodeAt(0) - 0xFEE0);
         });
+
+        // 2. Hiragana to Katakana (explicit unicode range)
         normalized = normalized.replace(/[\u3041-\u3096]/g, (s) => {
             return String.fromCharCode(s.charCodeAt(0) + 0x0060);
         });
+
+        // 3. Half-width Katakana to Full-width Katakana
         const kanaMap = {
             'ｶﾞ': 'ガ', 'ｷﾞ': 'ギ', 'ｸﾞ': 'グ', 'ｹﾞ': 'ゲ', 'ｺﾞ': 'ゴ',
             'ｻﾞ': 'ザ', 'ｼﾞ': 'ジ', 'ｽﾞ': 'ズ', 'ｾﾞ': 'ゼ', 'ｿﾞ': 'ゾ',
@@ -82,61 +86,26 @@ document.addEventListener('DOMContentLoaded', () => {
             'ｯ': 'ッ', 'ｬ': 'ャ', 'ｭ': 'ュ', 'ｮ': 'ョ',
             'ｰ': 'ー', '･': '・', '､': '、', 'ﾟ': '゜', 'ﾞ': '゛'
         };
+
+        // Sort keys by length descending so ｶﾞ is matched before ｶ
         const keys = Object.keys(kanaMap).sort((a, b) => b.length - a.length);
         const reg = new RegExp('(' + keys.join('|') + ')', 'g');
-        normalized = normalized.replace(reg, (match) => kanaMap[match] || match);
-        return normalized.toLowerCase().replace(/[\s　\-\_\/\.,;:]/g, '');
+        normalized = normalized.replace(reg, (match) => {
+            return kanaMap[match] || match;
+        });
+
+        // 4. Lowercase and remove all spaces/symbols
+        return normalized.toLowerCase().replace(/[\s　\-\_\/\.,:;]/g, '');
     };
 
-    // --- Loading Helpers ---
     const showLoading = () => loadingOverlay.classList.remove('hidden');
     const hideLoading = () => loadingOverlay.classList.add('hidden');
 
-    // --- Non-blocking UI Helpers (replaces alert/confirm) ---
-    const showToast = (message, type = 'info') => {
-        const toast = document.createElement('div');
-        const bg = type === 'danger' ? '#ef4444' : (type === 'success' ? '#10b981' : '#0f172a');
-        toast.style.cssText = `
-            position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
-            background: ${bg}; color: white; padding: 12px 24px;
-            border-radius: 8px; z-index: 10000; font-weight: 600;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.2); max-width: 90%;
-            text-align: center; font-size: 0.9rem;
-        `;
-        toast.textContent = message;
-        document.body.appendChild(toast);
-        setTimeout(() => toast.remove(), 3000);
-    };
-
-    const showConfirm = (message, onConfirm) => {
-        const overlay = document.createElement('div');
-        overlay.style.cssText = `
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.5); display: flex; align-items: center;
-            justify-content: center; z-index: 10001;
-        `;
-        const dialog = document.createElement('div');
-        dialog.style.cssText = `
-            background: white; padding: 28px 24px; border-radius: 12px;
-            max-width: 90%; width: 340px; text-align: center;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
-        `;
-        dialog.innerHTML = `
-            <p style="margin-bottom: 24px; font-weight: 600; line-height: 1.6; color: #0f172a;">${message.replace(/\n/g, '<br>')}</p>
-            <div style="display: flex; gap: 12px;">
-                <button id="confirm-cancel" style="flex: 1; padding: 12px; border: 1px solid #e2e8f0; background: #f8fafc; border-radius: 8px; font-size: 0.9rem; cursor: pointer;">キャンセル</button>
-                <button id="confirm-ok" style="flex: 1; padding: 12px; border: none; background: #2563eb; color: white; border-radius: 8px; font-size: 0.9rem; font-weight: 600; cursor: pointer;">OK</button>
-            </div>
-        `;
-        overlay.appendChild(dialog);
-        document.body.appendChild(overlay);
-        dialog.querySelector('#confirm-cancel').onclick = () => overlay.remove();
-        dialog.querySelector('#confirm-ok').onclick = () => { overlay.remove(); onConfirm(); };
-    };
-
     const calculateTotal = () => {
         let total = 0;
-        Object.values(currentCart).forEach(item => { total += item.qty || 0; });
+        Object.values(currentCart).forEach(item => {
+            total += item.qty || 0;
+        });
         totalQtySpan.textContent = total;
     };
 
@@ -144,66 +113,69 @@ document.addEventListener('DOMContentLoaded', () => {
     const saveDraft = () => {
         if (!currentUsername) return;
         localStorage.setItem(`b2b_draft_${currentUsername}`, JSON.stringify(currentCart));
-        showToast('入力中の数量を一時保存しました。', 'success');
+        alert('入力中の数量を一時保存しました。');
     };
 
-    // Check for saved draft, show button silently (no popup)
-    const checkDraft = () => {
+    const loadDraft = () => {
         if (!currentUsername) return;
         const savedDraft = localStorage.getItem(`b2b_draft_${currentUsername}`);
-        if (!savedDraft) { if (restoreDraftBtn) restoreDraftBtn.style.display = 'none'; return; }
+        if (!savedDraft) return;
+
         try {
             const draftData = JSON.parse(savedDraft);
             if (Object.keys(draftData).length > 0) {
-                if (restoreDraftBtn) restoreDraftBtn.style.display = 'inline-block';
-            }
-        } catch (e) { /* ignore */ }
-    };
-
-    // Wire the restore button (user manually triggers)
-    if (restoreDraftBtn) {
-        restoreDraftBtn.addEventListener('click', () => {
-            const savedDraft = localStorage.getItem(`b2b_draft_${currentUsername}`);
-            if (!savedDraft) return;
-            showConfirm('前回の一時保存データを復元しますか？', () => {
-                try {
-                    const draftData = JSON.parse(savedDraft);
+                if (confirm('前回の一時保存データがあります。復元しますか？')) {
+                    // Backwards compatibility check
                     const isOldFormat = typeof Object.values(draftData)[0] === 'number';
                     if (isOldFormat) {
-                        const itemsMap = new Map(itemsData.map(i => [String(i.code), i.name]));
                         currentCart = {};
                         Object.entries(draftData).forEach(([code, qty]) => {
-                            currentCart[code] = { qty, name: itemsMap.get(String(code)) || '（商品名未入力）' };
+                            const matchedItem = itemsData.find(i => String(i.code) === String(code));
+                            if (matchedItem) {
+                                currentCart[code] = { qty: qty, name: matchedItem.name };
+                            } else if (code.startsWith('CUSTOM_ITEM')) {
+                                currentCart[code] = { qty: qty, name: '（商品名未入力）' };
+                            }
                         });
                     } else {
                         currentCart = draftData;
                     }
+                    renderItems(itemsData);
+                    renderCustomItemsFromCart();
                     calculateTotal();
-                    showToast('データを復元しました。', 'success');
-                    restoreDraftBtn.style.display = 'none';
-                } catch (e) { showToast('復元に失敗しました。', 'danger'); }
-            });
-        });
-    }
+                }
+            }
+        } catch (e) { /* ignore invalid data */ }
+    };
 
-    if (saveDraftBtn) saveDraftBtn.addEventListener('click', saveDraft);
+    if (saveDraftBtn) {
+        saveDraftBtn.addEventListener('click', saveDraft);
+    }
 
     // --- Render Items ---
     const renderItems = (items) => {
-        itemListContainer.innerHTML = '';
+        itemListContainer.innerHTML = ''; // Clear current
 
+        // Filter by current tab selection before rendering
         let displayItems = items;
         if (currentFilter === 'favorites') {
             displayItems = displayItems.filter(item => favoriteItems.includes(item.code));
         }
+
+        // Filter by selected manufacturer
         if (currentManufacturerFilter !== 'all') {
             displayItems = displayItems.filter(item => item.manufacturer === currentManufacturerFilter);
         }
+
+        // Filter by selected category
         if (currentCategoryFilter !== 'all') {
             displayItems = displayItems.filter(item => item.category === currentCategoryFilter);
         }
 
-        // Gate: require manufacturer+category selection (search bypasses this)
+        // --- PERFORMANCE OPTIMIZATION ---
+        // Force the user to select both Manufacturer and Category before rendering anything on the 'all' tab.
+        // This prevents the browser from crashing when trying to render 10,000+ items at once.
+        // EXCEPTION: Allow rendering if the user has typed something in the search bar.
         const isSearchActive = searchInput && searchInput.value.trim() !== '';
         if (currentFilter === 'all' && (currentManufacturerFilter === 'all' || currentCategoryFilter === 'all') && !isSearchActive) {
             itemListContainer.innerHTML = `
@@ -221,7 +193,6 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        const fragment = document.createDocumentFragment();
         displayItems.forEach(item => {
             const isFav = favoriteItems.includes(item.code);
             const card = document.createElement('div');
@@ -243,27 +214,42 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
             `;
 
+            // Attach Events for this card
             const input = card.querySelector('.qty-input');
             const favBtn = card.querySelector('.btn-fav');
 
+            // Favorite toggle
             favBtn.addEventListener('click', () => {
                 if (favoriteItems.includes(item.code)) {
+                    // Remove
                     favoriteItems = favoriteItems.filter(c => c !== item.code);
                     favBtn.classList.remove('active');
                     favBtn.textContent = '☆';
                 } else {
+                    // Add
                     favoriteItems.push(item.code);
                     favBtn.classList.add('active');
                     favBtn.textContent = '★';
                 }
+                // Save to local storage
                 localStorage.setItem(`b2b_favs_${currentUsername}`, JSON.stringify(favoriteItems));
+
+                // If we are on the favorites tab, re-render to hide removed item instantly
+                // Note: Re-rendering clears quantity inputs. For MVP this is acceptable.
                 if (currentFilter === 'favorites') {
+                    // Re-apply search filter if there's any text in the input
                     const rawSearch = searchInput.value;
                     if (rawSearch.trim() === '') {
                         renderItems(itemsData);
                     } else {
-                        const tokens = rawSearch.trim().split(/[\s　]+/);
-                        renderItems(itemsData.filter(i => tokens.every(t => (normalizeForSearch(i.name) + normalizeForSearch(i.code)).includes(normalizeForSearch(t)))));
+                        const searchTokens = rawSearch.trim().split(/[\s　]+/);
+                        const filtered = itemsData.filter(item => {
+                            const normalizedName = normalizeForSearch(item.name);
+                            const normalizedCode = normalizeForSearch(item.code);
+                            const searchableText = normalizedName + normalizedCode;
+                            return searchTokens.every(token => searchableText.includes(normalizeForSearch(token)));
+                        });
+                        renderItems(filtered);
                     }
                 }
             });
@@ -275,33 +261,38 @@ document.addEventListener('DOMContentLoaded', () => {
 
             card.querySelector('.minus').addEventListener('click', () => {
                 let val = parseInt(input.value) || 0;
-                if (val > 0) { val--; input.value = val; updateCart(val); calculateTotal(); }
+                if (val > 0) { val -= 1; input.value = val; updateCart(val); calculateTotal(); }
             });
             card.querySelector('.plus').addEventListener('click', () => {
-                let val = (parseInt(input.value) || 0) + 1;
-                input.value = val; updateCart(val); calculateTotal();
+                let val = parseInt(input.value) || 0;
+                val += 1; input.value = val; updateCart(val); calculateTotal();
             });
             input.addEventListener('change', () => {
                 let val = parseInt(input.value) || 0;
                 if (val < 0) { val = 0; input.value = 0; }
-                updateCart(val); calculateTotal();
+                updateCart(val);
+                calculateTotal();
             });
 
-            fragment.appendChild(card);
+            itemListContainer.appendChild(card);
         });
-        itemListContainer.appendChild(fragment);
     };
 
     // --- Render History ---
     const renderHistory = (historyData) => {
         historyListContainer.innerHTML = '';
+
         if (historyData.length === 0) {
             historyListContainer.innerHTML = '<p>発注履歴がありません。</p>';
             return;
         }
+
+        // Group history by date string
         const groupedHistory = {};
         historyData.forEach(hist => {
-            if (!groupedHistory[hist.date]) groupedHistory[hist.date] = [];
+            if (!groupedHistory[hist.date]) {
+                groupedHistory[hist.date] = [];
+            }
             groupedHistory[hist.date].push(hist);
         });
 
@@ -309,6 +300,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const items = groupedHistory[date];
             let totalItems = 0;
             let detailsHtml = '';
+
             items.forEach(item => {
                 totalItems += parseInt(item.qty);
                 detailsHtml += `<div class="history-item"><span>${item.name}</span><span>${item.qty}点</span></div>`;
@@ -316,6 +308,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const card = document.createElement('div');
             card.className = 'history-group-card';
+
             card.innerHTML = `
                 <div class="history-header">
                     <div>
@@ -333,23 +326,33 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
             `;
 
+            // Accordion toggle logic
             const header = card.querySelector('.history-header');
             const body = card.querySelector('.history-body');
             const toggleIcon = card.querySelector('.history-toggle');
+
             header.addEventListener('click', () => {
-                const isHidden = body.classList.toggle('hidden');
-                toggleIcon.textContent = isHidden ? '▼' : '▲';
+                const isHidden = body.classList.contains('hidden');
+                if (isHidden) {
+                    body.classList.remove('hidden');
+                    toggleIcon.textContent = '▲';
+                } else {
+                    body.classList.add('hidden');
+                    toggleIcon.textContent = '▼';
+                }
             });
 
-            const cancelBtn = card.querySelector('.cancel-order-btn');
+            // Action Buttons
             const editBtn = card.querySelector('.edit-order-btn');
+            const cancelBtn = card.querySelector('.cancel-order-btn');
 
             cancelBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
-                showConfirm('この発注をキャンセルします。よろしいですか？', () => {
+                if (confirm('この発注をキャンセルします。よろしいですか？')) {
                     cancelOrder(e.target.dataset.orderId);
-                });
+                }
             });
+
             editBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 startEditingOrder(e.target.dataset.orderId, items);
@@ -366,24 +369,28 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch(CONFIG.API_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                body: JSON.stringify({ action: 'cancel_order', clientName: currentClientName, orderId })
+                body: JSON.stringify({
+                    action: 'cancel_order',
+                    clientName: currentClientName,
+                    orderId: orderId
+                })
             });
             const result = await response.json();
             if (result.status === 'success') {
-                showToast('発注をキャンセルしました。', 'success');
-                fetchHistory();
+                alert('発注をキャンセルしました。');
+                fetchHistory(); // Refresh
             } else {
-                showToast('失敗しました: ' + result.message, 'danger');
+                alert('失敗しました: ' + result.message);
             }
         } catch (error) {
             console.error(error);
-            showToast('通信エラーが発生しました。', 'danger');
+            alert('通信エラーが発生しました。');
         } finally {
             hideLoading();
         }
     };
 
-    // --- Custom Item Logic ---
+    // --- Custom Item Logic (Dynamic) ---
     const renderCustomItemsFromCart = () => {
         if (!customItemsList) return;
         customItemsList.innerHTML = '';
@@ -397,6 +404,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const addCustomItemUI = (code = null, initialName = '', initialQty = 0) => {
         if (!customItemsList) return;
         const itemCode = code || `CUSTOM_ITEM_${Date.now()}`;
+
         const card = document.createElement('div');
         card.className = 'item-card custom-item-card';
         card.style.marginBottom = '12px';
@@ -418,11 +426,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const nameInput = card.querySelector('.custom-name-input');
         const qtyInput = card.querySelector('.custom-qty-input');
+        const minusBtn = card.querySelector('.minus');
+        const plusBtn = card.querySelector('.plus');
         const removeBtn = card.querySelector('.btn-remove-custom');
 
         const updateCart = (val) => {
             if (val > 0) {
-                currentCart[itemCode] = { qty: val, name: nameInput.value.trim() || '（商品名未入力）' };
+                const customName = nameInput.value.trim() || '（商品名未入力）';
+                currentCart[itemCode] = { qty: val, name: customName };
             } else {
                 delete currentCart[itemCode];
             }
@@ -432,83 +443,110 @@ document.addEventListener('DOMContentLoaded', () => {
             const val = parseInt(qtyInput.value) || 0;
             if (val > 0) updateCart(val);
         });
-        card.querySelector('.minus').addEventListener('click', () => {
+
+        minusBtn.addEventListener('click', () => {
             let val = parseInt(qtyInput.value) || 0;
-            if (val > 0) { val--; qtyInput.value = val; updateCart(val); calculateTotal(); }
+            if (val > 0) { val -= 1; qtyInput.value = val; updateCart(val); calculateTotal(); }
         });
-        card.querySelector('.plus').addEventListener('click', () => {
+
+        plusBtn.addEventListener('click', () => {
             if (!nameInput.value.trim()) {
-                showToast('先に特注商品の「商品名や規格」を入力してください。', 'danger');
+                alert('先に特注商品の「商品名や規格」を入力してください。');
                 return;
             }
-            let val = (parseInt(qtyInput.value) || 0) + 1;
-            qtyInput.value = val; updateCart(val); calculateTotal();
+            let val = parseInt(qtyInput.value) || 0;
+            val += 1; qtyInput.value = val; updateCart(val); calculateTotal();
         });
+
         qtyInput.addEventListener('change', () => {
             let val = parseInt(qtyInput.value) || 0;
             if (val < 0) val = 0;
             if (val > 0 && !nameInput.value.trim()) {
-                showToast('先に特注商品の「商品名や規格」を入力してください。', 'danger');
+                alert('先に特注商品の「商品名や規格」を入力してください。');
                 val = 0;
             }
-            qtyInput.value = val; updateCart(val); calculateTotal();
+            qtyInput.value = val;
+            updateCart(val);
+            calculateTotal();
         });
+
         removeBtn.addEventListener('click', () => {
-            showConfirm('この特注商品を削除しますか？', () => {
+            if (confirm('この特注商品を削除しますか？')) {
                 delete currentCart[itemCode];
                 card.remove();
                 calculateTotal();
-            });
+            }
         });
 
         customItemsList.appendChild(card);
-        if (!code) nameInput.focus();
+        // Focus the name input if it's a new empty item
+        if (!code) {
+            nameInput.focus();
+        }
     };
 
-    if (addCustomItemBtn) addCustomItemBtn.addEventListener('click', () => addCustomItemUI());
+    if (addCustomItemBtn) {
+        addCustomItemBtn.addEventListener('click', () => {
+            addCustomItemUI();
+        });
+    }
 
     // --- Start Editing Order ---
     const startEditingOrder = (orderId, items) => {
         editingOrderId = orderId;
-        currentCart = {};
+        currentCart = {}; // Reset cart for editing
+
+        // Restore quantities from the history items into cart
         items.forEach(item => {
             currentCart[item.code] = { qty: parseInt(item.qty), name: item.name };
         });
+
+        // Switch back to 'all' tab first so the items are rendered
         switchTab('tab-all');
         window.scrollTo(0, 0);
+
         calculateTotal();
+
+        // Update UI for Edit Mode
         if (orderSubmitBtn) orderSubmitBtn.textContent = '変更を保存する';
         if (cancelEditBtn) cancelEditBtn.classList.remove('hidden');
     };
 
-    if (cancelEditBtn) cancelEditBtn.addEventListener('click', () => resetEditMode());
+    // --- Cancel Edit Mode ---
+    if (cancelEditBtn) {
+        cancelEditBtn.addEventListener('click', () => {
+            resetEditMode();
+        });
+    }
 
     const resetEditMode = () => {
         editingOrderId = null;
-        currentCart = {};
+        currentCart = {}; // Clear cart
         if (orderSubmitBtn) orderSubmitBtn.textContent = '発注する';
         if (cancelEditBtn) cancelEditBtn.classList.add('hidden');
         if (customItemsList) customItemsList.innerHTML = '';
         calculateTotal();
         if (searchInput) searchInput.value = '';
-        renderItems(itemsData);
+        renderItems(itemsData); // Clear search filters
     };
 
-    // --- Fetch History ---
+
+    // --- Fetch History from API ---
     const fetchHistory = async () => {
         showLoading();
         try {
             const url = `${CONFIG.API_URL}?action=history&clientName=${encodeURIComponent(currentClientName)}`;
             const response = await fetch(url);
             const result = await response.json();
+
             if (result.status === 'success') {
                 renderHistory(result.data);
             } else {
-                showToast('履歴の取得に失敗しました: ' + result.message, 'danger');
+                alert('履歴の取得に失敗しました: ' + result.message);
             }
         } catch (error) {
             console.error(error);
-            showToast('通信エラーが発生しました。', 'danger');
+            alert('通信エラーが発生しました。');
         } finally {
             hideLoading();
         }
@@ -516,9 +554,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Tab Filtering ---
     const switchTab = (tabId) => {
+        // Reset all
         tabAll.classList.remove('active');
         tabFavorites.classList.remove('active');
         tabHistory.classList.remove('active');
+
         document.getElementById(tabId).classList.add('active');
 
         if (tabId === 'tab-history') {
@@ -533,10 +573,11 @@ document.addEventListener('DOMContentLoaded', () => {
             cartSummary.classList.remove('hidden');
             historyListContainer.classList.add('hidden');
 
+            // Re-render items based on all/favs
             currentFilter = tabId === 'tab-favorites' ? 'favorites' : 'all';
             currentManufacturerFilter = 'all';
             currentCategoryFilter = 'all';
-            searchInput.value = '';
+            searchInput.value = ''; // Reset search focus
             renderManufacturerChips();
             renderCategoryChips();
             renderItems(itemsData);
@@ -547,44 +588,55 @@ document.addEventListener('DOMContentLoaded', () => {
     if (tabFavorites) tabFavorites.addEventListener('click', () => switchTab('tab-favorites'));
     if (tabHistory) tabHistory.addEventListener('click', () => switchTab('tab-history'));
 
-    // --- Search Logic (debounced) ---
-    let searchTimeout;
+    // --- Search Logic ---
     searchInput.addEventListener('input', (e) => {
-        clearTimeout(searchTimeout);
-        searchTimeout = setTimeout(() => {
-            const rawSearch = e.target.value;
-            if (rawSearch.trim() === '') {
-                renderItems(itemsData);
-            } else {
-                const searchTokens = rawSearch.trim().split(/[\s　]+/);
-                const filteredItems = itemsData.filter(item => {
-                    const searchableText = normalizeForSearch(item.name) + normalizeForSearch(item.code);
-                    return searchTokens.every(token => {
-                        const normalizedToken = normalizeForSearch(token);
-                        if (!normalizedToken) return true;
-                        return searchableText.includes(normalizedToken);
-                    });
+        const rawSearch = e.target.value;
+        if (rawSearch.trim() === '') {
+            renderItems(itemsData);
+        } else {
+            // Split by space for AND search
+            const searchTokens = rawSearch.trim().split(/[\s　]+/);
+
+            const filteredItems = itemsData.filter(item => {
+                const normalizedName = normalizeForSearch(item.name);
+                const normalizedCode = normalizeForSearch(item.code);
+                const searchableText = normalizedName + normalizedCode;
+
+                // Return true only if ALL tokens are found (AND search)
+                return searchTokens.every(token => {
+                    const normalizedToken = normalizeForSearch(token);
+                    if (!normalizedToken) return true; // skip purely symbolic space
+                    return searchableText.includes(normalizedToken);
                 });
-                renderItems(filteredItems);
-            }
-            calculateTotal();
-        }, 200);
+            });
+            renderItems(filteredItems);
+        }
+
+        // Note: Re-rendering clears inputs. In a real app we'd preserve state, 
+        // but for MVP it's safer to filter before picking quantities.
+        calculateTotal();
     });
 
     // --- Render Manufacturer Chips ---
     const renderManufacturerChips = () => {
         if (!manufacturerChipsContainer) return;
         manufacturerChipsContainer.innerHTML = '';
+
+        // Extract unique manufacturers from current data
         const manufacturers = [...new Set(itemsData.map(item => item.manufacturer))].filter(Boolean);
-        if (manufacturers.length === 0) { manufacturerChipsContainer.style.display = 'none'; return; }
+        if (manufacturers.length === 0) {
+            manufacturerChipsContainer.style.display = 'none';
+            return;
+        }
         manufacturerChipsContainer.style.display = 'flex';
 
+        // Add "All" Manufacturer chip
         const allChip = document.createElement('div');
         allChip.className = `manufacturer-chip ${currentManufacturerFilter === 'all' ? 'active' : ''}`;
         allChip.textContent = 'すべてのメーカー';
         allChip.addEventListener('click', () => {
             currentManufacturerFilter = 'all';
-            currentCategoryFilter = 'all';
+            currentCategoryFilter = 'all'; // Reset category when switching manufacturer
             renderManufacturerChips();
             renderCategoryChips();
             if (searchInput) searchInput.value = '';
@@ -598,7 +650,7 @@ document.addEventListener('DOMContentLoaded', () => {
             chip.textContent = m;
             chip.addEventListener('click', () => {
                 currentManufacturerFilter = m;
-                currentCategoryFilter = 'all';
+                currentCategoryFilter = 'all'; // Reset category when switching manufacturer
                 renderManufacturerChips();
                 renderCategoryChips();
                 if (searchInput) searchInput.value = '';
@@ -612,19 +664,24 @@ document.addEventListener('DOMContentLoaded', () => {
     const renderCategoryChips = () => {
         if (!categoryChipsContainer) return;
         categoryChipsContainer.innerHTML = '';
+
+        // Filter items by current manufacturer before extracting categories
         const filteredByManufacturer = currentManufacturerFilter === 'all'
             ? itemsData
             : itemsData.filter(item => item.manufacturer === currentManufacturerFilter);
-        const categories = [...new Set(filteredByManufacturer.map(item => item.category))].filter(Boolean);
-        if (categories.length === 0) return;
 
+        // Extract unique categories (filter out empty strings)
+        const categories = [...new Set(filteredByManufacturer.map(item => item.category))].filter(Boolean);
+        if (categories.length === 0) return; // Hide chips if no categories exist
+
+        // Add "All" chip
         const allChip = document.createElement('div');
         allChip.className = `category-chip ${currentCategoryFilter === 'all' ? 'active' : ''}`;
         allChip.textContent = 'すべて';
         allChip.addEventListener('click', () => {
             currentCategoryFilter = 'all';
-            renderCategoryChips();
-            if (searchInput) searchInput.value = '';
+            renderCategoryChips(); // Re-render chips to update active state
+            if (searchInput) searchInput.value = ''; // Reset search focus
             renderItems(itemsData);
         });
         categoryChipsContainer.appendChild(allChip);
@@ -643,108 +700,90 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
-    // --- Fetch Items (with LocalStorage Caching) ---
-    const fetchItems = async (forceRefresh = false) => {
+    // --- Fetch Items from API ---
+    const fetchItems = async () => {
         showLoading();
         try {
-            const CACHE_KEY = 'b2b_master_data';
-            const TIME_KEY = 'b2b_master_timestamp';
-            const ONE_DAY_MS = 24 * 60 * 60 * 1000;
-
-            if (!forceRefresh) {
-                const cachedData = localStorage.getItem(CACHE_KEY);
-                const cachedTime = localStorage.getItem(TIME_KEY);
-                if (cachedData && cachedTime) {
-                    const age = Date.now() - parseInt(cachedTime, 10);
-                    if (age < ONE_DAY_MS) {
-                        itemsData = JSON.parse(cachedData);
-                        renderManufacturerChips();
-                        renderCategoryChips();
-                        renderItems(itemsData);
-                        if (announcementBanner) announcementBanner.classList.remove('hidden');
-                        if (currentFilter === 'all') checkDraft();
-                        hideLoading();
-                        return;
-                    }
-                }
-            }
-
+            // Setup for GAS doGet with item parameter (default behavior)
             const url = `${CONFIG.API_URL}?action=items`;
             const response = await fetch(url);
             const result = await response.json();
 
             if (result.status === 'success') {
                 itemsData = result.data;
-                try {
-                    localStorage.setItem(CACHE_KEY, JSON.stringify(itemsData));
-                    localStorage.setItem(TIME_KEY, Date.now().toString());
-                } catch (e) {
-                    console.warn('Could not save to localStorage.', e);
-                }
                 renderManufacturerChips();
-                renderCategoryChips();
+                renderCategoryChips(); // Build chips before rendering items
                 renderItems(itemsData);
-                if (announcementBanner) announcementBanner.classList.remove('hidden');
-                if (currentFilter === 'all') checkDraft();
+
+                // Show Announcement banner
+                if (announcementBanner) {
+                    announcementBanner.classList.remove('hidden');
+                }
+
+                // Attempt to load draft after rendering the items list once
+                if (currentFilter === 'all') { // Only prompt on initial load
+                    loadDraft();
+                }
             } else {
-                showToast('商品データの取得に失敗しました: ' + result.message, 'danger');
+                alert('商品データの取得に失敗しました: ' + result.message);
             }
         } catch (error) {
             console.error(error);
-            showToast('通信エラーが発生しました。再度お試しください。', 'danger');
+            alert('通信エラーが発生しました。');
         } finally {
             hideLoading();
         }
     };
 
-    // Manual Refresh Button
-    const refreshDataBtn = document.getElementById('refresh-data-btn');
-    if (refreshDataBtn) {
-        refreshDataBtn.addEventListener('click', () => {
-            showConfirm('最新の商品データをダウンロードしますか？（少し時間がかかります）', () => {
-                fetchItems(true);
-            });
-        });
-    }
-
-    // --- Login ---
+    // --- Login (API) ---
     loginForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         const username = document.getElementById('username').value;
         const password = document.getElementById('password').value;
+
         if (!username || !password) return;
 
         showLoading();
         try {
             const response = await fetch(CONFIG.API_URL, {
                 method: 'POST',
+                // Using text/plain prevents CORS preflight issues with GAS
                 headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                redirect: 'follow',
-                body: JSON.stringify({ action: 'login', username, password })
+                redirect: 'follow', // GAS requires following redirects for POST responses
+                body: JSON.stringify({
+                    action: 'login',
+                    username: username,
+                    password: password
+                })
             });
+
             const result = await response.json();
 
             if (result.status === 'success') {
                 currentUsername = username;
                 currentClientName = result.clientName;
 
+                // Load favorites
                 const savedFavs = localStorage.getItem(`b2b_favs_${currentUsername}`);
-                try { favoriteItems = savedFavs ? JSON.parse(savedFavs) : []; } catch (e) { favoriteItems = []; }
+                if (savedFavs) {
+                    try {
+                        favoriteItems = JSON.parse(savedFavs);
+                    } catch (e) { favoriteItems = []; }
+                } else {
+                    favoriteItems = [];
+                }
 
                 // Switch screen
                 loginContainer.classList.add('hidden');
                 orderContainer.classList.remove('hidden');
-
-                // Yield to browser paint before heavy data fetch
-                requestAnimationFrame(() => {
-                    setTimeout(() => { fetchItems(); }, 100);
-                });
+                // Fetch items on successful login
+                fetchItems();
             } else {
-                showToast('ログインに失敗しました: ' + result.message, 'danger');
+                alert('ログインに失敗しました: ' + result.message);
             }
         } catch (error) {
             console.error(error);
-            showToast('通信に失敗しました。', 'danger');
+            alert('通信に失敗しました。');
         } finally {
             hideLoading();
         }
@@ -756,7 +795,9 @@ document.addEventListener('DOMContentLoaded', () => {
         currentClientName = '';
         favoriteItems = [];
         currentCart = {};
+
         if (customItemsList) customItemsList.innerHTML = '';
+
         orderContainer.classList.add('hidden');
         loginContainer.classList.remove('hidden');
         loginForm.reset();
@@ -764,74 +805,115 @@ document.addEventListener('DOMContentLoaded', () => {
         historyListContainer.innerHTML = '';
         totalQtySpan.textContent = '0';
         searchInput.value = '';
-        if (restoreDraftBtn) restoreDraftBtn.style.display = 'none';
+
+        // Reset to default tab
+        switchTab('tab-all');
     });
 
-    // --- Submit Order ---
+    // --- Execute Order Helper ---
     const executeOrderActual = async (orders, isEditing, remarks) => {
         showLoading();
         try {
             const action = isEditing ? 'update_order' : 'order';
-            const payload = { action, clientName: currentClientName, orders, remarks };
+            const payload = {
+                action: action,
+                clientName: currentClientName,
+                orders: orders,
+                remarks: remarks
+            };
+
             const requestBody = isEditing ? { ...payload, orderId: String(editingOrderId) } : payload;
 
             const response = await fetch(CONFIG.API_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                redirect: 'follow',
+                redirect: 'follow', // Crucial for GAS Web Apps
                 body: JSON.stringify(requestBody)
             });
+
             const result = await response.json();
 
             if (result.status === 'success') {
-                showToast(isEditing ? '発注内容を変更しました。' : '発注が完了しました！', 'success');
+                alert(isEditing ? '発注内容を変更しました。' : '発注が完了しました！\n引き続き発注いただけます。');
                 localStorage.removeItem(`b2b_draft_${currentUsername}`);
+
+                // Clear custom item fields safely
                 if (customItemsList) customItemsList.innerHTML = '';
+
                 resetEditMode();
             } else {
-                showToast('失敗しました: ' + result.message, 'danger');
+                alert('失敗しました: ' + result.message);
             }
         } catch (error) {
             console.error(error);
-            showToast('通信エラーが発生しました。発注が完了していない可能性があります。', 'danger');
+            alert('通信エラーが発生しました。発注が完了していない可能性があります。');
         } finally {
             hideLoading();
         }
     };
 
+    // --- Submit Order (API) ---
     if (orderSubmitBtn) {
         orderSubmitBtn.addEventListener('click', () => {
             const total = parseInt(totalQtySpan.textContent);
-            if (total === 0) { showToast('商品を1点以上選択してください。', 'danger'); return; }
+            if (total === 0) {
+                alert('商品を1点以上選択してください。');
+                return;
+            }
 
             const orders = [];
+
+            // Check if Confirmation Screen elements exist safely
             if (confirmationContainer && confirmItemList) {
-                confirmItemList.innerHTML = '';
+                confirmItemList.innerHTML = ''; // Reset list
+
                 Object.entries(currentCart).forEach(([code, data]) => {
                     if (data.qty > 0) {
-                        orders.push({ code, name: data.name, qty: data.qty });
+                        orders.push({
+                            code: code,
+                            name: data.name,
+                            qty: data.qty
+                        });
+
+                        // Add to UI
                         const row = document.createElement('div');
                         row.className = 'confirm-item-row';
                         row.innerHTML = `<span class="confirm-item-name">${data.name}</span><span class="confirm-item-qty">${data.qty}点</span>`;
                         confirmItemList.appendChild(row);
                     }
                 });
+
+                // Clear order remarks
                 if (orderRemarks) orderRemarks.value = '';
+
+                // Show Confirmation Screen, Hide Order Screen
                 orderContainer.classList.add('hidden');
                 confirmationContainer.classList.remove('hidden');
-                window.scrollTo(0, 0);
+                window.scrollTo(0, 0); // Scroll to top
             } else {
+                // FALLBACK: If HTML is cached and missing the modal, use standard confirm()
                 Object.entries(currentCart).forEach(([code, data]) => {
-                    if (data.qty > 0) orders.push({ code, name: data.name, qty: data.qty });
+                    if (data.qty > 0) {
+                        orders.push({
+                            code: code,
+                            name: data.name,
+                            qty: data.qty
+                        });
+                    }
                 });
+
                 const isEditing = editingOrderId !== null;
-                showConfirm(`${total}点の商品を${isEditing ? '変更' : '発注'}します。よろしいですか？`, () => {
-                    executeOrderActual(orders, isEditing);
-                });
+                const confirmMsg = isEditing
+                    ? `${total}点で発注内容を変更します。よろしいですか？`
+                    : `${total}点の商品を発注します。よろしいですか？`;
+
+                if (!confirm(confirmMsg)) return;
+                executeOrderActual(orders, isEditing);
             }
         });
     }
 
+    // Close Confirmation Screen
     if (modalCancelBtn) {
         modalCancelBtn.addEventListener('click', () => {
             if (confirmationContainer) {
@@ -841,18 +923,28 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Actually Execute Order from Confirmation Screen
     if (modalConfirmBtn) {
         modalConfirmBtn.addEventListener('click', async () => {
             if (confirmationContainer) {
                 confirmationContainer.classList.add('hidden');
-                orderContainer.classList.remove('hidden');
+                orderContainer.classList.remove('hidden'); // Return immediately so loading overlay shows here
             }
+
             const orders = [];
             Object.entries(currentCart).forEach(([code, data]) => {
-                if (data.qty > 0) orders.push({ code, name: data.name, qty: data.qty });
+                if (data.qty > 0) {
+                    orders.push({
+                        code: code,
+                        name: data.name,
+                        qty: data.qty
+                    });
+                }
             });
+
             const remarks = orderRemarks ? orderRemarks.value.trim() : '';
-            executeOrderActual(orders, editingOrderId !== null, remarks);
+            const isEditing = editingOrderId !== null;
+            executeOrderActual(orders, isEditing, remarks);
         });
     }
 });
