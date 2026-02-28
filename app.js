@@ -101,18 +101,47 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const showLoading = (message = '読み込み中...') => {
-        const spinner = loadingOverlay.querySelector('.spinner');
-        let statusText = loadingOverlay.querySelector('.status-text');
-        if (!statusText) {
-            statusText = document.createElement('div');
-            statusText.className = 'status-text';
-            statusText.style.cssText = 'margin-top: 20px; color: #64748b; font-weight: 600; font-size: 0.9rem; text-align: center;';
-            loadingOverlay.appendChild(statusText);
+        let overlay = document.getElementById('loading-overlay');
+        if (!overlay) {
+            // Re-create if physically removed
+            overlay = document.createElement('div');
+            overlay.id = 'loading-overlay';
+            overlay.innerHTML = '<div class="spinner"></div><div class="status-text"></div>';
+            document.body.appendChild(overlay);
         }
-        statusText.textContent = message;
-        loadingOverlay.classList.remove('hidden');
+
+        const statusText = overlay.querySelector('.status-text');
+        if (statusText) {
+            statusText.textContent = message;
+            statusText.style.cssText = 'margin-top: 20px; color: #64748b; font-weight: 600; font-size: 0.9rem; text-align: center;';
+        }
+        overlay.classList.remove('hidden');
+
+        // Emergency manual close button after 5 seconds to prevent deadlock
+        if (!overlay.querySelector('.emergency-close')) {
+            setTimeout(() => {
+                if (document.getElementById('loading-overlay')) {
+                    const closeBtn = document.createElement('button');
+                    closeBtn.className = 'emergency-close';
+                    closeBtn.textContent = '× 読み込み画面を強制終了';
+                    closeBtn.style.cssText = 'position: absolute; bottom: 40px; background: #fee2e2; color: #b91c1c; padding: 10px 20px; border-radius: 99px; border: 1px solid #fecaca; font-size: 0.8rem; font-weight: bold; cursor: pointer;';
+                    closeBtn.onclick = hideLoading;
+                    overlay.appendChild(closeBtn);
+                }
+            }, 5000);
+        }
     };
-    const hideLoading = () => loadingOverlay.classList.add('hidden');
+
+    const hideLoading = () => {
+        const overlay = document.getElementById('loading-overlay');
+        if (overlay) {
+            overlay.classList.add('hidden');
+            // Hard physical removal to guarantee no hazy freeze
+            setTimeout(() => {
+                if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+            }, 50);
+        }
+    };
 
     const calculateTotal = () => {
         let total = 0;
