@@ -5,17 +5,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>AI Beauty Dealer - B2B Order System</title>
-    <link rel="stylesheet" href="style.css?v=2.03">
+    <link rel="stylesheet" href="style.css?v=2.04">
 </head>
 
 <body>
-    <div id="loading-overlay" class="hidden">
-        <div class="spinner"></div>
-        <div class="status-text"></div>
+    <!-- Non-blocking Loading Banner (does NOT intercept clicks) -->
+    <div id="loading-banner" class="hidden"
+        style="position: fixed; top: 0; left: 0; width: 100%; background: var(--primary); color: white; text-align: center; padding: 10px 16px; font-weight: 600; font-size: 0.875rem; z-index: 999; pointer-events: none;">
+        <span id="loading-banner-text">読み込み中...</span>
     </div>
 
     <!-- Login Screen -->
-    <div id="login-container" class="container">
+    <div id="login-container" class="container" style="padding-top: 16px;">
         <h2>パートナーログイン</h2>
         <form id="login-form">
             <div class="input-group">
@@ -26,7 +27,7 @@
                 <label for="password">パスワード</label>
                 <input type="password" id="password" name="password" required>
             </div>
-            <button type="submit" class="btn-primary">ログイン</button>
+            <button type="submit" id="login-btn" class="btn-primary">ログイン</button>
         </form>
         <div style="margin-top: 24px; text-align: center; border-top: 1px solid #eee; padding-top: 16px;">
             <p style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 8px;">画面が動かない・真っ黒な場合：</p>
@@ -122,8 +123,8 @@
             <button id="modal-confirm-btn" class="btn-primary" style="flex: 1;">注文を確定する</button>
         </div>
     </div>
-    <script src="config.js?v=2.03"></script>
-    <script src="app.js?v=2.03"></script>
+    <script src="config.js?v=2.04"></script>
+    <script src="app.js?v=2.04"></script>
 </body>
 
 </html>

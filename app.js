@@ -1,5 +1,21 @@
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.01 (SAFE MODE) Loaded ---');
+    console.log('--- B2B Order System v2.04 (NO-OVERLAY) Loaded ---');
+
+    // Loading banner (non-blocking -- does not intercept any clicks)
+    const loadingBanner = document.getElementById('loading-banner');
+    const loadingBannerText = document.getElementById('loading-banner-text');
+    const loginBtn = document.getElementById('login-btn');
+
+    const showLoading = (message = '読み込み中...') => {
+        if (loadingBannerText) loadingBannerText.textContent = message;
+        if (loadingBanner) loadingBanner.classList.remove('hidden');
+        if (loginBtn) { loginBtn.disabled = true; loginBtn.textContent = message; }
+    };
+
+    const hideLoading = () => {
+        if (loadingBanner) loadingBanner.classList.add('hidden');
+        if (loginBtn) { loginBtn.disabled = false; loginBtn.textContent = 'ログイン'; }
+    };
 
     // UI Elements
     const loginForm = document.getElementById('login-form');
@@ -10,162 +26,76 @@ document.addEventListener('DOMContentLoaded', () => {
     const orderSubmitBtn = document.getElementById('order-submit-btn');
     const searchInput = document.getElementById('search-input');
     const itemListContainer = document.getElementById('item-list');
-    const loadingOverlay = document.getElementById('loading-overlay');
     const tabAll = document.getElementById('tab-all');
     const tabFavorites = document.getElementById('tab-favorites');
     const tabHistory = document.getElementById('tab-history');
     const historyListContainer = document.getElementById('history-list');
     const searchWrapper = document.getElementById('search-wrapper');
     const cartSummary = document.querySelector('.cart-summary');
-
-    // Screen Elements
     const confirmationContainer = document.getElementById('confirmation-container');
     const confirmItemList = document.getElementById('confirm-item-list');
     const modalCancelBtn = document.getElementById('modal-cancel-btn');
     const modalConfirmBtn = document.getElementById('modal-confirm-btn');
-
-    // Phase 3 Elements
     const announcementBanner = document.getElementById('announcement-banner');
     const categoryChipsContainer = document.getElementById('category-chips-container');
     const orderRemarks = document.getElementById('order-remarks');
-
-    // Custom Item Elements
     const addCustomItemBtn = document.getElementById('add-custom-item-btn');
     const customItemsList = document.getElementById('custom-items-list');
-
-    // Hierarchical Filter Elements
     const manufacturerChipsContainer = document.getElementById('manufacturer-chips-container');
-
-    // State
-    let currentUsername = ''; // Use username for unique localstorage key
-    let currentClientName = '';
-    let itemsData = [];
-    let favoriteItems = []; // Array of item codes
-    let currentFilter = 'all'; // 'all' or 'favorites'
-    let currentManufacturerFilter = 'all'; // 'all' or manufacturer name
-    let currentCategoryFilter = 'all'; // 'all' or specific category name
-    let editingOrderId = null; // Store orderId if editing an existing order
-    let currentCart = {}; // Store qtys to survive re-rendering
-
     const cancelEditBtn = document.getElementById('cancel-edit-btn');
     const saveDraftBtn = document.getElementById('save-draft-btn');
 
+    // State
+    let currentUsername = '';
+    let currentClientName = '';
+    let itemsData = [];
+    let favoriteItems = [];
+    let currentFilter = 'all';
+    let currentManufacturerFilter = 'all';
+    let currentCategoryFilter = 'all';
+    let editingOrderId = null;
+    let currentCart = {};
+
     // --- Utility Functions ---
-    // Normalize string for fuzzy search (half-width, katakana, lowercase, no spaces)
     const normalizeForSearch = (str) => {
         if (!str) return '';
-        str = String(str); // Prevent TypeError if input is a Number
-
-        // 1. Full-width Alphanumeric to Half-width (more explicit unicode range)
-        let normalized = str.replace(/[\uFF01-\uFF5E]/g, (s) => {
-            return String.fromCharCode(s.charCodeAt(0) - 0xFEE0);
-        });
-
-        // 2. Hiragana to Katakana (explicit unicode range)
-        normalized = normalized.replace(/[\u3041-\u3096]/g, (s) => {
-            return String.fromCharCode(s.charCodeAt(0) + 0x0060);
-        });
-
-        // 3. Half-width Katakana to Full-width Katakana
+        str = String(str);
+        let normalized = str.replace(/[\uFF01-\uFF5E]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xFEE0));
+        normalized = normalized.replace(/[\u3041-\u3096]/g, (s) => String.fromCharCode(s.charCodeAt(0) + 0x0060));
         const kanaMap = {
-            'ｶﾞ': 'ガ', 'ｷﾞ': 'ギ', 'ｸﾞ': 'グ', 'ｹﾞ': 'ゲ', 'ｺﾞ': 'ゴ',
-            'ｻﾞ': 'ザ', 'ｼﾞ': 'ジ', 'ｽﾞ': 'ズ', 'ｾﾞ': 'ゼ', 'ｿﾞ': 'ゾ',
-            'ﾀﾞ': 'ダ', 'ﾁﾞ': 'ヂ', 'ﾂﾞ': 'ヅ', 'ﾃﾞ': 'デ', 'ﾄﾞ': 'ド',
-            'ﾊﾞ': 'バ', 'ﾋﾞ': 'ビ', 'ﾌﾞ': 'ブ', 'ﾍﾞ': 'ベ', 'ﾎﾞ': 'ボ',
-            'ﾊﾟ': 'パ', 'ﾋﾟ': 'ピ', 'ﾌﾟ': 'プ', 'ﾍﾟ': 'ペ', 'ﾎﾟ': 'ポ',
-            'ｳﾞ': 'ヴ', 'ﾜﾞ': 'ヷ', 'ｦﾞ': 'ヺ',
-            'ｱ': 'ア', 'ｲ': 'イ', 'ｳ': 'ウ', 'ｴ': 'エ', 'ｵ': 'オ',
-            'ｶ': 'カ', 'ｷ': 'キ', 'ｸ': 'ク', 'ｹ': 'ケ', 'ｺ': 'コ',
-            'ｻ': 'サ', 'ｼ': 'シ', 'ｽ': 'ス', 'ｾ': 'セ', 'ｿ': 'ソ',
-            'ﾀ': 'タ', 'ﾁ': 'チ', 'ﾂ': 'ツ', 'ﾃ': 'テ', 'ﾄ': 'ト',
-            'ﾅ': 'ナ', 'ﾆ': 'ニ', 'ﾇ': 'ヌ', 'ﾈ': 'ネ', 'ﾉ': 'ノ',
-            'ﾊ': 'ハ', 'ﾋ': 'ヒ', 'ﾌ': 'フ', 'ﾍ': 'ヘ', 'ﾎ': 'ホ',
-            'ﾏ': 'マ', 'ﾐ': 'ミ', 'ﾑ': 'ム', 'ﾒ': 'メ', 'ﾓ': 'モ',
-            'ﾔ': 'ヤ', 'ﾕ': 'ユ', 'ﾖ': 'ヨ',
-            'ﾗ': 'ラ', 'ﾘ': 'リ', 'ﾙ': 'ル', 'ﾚ': 'レ', 'ﾛ': 'ロ',
-            'ﾜ': 'ワ', 'ｦ': 'ヲ', 'ﾝ': 'ン',
-            'ｧ': 'ァ', 'ｨ': 'ィ', 'ｩ': 'ゥ', 'ｪ': 'ェ', 'ｫ': 'ォ',
-            'ｯ': 'ッ', 'ｬ': 'ャ', 'ｭ': 'ュ', 'ｮ': 'ョ',
+            'ｶﾞ': 'ガ', 'ｷﾞ': 'ギ', 'ｸﾞ': 'グ', 'ｹﾞ': 'ゲ', 'ｺﾞ': 'ゴ', 'ｻﾞ': 'ザ', 'ｼﾞ': 'ジ', 'ｽﾞ': 'ズ', 'ｾﾞ': 'ゼ', 'ｿﾞ': 'ゾ',
+            'ﾀﾞ': 'ダ', 'ﾁﾞ': 'ヂ', 'ﾂﾞ': 'ヅ', 'ﾃﾞ': 'デ', 'ﾄﾞ': 'ド', 'ﾊﾞ': 'バ', 'ﾋﾞ': 'ビ', 'ﾌﾞ': 'ブ', 'ﾍﾞ': 'ベ', 'ﾎﾞ': 'ボ',
+            'ﾊﾟ': 'パ', 'ﾋﾟ': 'ピ', 'ﾌﾟ': 'プ', 'ﾍﾟ': 'ペ', 'ﾎﾟ': 'ポ', 'ｳﾞ': 'ヴ', 'ﾜﾞ': 'ヷ', 'ｦﾞ': 'ヺ',
+            'ｱ': 'ア', 'ｲ': 'イ', 'ｳ': 'ウ', 'ｴ': 'エ', 'ｵ': 'オ', 'ｶ': 'カ', 'ｷ': 'キ', 'ｸ': 'ク', 'ｹ': 'ケ', 'ｺ': 'コ',
+            'ｻ': 'サ', 'ｼ': 'シ', 'ｽ': 'ス', 'ｾ': 'セ', 'ｿ': 'ソ', 'ﾀ': 'タ', 'ﾁ': 'チ', 'ﾂ': 'ツ', 'ﾃ': 'テ', 'ﾄ': 'ト',
+            'ﾅ': 'ナ', 'ﾆ': 'ニ', 'ﾇ': 'ヌ', 'ﾈ': 'ネ', 'ﾉ': 'ノ', 'ﾊ': 'ハ', 'ﾋ': 'ヒ', 'ﾌ': 'フ', 'ﾍ': 'ヘ', 'ﾎ': 'ホ',
+            'ﾏ': 'マ', 'ﾐ': 'ミ', 'ﾑ': 'ム', 'ﾒ': 'メ', 'ﾓ': 'モ', 'ﾔ': 'ヤ', 'ﾕ': 'ユ', 'ﾖ': 'ヨ',
+            'ﾗ': 'ラ', 'ﾘ': 'リ', 'ﾙ': 'ル', 'ﾚ': 'レ', 'ﾛ': 'ロ', 'ﾜ': 'ワ', 'ｦ': 'ヲ', 'ﾝ': 'ン',
+            'ｧ': 'ァ', 'ｨ': 'ィ', 'ｩ': 'ゥ', 'ｪ': 'ェ', 'ｫ': 'ォ', 'ｯ': 'ッ', 'ｬ': 'ャ', 'ｭ': 'ュ', 'ｮ': 'ョ',
             'ｰ': 'ー', '･': '・', '､': '、', 'ﾟ': '゜', 'ﾞ': '゛'
         };
-
-        // Sort keys by length descending so ｶﾞ is matched before ｶ
         const keys = Object.keys(kanaMap).sort((a, b) => b.length - a.length);
         const reg = new RegExp('(' + keys.join('|') + ')', 'g');
-        normalized = normalized.replace(reg, (match) => {
-            return kanaMap[match] || match;
-        });
-
-        // 4. Lowercase and remove all spaces/symbols
-        return normalized.toLowerCase().replace(/[\s　\-\_\/\.,:;]/g, '');
-    };
-
-    const showLoading = (message = '読み込み中...') => {
-        let overlay = document.getElementById('loading-overlay');
-        if (!overlay) {
-            // Re-create if physically removed
-            overlay = document.createElement('div');
-            overlay.id = 'loading-overlay';
-            overlay.innerHTML = '<div class="spinner"></div><div class="status-text"></div>';
-            document.body.appendChild(overlay);
-        }
-
-        const statusText = overlay.querySelector('.status-text');
-        if (statusText) {
-            statusText.textContent = message;
-            statusText.style.cssText = 'margin-top: 20px; color: #64748b; font-weight: 600; font-size: 0.9rem; text-align: center;';
-        }
-        overlay.classList.remove('hidden');
-
-        // Emergency manual close button after 5 seconds to prevent deadlock
-        if (!overlay.querySelector('.emergency-close')) {
-            setTimeout(() => {
-                if (document.getElementById('loading-overlay')) {
-                    const closeBtn = document.createElement('button');
-                    closeBtn.className = 'emergency-close';
-                    closeBtn.textContent = '× 読み込み画面を強制終了';
-                    closeBtn.style.cssText = 'position: absolute; bottom: 40px; background: #fee2e2; color: #b91c1c; padding: 10px 20px; border-radius: 99px; border: 1px solid #fecaca; font-size: 0.8rem; font-weight: bold; cursor: pointer;';
-                    closeBtn.onclick = hideLoading;
-                    overlay.appendChild(closeBtn);
-                }
-            }, 5000);
-        }
-    };
-
-    const hideLoading = () => {
-        const overlay = document.getElementById('loading-overlay');
-        if (overlay) {
-            overlay.classList.add('hidden');
-            // Hard physical removal to guarantee no hazy freeze
-            setTimeout(() => {
-                if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
-            }, 50);
-        }
+        normalized = normalized.replace(reg, (match) => kanaMap[match] || match);
+        return normalized.toLowerCase().replace(/[\s　\-\_\/\\.,:;]/g, '');
     };
 
     const calculateTotal = () => {
         let total = 0;
-        Object.values(currentCart).forEach(item => {
-            total += item.qty || 0;
-        });
+        Object.values(currentCart).forEach(item => { total += item.qty || 0; });
         totalQtySpan.textContent = total;
     };
 
-    // --- Draft Feature ---
     const saveDraft = () => {
         if (!currentUsername) return;
         localStorage.setItem(`b2b_draft_${currentUsername}`, JSON.stringify(currentCart));
-        alert('入力中の数量を一時保存しました。');
+        console.log('Draft saved');
     };
 
     const loadDraft = () => {
         if (!currentUsername) return;
         const savedDraft = localStorage.getItem(`b2b_draft_${currentUsername}`);
         if (!savedDraft) return;
-
-        // --- ANTI-FREEZE CHANGE: Remove automatic blocking confirm() ---
-        // We will implement a manual restore button later. 
-        // For now, logging to console to confirm it's detected.
         console.log('Draft detected for user:', currentUsername);
     };
 
