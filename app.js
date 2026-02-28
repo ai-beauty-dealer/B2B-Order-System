@@ -100,7 +100,18 @@ document.addEventListener('DOMContentLoaded', () => {
         return normalized.toLowerCase().replace(/[\s　\-\_\/\.,:;]/g, '');
     };
 
-    const showLoading = () => loadingOverlay.classList.remove('hidden');
+    const showLoading = (message = '読み込み中...') => {
+        const spinner = loadingOverlay.querySelector('.spinner');
+        let statusText = loadingOverlay.querySelector('.status-text');
+        if (!statusText) {
+            statusText = document.createElement('div');
+            statusText.className = 'status-text';
+            statusText.style.cssText = 'margin-top: 20px; color: #64748b; font-weight: 600; font-size: 0.9rem; text-align: center;';
+            loadingOverlay.appendChild(statusText);
+        }
+        statusText.textContent = message;
+        loadingOverlay.classList.remove('hidden');
+    };
     const hideLoading = () => loadingOverlay.classList.add('hidden');
 
     const calculateTotal = () => {
@@ -123,31 +134,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const savedDraft = localStorage.getItem(`b2b_draft_${currentUsername}`);
         if (!savedDraft) return;
 
-        try {
-            const draftData = JSON.parse(savedDraft);
-            if (Object.keys(draftData).length > 0) {
-                if (confirm('前回の一時保存データがあります。復元しますか？')) {
-                    // Backwards compatibility check
-                    const isOldFormat = typeof Object.values(draftData)[0] === 'number';
-                    if (isOldFormat) {
-                        currentCart = {};
-                        Object.entries(draftData).forEach(([code, qty]) => {
-                            const matchedItem = itemsData.find(i => String(i.code) === String(code));
-                            if (matchedItem) {
-                                currentCart[code] = { qty: qty, name: matchedItem.name };
-                            } else if (code.startsWith('CUSTOM_ITEM')) {
-                                currentCart[code] = { qty: qty, name: '（商品名未入力）' };
-                            }
-                        });
-                    } else {
-                        currentCart = draftData;
-                    }
-                    renderItems(itemsData);
-                    renderCustomItemsFromCart();
-                    calculateTotal();
-                }
-            }
-        } catch (e) { /* ignore invalid data */ }
+        // --- ANTI-FREEZE CHANGE: Remove automatic blocking confirm() ---
+        // We will implement a manual restore button later. 
+        // For now, logging to console to confirm it's detected.
+        console.log('Draft detected for user:', currentUsername);
     };
 
     if (saveDraftBtn) {
@@ -704,28 +694,30 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Fetch Items from API ---
     const fetchItems = async () => {
-        showLoading();
+        showLoading('サーバーに接続中...');
         try {
-            // Setup for GAS doGet with item parameter (default behavior)
             const url = `${CONFIG.API_URL}?action=items`;
             const response = await fetch(url);
+
+            showLoading('データを解析中 (11,000件)...');
+            // Small pause to let the UI update the text
+            await new Promise(resolve => setTimeout(resolve, 50));
+
             const result = await response.json();
 
             if (result.status === 'success') {
+                showLoading('画面を構築中...');
+                await new Promise(resolve => setTimeout(resolve, 10));
+
                 itemsData = result.data;
                 renderManufacturerChips();
-                renderCategoryChips(); // Build chips before rendering items
+                renderCategoryChips();
                 renderItems(itemsData);
 
-                // Show Announcement banner
                 if (announcementBanner) {
                     announcementBanner.classList.remove('hidden');
                 }
-
-                // Attempt to load draft after rendering the items list once
-                if (currentFilter === 'all') { // Only prompt on initial load
-                    loadDraft();
-                }
+                loadDraft();
             } else {
                 alert('商品データの取得に失敗しました: ' + result.message);
             }
@@ -778,8 +770,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Switch screen
                 loginContainer.classList.add('hidden');
                 orderContainer.classList.remove('hidden');
-                // Fetch items on successful login
-                fetchItems();
+
+                // --- ANTI-FREEZE: Delay fetchItems slightly ---
+                console.log('Login successful, starting data fetch in 300ms...');
+                setTimeout(() => {
+                    fetchItems();
+                }, 300);
             } else {
                 alert('ログインに失敗しました: ' + result.message);
             }
