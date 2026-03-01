@@ -228,8 +228,8 @@ function handleOrder(data) {
      orders.forEach(order => {
          if(order.qty > 0) {
              const row = [timestamp, order.code, order.qty, order.name, clientName, remarks];
-             if (specialCodes.has(String(order.code))) {
-                 specialRows.push(row); // 別注は末尾に
+              if (specialCodes.has(String(order.code)) || String(order.code).startsWith('CUSTOM_ITEM_')) {
+                 specialRows.push(row); // 別注・特注は末尾に
              } else {
                  normalRows.push(row); // 通常は先に
              }
@@ -334,7 +334,7 @@ function handleUpdateOrder(data) {
      orders.forEach(order => {
          if(order.qty > 0) {
              const row = [originalTimestamp, order.code, order.qty, order.name, clientName, remarks];
-             if (specialCodesUpd.has(String(order.code))) {
+             if (specialCodesUpd.has(String(order.code)) || String(order.code).startsWith('CUSTOM_ITEM_')) {
                  specialRowsUpd.push(row);
              } else {
                  normalRowsUpd.push(row);
