@@ -27,6 +27,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // UI Elements
     const loginForm = document.getElementById('login-form');
     const loginContainer = document.getElementById('login-container');
+    const usernameInput = document.getElementById('username');
     const orderContainer = document.getElementById('order-container');
     const refreshItemsBtn = document.getElementById('refresh-items-btn');
     const logoutBtn = document.getElementById('logout-btn');
@@ -56,15 +57,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const clientNameDisplay = document.getElementById('client-name-display');
     const rememberMeCheckbox = document.getElementById('remember-me');
 
+    const syncFavsWrapper = document.getElementById('sync-favs-wrapper');
+    const syncHistoryFavsBtn = document.getElementById('sync-history-favs-btn');
+    const syncMsgArea = document.getElementById('sync-msg');
+
     // Load saved ID if exists
     const savedId = localStorage.getItem('b2b_saved_username');
     const isRemembered = localStorage.getItem('b2b_remember_me') === 'true';
     if (savedId && isRemembered) {
         if (usernameInput) usernameInput.value = savedId;
         if (rememberMeCheckbox) rememberMeCheckbox.checked = true;
-    } const syncFavsWrapper = document.getElementById('sync-favs-wrapper');
-    const syncHistoryFavsBtn = document.getElementById('sync-history-favs-btn');
-    const syncMsgArea = document.getElementById('sync-msg');
+    }
 
     // Cart Sidebar Elements
     const cartSidebarEl = document.getElementById('cart-sidebar');
