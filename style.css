@@ -471,16 +471,13 @@ header {
 /* --- Order Controls --- */
 .order-controls {
     display: flex;
-    justify-content: space-between;
-    /* Spread buttons */
     align-items: center;
+    gap: 4px;
     background: #f1f5f9;
-    padding: 6px;
+    padding: 4px 6px;
     border-radius: var(--radius-full);
-    width: 100%;
-    /* Take full width of parent card */
-    margin-top: auto;
-    /* Push to bottom of flex card */
+    flex-shrink: 0;
+    /* Never expand to push name column away */
 }
 
 .btn-qty {
