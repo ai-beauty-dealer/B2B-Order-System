@@ -86,6 +86,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentCategoryFilter = 'all';
     let editingOrderId = null;
     let currentCart = {};
+    let cartOrder = []; // Track the order in which items are added to the cart
 
     const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours in ms
 
@@ -158,9 +159,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // Update cart from sidebar and sync everything
     const updateFromCart = (code, name, newQty) => {
         if (newQty > 0) {
+            if (!currentCart[code]) {
+                cartOrder.push(code);
+            }
             currentCart[code] = { qty: newQty, name };
         } else {
             delete currentCart[code];
+            cartOrder = cartOrder.filter(c => c !== code);
         }
         syncCardQty(code, newQty);
         calculateTotal();
@@ -439,8 +444,15 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             const updateCart = (val) => {
-                if (val > 0) currentCart[item.code] = { qty: val, name: item.name };
-                else delete currentCart[item.code];
+                if (val > 0) {
+                    if (!currentCart[item.code]) {
+                        cartOrder.push(String(item.code));
+                    }
+                    currentCart[item.code] = { qty: val, name: item.name };
+                } else {
+                    delete currentCart[item.code];
+                    cartOrder = cartOrder.filter(c => c !== String(item.code));
+                }
             };
 
             card.querySelector('.minus').addEventListener('click', () => {
@@ -617,9 +629,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const updateCart = (val) => {
             if (val > 0) {
                 const customName = nameInput.value.trim() || '（商品名未入力）';
+                if (!currentCart[itemCode]) {
+                    cartOrder.push(itemCode);
+                }
                 currentCart[itemCode] = { qty: val, name: customName };
             } else {
                 delete currentCart[itemCode];
+                cartOrder = cartOrder.filter(c => c !== itemCode);
             }
         };
 
@@ -657,6 +673,7 @@ document.addEventListener('DOMContentLoaded', () => {
         removeBtn.addEventListener('click', () => {
             if (confirm('この特注商品を削除しますか？')) {
                 delete currentCart[itemCode];
+                cartOrder = cartOrder.filter(c => c !== itemCode);
                 card.remove();
                 calculateTotal();
             }
@@ -682,6 +699,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Restore quantities from the history items into cart
         items.forEach(item => {
+            if (!currentCart[item.code]) {
+                cartOrder.push(String(item.code));
+            }
             currentCart[item.code] = { qty: parseInt(item.qty), name: item.name };
         });
 
@@ -1047,6 +1067,7 @@ document.addEventListener('DOMContentLoaded', () => {
         currentClientType = '';
         favoriteItems = [];
         currentCart = {};
+        cartOrder = [];
 
         if (customItemsList) customItemsList.innerHTML = '';
 
@@ -1145,8 +1166,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (confirmationContainer && confirmItemList) {
                 confirmItemList.innerHTML = ''; // Reset list
 
-                Object.entries(currentCart).forEach(([code, data]) => {
-                    if (data.qty > 0) {
+                cartOrder.forEach(code => {
+                    const data = currentCart[code];
+                    if (data && data.qty > 0) {
                         orders.push({
                             code: code,
                             name: data.name,
