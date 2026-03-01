@@ -95,13 +95,17 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log('Draft saved');
     };
 
-    // Global scroll helper for chip arrows
-    window.scrollContent = (elementId, distance) => {
-        const element = document.getElementById(elementId);
-        if (element) {
-            element.scrollBy({ left: distance, behavior: 'smooth' });
-        }
+    // --- Scroll Arrow Event Listeners ---
+    const setupScrollArrows = (leftBtnId, rightBtnId, containerId, step = 240) => {
+        const leftBtn = document.getElementById(leftBtnId);
+        const rightBtn = document.getElementById(rightBtnId);
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        if (leftBtn) leftBtn.addEventListener('click', () => { container.scrollLeft -= step; });
+        if (rightBtn) rightBtn.addEventListener('click', () => { container.scrollLeft += step; });
     };
+    setupScrollArrows('mfr-arrow-left', 'mfr-arrow-right', 'manufacturer-chips-container');
+    setupScrollArrows('cat-arrow-left', 'cat-arrow-right', 'category-chips-container');
 
     const loadDraft = () => {
         if (!currentUsername) return;
