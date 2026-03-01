@@ -1,3 +1,10 @@
+window.clearCacheSurgically = () => {
+    localStorage.removeItem('b2b_items_cache');
+    localStorage.removeItem('b2b_items_ts');
+    alert('キャッシュを消去しました。ページを再読み込みします。');
+    location.reload();
+};
+
 document.addEventListener('DOMContentLoaded', () => {
     console.log('--- B2B Order System v2.11.8 (HISTORY-SYNC) Loaded ---');
 
