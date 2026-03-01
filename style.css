@@ -406,44 +406,43 @@ header {
     /* Keep margin for history list */
 }
 
-.item-card {
+/* --- Item Row Layout (v2.09 list style) --- */
+.item-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    background: #ffffff;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-color);
+    margin-bottom: 4px;
+}
+
+.item-row:hover {
+    border-color: var(--primary);
+    background: var(--primary-light);
+}
+
+.item-row-info {
     display: flex;
     flex-direction: column;
-    /* Stack vertically for 2-column grid */
-    justify-content: space-between;
-    align-items: stretch;
-    /* Stretch children to full width */
-    height: 100%;
-    /* Ensure all cards in a row have same height */
-}
-
-.item-card:hover,
-.history-card:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-md);
-}
-
-.item-info {
-    flex-grow: 1;
-    margin-bottom: 12px;
-    /* Add space below item info since it's stacked */
+    flex: 1;
+    min-width: 0;
+    gap: 1px;
 }
 
 .item-code {
-    display: none;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    font-weight: 400;
 }
 
-.item-name {
-    font-size: 0.95rem;
-    /* Slightly smaller for mobile grid */
+.item-row-name {
+    font-size: 0.88rem;
     font-weight: 600;
-    margin: 0;
     color: var(--text-main);
-    display: flex;
-    align-items: flex-start;
-    line-height: 1.4;
+    line-height: 1.35;
     word-break: break-word;
-    /* Ensure long names wrap safely */
 }
 
 /* --- Favorites Toggle --- */

@@ -254,21 +254,18 @@ document.addEventListener('DOMContentLoaded', () => {
         displayItems.forEach(item => {
             const isFav = favoriteItems.includes(item.code);
             const card = document.createElement('div');
-            card.className = 'item-card';
-            card.dataset.code = item.code; // For cart sidebar sync
+            card.className = 'item-row';
+            card.dataset.code = item.code;
+            const currentQty = currentCart[item.code] ? currentCart[item.code].qty : 0;
             card.innerHTML = `
-                <div class="item-info">
+                <button type="button" class="btn-fav ${isFav ? 'active' : ''}" data-code="${item.code}">${isFav ? '★' : '☆'}</button>
+                <div class="item-row-info">
                     <span class="item-code">${item.code}</span>
-                    <h3 class="item-name">
-                        <button type="button" class="btn-fav ${isFav ? 'active' : ''}" data-code="${item.code}">
-                            ${isFav ? '★' : '☆'}
-                        </button>
-                        ${item.name}
-                    </h3>
+                    <span class="item-row-name">${item.name}</span>
                 </div>
                 <div class="order-controls">
                     <button type="button" class="btn-qty minus">-</button>
-                    <input type="number" class="qty-input" data-code="${item.code}" data-name="${item.name}" value="${currentCart[item.code] ? currentCart[item.code].qty : 0}" min="0">
+                    <input type="number" class="qty-input" data-code="${item.code}" data-name="${item.name}" value="${currentQty}" min="0">
                     <button type="button" class="btn-qty plus">+</button>
                 </div>
             `;
