@@ -293,53 +293,47 @@ header {
 
 /* --- Scroll Arrows (Phase 15) --- */
 .scroll-container-outer {
-    position: relative;
     display: flex;
     align-items: center;
+    gap: 4px;
     margin-bottom: 4px;
+    overflow: visible;
+}
+
+/* Make the chip scroll area fill the space between arrows */
+.scroll-container-outer .category-scroll-wrapper {
+    flex: 1;
+    min-width: 0;
 }
 
 .scroll-arrow {
-    position: absolute;
-    top: 50%;
-    transform: translateY(-80%);
-    /* Adjusted for chip padding */
-    width: 32px;
-    height: 32px;
-    background: rgba(255, 255, 255, 0.9);
+    flex-shrink: 0;
+    width: 30px;
+    height: 30px;
+    background: #ffffff;
     border: 1px solid var(--border-color);
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    z-index: 20;
-    transition: all 0.2s ease;
-    font-size: 1.4rem;
+    font-size: 1.3rem;
     color: var(--secondary);
     user-select: none;
+    padding: 0;
 }
 
 @media (max-width: 768px) {
     .scroll-arrow {
         display: none;
-        /* Hide on mobile since touch swipe works best */
+        /* タッチスワイプが使えるモバイルでは非表示 */
     }
 }
 
 .scroll-arrow:hover {
-    background: #ffffff;
+    background: var(--primary-light);
     border-color: var(--primary);
     color: var(--primary);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
-.scroll-arrow.left {
-    left: -12px;
-}
-
-.scroll-arrow.right {
-    right: -12px;
 }
 
 .category-chip {
