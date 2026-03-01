@@ -113,6 +113,44 @@ function doPost(e) {
     }
 }
 
+// --- ログイン処理 ---
+function handleLogin(data) {
+    const username = data.username;
+    const password = data.password;
+
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName(SHEET_NAMES.CLIENT);
+    
+    if(!sheet) throw new Error("Client sheet not found.");
+
+    const values = sheet.getDataRange().getValues();
+    
+    // ヘッダーをスキップし、A列:ID, B列:PW, C列:得意先名 を想定して検索
+    let clientName = null;
+    let authSuccess = false;
+
+    for(let i=1; i<values.length; i++) {
+        if(String(values[i][0]) === String(username) && String(values[i][1]) === String(password)) {
+            authSuccess = true;
+            clientName = values[i][2]; // C列の得意先名
+            break;
+        }
+    }
+
+    if(authSuccess) {
+         return ContentService.createTextOutput(JSON.stringify({ 
+             status: 'success', 
+             message: 'Login successful', 
+             clientName: clientName 
+         })).setMimeType(ContentService.MimeType.JSON);
+    } else {
+         return ContentService.createTextOutput(JSON.stringify({ 
+             status: 'error', 
+             message: 'Invalid username or password' 
+         })).setMimeType(ContentService.MimeType.JSON);
+    }
+}
+
 // --- 発注処理 ---
 function handleOrder(data) {
      const clientName = data.clientName;
