@@ -54,7 +54,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const saveDraftBtn = document.getElementById('save-draft-btn');
     const customItemsWrapper = document.getElementById('custom-items-wrapper');
     const clientNameDisplay = document.getElementById('client-name-display');
-    const syncFavsWrapper = document.getElementById('sync-favs-wrapper');
+    const rememberMeCheckbox = document.getElementById('remember-me');
+
+    // Load saved ID if exists
+    const savedId = localStorage.getItem('b2b_saved_username');
+    const isRemembered = localStorage.getItem('b2b_remember_me') === 'true';
+    if (savedId && isRemembered) {
+        if (usernameInput) usernameInput.value = savedId;
+        if (rememberMeCheckbox) rememberMeCheckbox.checked = true;
+    } const syncFavsWrapper = document.getElementById('sync-favs-wrapper');
     const syncHistoryFavsBtn = document.getElementById('sync-history-favs-btn');
     const syncMsgArea = document.getElementById('sync-msg');
 
@@ -983,6 +991,15 @@ document.addEventListener('DOMContentLoaded', () => {
             const result = await response.json();
 
             if (result.status === 'success') {
+                // Remember Me logic
+                if (rememberMeCheckbox && rememberMeCheckbox.checked) {
+                    localStorage.setItem('b2b_saved_username', username);
+                    localStorage.setItem('b2b_remember_me', 'true');
+                } else {
+                    localStorage.removeItem('b2b_saved_username');
+                    localStorage.setItem('b2b_remember_me', 'false');
+                }
+
                 currentUsername = username;
                 currentClientName = result.clientName;
                 currentClientType = result.clientType || ''; // '直送' or ''
