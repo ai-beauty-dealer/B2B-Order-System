@@ -12,6 +12,32 @@ const SHEET_NAMES = {
   ORDERS: 'Orders'
 };
 
+// --- サブ関数: 締め時間に基づいた保存先の日付文字列を生成 ---
+function getTargetDateStr(date) {
+  // 日本時間で計算（タイムゾーンに注意）
+  // date は JavaScript の Date オブジェクト
+  const d = new Date(date.getTime());
+  
+  const hours = d.getHours();
+  const day = d.getDay(); // 0 (日) ～ 6 (土)
+
+  // 11時以降なら翌日扱い
+  if (hours >= 11) {
+    d.setDate(d.getDate() + 1);
+  }
+
+  // 土日の場合は月曜日に集約
+  // もし上記の判定で土曜になったら月曜(+2)へ、日曜になったら月曜(+1)へ
+  let newDay = d.getDay();
+  if (newDay === 6) { // 土曜
+    d.setDate(d.getDate() + 2);
+  } else if (newDay === 0) { // 日曜
+    d.setDate(d.getDate() + 1);
+  }
+
+  return Utilities.formatDate(d, Session.getScriptTimeZone(), "yyyy-MM-dd");
+}
+
 // --- サブ関数: 指定された日付のシートを取得または作成 ---
 function getOrCreateOrderSheet(ss, dateStr) {
   let sheet = ss.getSheetByName(dateStr);
@@ -164,7 +190,7 @@ function handleOrder(data) {
 
      const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
      const timestamp = new Date();
-     const dateStr = Utilities.formatDate(timestamp, Session.getScriptTimeZone(), "yyyy-MM-dd");
+     const dateStr = getTargetDateStr(timestamp);
      const sheet = getOrCreateOrderSheet(ss, dateStr);
 
      const rowsToAdd = [];
@@ -196,7 +222,7 @@ function handleCancelOrder(data) {
 
      const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
      const orderDate = new Date(parseInt(orderId));
-     const dateStr = Utilities.formatDate(orderDate, Session.getScriptTimeZone(), "yyyy-MM-dd");
+     const dateStr = getTargetDateStr(orderDate);
      
      let sheet = ss.getSheetByName(dateStr);
      // 旧形式の 'Orders' シートも一応探す
@@ -228,7 +254,7 @@ function handleUpdateOrder(data) {
 
      const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
      const originalTimestamp = new Date(parseInt(orderId));
-     const dateStr = Utilities.formatDate(originalTimestamp, Session.getScriptTimeZone(), "yyyy-MM-dd");
+     const dateStr = getTargetDateStr(originalTimestamp);
      
      let sheet = ss.getSheetByName(dateStr);
      if (!sheet) sheet = ss.getSheetByName(SHEET_NAMES.ORDERS);
