@@ -70,6 +70,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // State
     let currentUsername = '';
     let currentClientName = '';
+    let currentClientType = ''; // '直送' or ''
     let itemsData = [];
     let favoriteItems = [];
     let historyFavoritesData = null; // Mapping from history_favorites.json
@@ -984,7 +985,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (result.status === 'success') {
                 currentUsername = username;
                 currentClientName = result.clientName;
-                if (clientNameDisplay) clientNameDisplay.textContent = currentClientName + ' 様';
+                currentClientType = result.clientType || ''; // '直送' or ''
+                if (clientNameDisplay) {
+                    const typeLabel = currentClientType === '直送' ? ' [直送]' : '';
+                    clientNameDisplay.textContent = currentClientName + ' 様' + typeLabel;
+                }
 
                 // Load favorites
                 const savedFavs = localStorage.getItem(`b2b_favs_${currentUsername}`);
@@ -1021,6 +1026,7 @@ document.addEventListener('DOMContentLoaded', () => {
     logoutBtn.addEventListener('click', () => {
         currentUsername = '';
         currentClientName = '';
+        currentClientType = '';
         favoriteItems = [];
         currentCart = {};
 
@@ -1046,6 +1052,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const payload = {
                 action: action,
                 clientName: currentClientName,
+                clientType: currentClientType, // '直送' or ''
                 orders: orders,
                 remarks: remarks
             };

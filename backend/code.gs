@@ -11,6 +11,7 @@ const SHEET_NAMES = {
   CLIENT: 'ClientMaster',
   ORDERS: 'Orders'
 };
+const CLIENT_TYPE_DIRECT = '直送'; // D列に入力するフラグ
 
 // --- サブ関数: 締め時間に基づいた保存先の日付文字列を生成 ---
 function getTargetDateStr(date) {
@@ -39,13 +40,17 @@ function getTargetDateStr(date) {
 }
 
 // --- サブ関数: 指定された日付のシートを取得または作成 ---
-function getOrCreateOrderSheet(ss, dateStr) {
-  let sheet = ss.getSheetByName(dateStr);
+// clientType が '直送' の場合、シート名が 'YYYY-MM-DD直送' になる
+function getOrCreateOrderSheet(ss, dateStr, clientType) {
+  const sheetName = (clientType === CLIENT_TYPE_DIRECT) ? dateStr + '直送' : dateStr;
+  let sheet = ss.getSheetByName(sheetName);
   if (!sheet) {
-    sheet = ss.insertSheet(dateStr);
+    sheet = ss.insertSheet(sheetName);
     // ヘッダーを追加
     sheet.appendRow(['タイムスタンプ', '商品コード', '個数', '商品名', '得意先名', '備考']);
-    sheet.getRange(1, 1, 1, 6).setFontWeight('bold').setBackground('#f3f3f3');
+    sheet.getRange(1, 1, 1, 6).setFontWeight('bold').setBackground(
+      clientType === CLIENT_TYPE_DIRECT ? '#fff2cc' : '#f3f3f3' // 直送シートは黄色で区別
+    );
     sheet.setFrozenRows(1);
   }
   return sheet;
@@ -84,8 +89,8 @@ function doGet(e) {
       const history = [];
       const sheets = ss.getSheets();
       
-      // yyyy-MM-dd 形式のシート名を正規表現で判定
-      const dateSheetRegex = /^\d{4}-\d{2}-\d{2}$/;
+      // yyyy-MM-dd 形式、または yyyy-MM-dd直送 形式のシート名を正規表現で判定
+      const dateSheetRegex = /^\d{4}-\d{2}-\d{2}(直送)?$/;
 
       sheets.forEach(sheet => {
         const sheetName = sheet.getName();
@@ -152,14 +157,16 @@ function handleLogin(data) {
 
     const values = sheet.getDataRange().getValues();
     
-    // ヘッダーをスキップし、A列:ID, B列:PW, C列:得意先名 を想定して検索
+    // ヘッダーをスキップし、A列:ID, B列:PW, C列:得意先名, D列:種別 を想定して検索
     let clientName = null;
+    let clientType = ''; // D列（空なら通常、'直送' なら直送）
     let authSuccess = false;
 
     for(let i=1; i<values.length; i++) {
         if(String(values[i][0]) === String(username) && String(values[i][1]) === String(password)) {
             authSuccess = true;
             clientName = values[i][2]; // C列の得意先名
+            clientType = String(values[i][3] || '').trim(); // D列のサロン種別
             break;
         }
     }
@@ -168,7 +175,8 @@ function handleLogin(data) {
          return ContentService.createTextOutput(JSON.stringify({ 
              status: 'success', 
              message: 'Login successful', 
-             clientName: clientName 
+             clientName: clientName,
+             clientType: clientType  // '直送' or ''
          })).setMimeType(ContentService.MimeType.JSON);
     } else {
          return ContentService.createTextOutput(JSON.stringify({ 
@@ -183,6 +191,7 @@ function handleOrder(data) {
      const clientName = data.clientName;
      const orders = data.orders;
      const remarks = data.remarks || '';
+     const clientType = data.clientType || ''; // '直送' or ''
 
      if(!clientName || !orders || !Array.isArray(orders) || orders.length === 0) {
          throw new Error("Invalid order data format.");
@@ -191,10 +200,11 @@ function handleOrder(data) {
      const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
      const timestamp = new Date();
      const dateStr = getTargetDateStr(timestamp);
-     const sheet = getOrCreateOrderSheet(ss, dateStr);
+     const sheet = getOrCreateOrderSheet(ss, dateStr, clientType); // 直送フラグを渡す
 
      const rowsToAdd = [];
-     let orderSummaryForLINE = `【新規発注】\nサロン名: ${clientName}\n\n`;
+     const orderLabel = clientType === CLIENT_TYPE_DIRECT ? '【直送発注】' : '【新規発注】';
+     let orderSummaryForLINE = `${orderLabel}\nサロン名: ${clientName}\n\n`;
 
      orders.forEach(order => {
          if(order.qty > 0) {
@@ -219,13 +229,15 @@ function handleOrder(data) {
 function handleCancelOrder(data) {
      const clientName = data.clientName;
      const orderId = data.orderId; // Epoch time
+     const clientType = data.clientType || '';
 
      const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
      const orderDate = new Date(parseInt(orderId));
      const dateStr = getTargetDateStr(orderDate);
      
-     let sheet = ss.getSheetByName(dateStr);
-     // 旧形式の 'Orders' シートも一応探す
+     // 直送シートを優先して探し、なければ通常シートを探す
+     let sheet = ss.getSheetByName(dateStr + '直送');
+     if (!sheet) sheet = ss.getSheetByName(dateStr);
      if (!sheet) sheet = ss.getSheetByName(SHEET_NAMES.ORDERS);
      if (!sheet) throw new Error("Order sheet for this date not found.");
 
@@ -251,12 +263,15 @@ function handleUpdateOrder(data) {
      const orderId = data.orderId;
      const orders = data.orders;
      const remarks = data.remarks || '';
+     const clientType = data.clientType || '';
 
      const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
      const originalTimestamp = new Date(parseInt(orderId));
      const dateStr = getTargetDateStr(originalTimestamp);
      
-     let sheet = ss.getSheetByName(dateStr);
+     // 直送シートを優先して探し、なければ通常シートを探す
+     let sheet = ss.getSheetByName(dateStr + '直送');
+     if (!sheet) sheet = ss.getSheetByName(dateStr);
      if (!sheet) sheet = ss.getSheetByName(SHEET_NAMES.ORDERS);
      if (!sheet) throw new Error("Order sheet not found.");
 
@@ -271,7 +286,8 @@ function handleUpdateOrder(data) {
 
      // 2. Append new rows
      const rowsToAdd = [];
-     let orderSummaryForLINE = `【発注内容変更】\nサロン名: ${clientName}\n\n`;
+     const updateLabel = clientType === CLIENT_TYPE_DIRECT ? '【直送発注内容変更】' : '【発注内容変更】';
+     let orderSummaryForLINE = `${updateLabel}\nサロン名: ${clientName}\n\n`;
 
      orders.forEach(order => {
          if(order.qty > 0) {
