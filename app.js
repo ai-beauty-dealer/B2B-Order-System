@@ -45,6 +45,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const manufacturerChipsContainer = document.getElementById('manufacturer-chips-container');
     const cancelEditBtn = document.getElementById('cancel-edit-btn');
     const saveDraftBtn = document.getElementById('save-draft-btn');
+    const customItemsWrapper = document.getElementById('custom-items-wrapper');
 
     // Cart Sidebar Elements
     const cartSidebarEl = document.getElementById('cart-sidebar');
@@ -663,12 +664,14 @@ document.addEventListener('DOMContentLoaded', () => {
             itemListContainer.classList.add('hidden');
             searchWrapper.classList.add('hidden');
             cartSummary.classList.add('hidden');
+            if (customItemsWrapper) customItemsWrapper.classList.add('hidden');
             historyListContainer.classList.remove('hidden');
             fetchHistory();
         } else {
             itemListContainer.classList.remove('hidden');
             searchWrapper.classList.remove('hidden');
             cartSummary.classList.remove('hidden');
+            if (customItemsWrapper) customItemsWrapper.classList.remove('hidden');
             historyListContainer.classList.add('hidden');
 
             // Re-render items based on all/favs
