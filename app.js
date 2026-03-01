@@ -899,7 +899,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (result.status === 'success') {
                 currentUsername = username;
                 currentClientName = result.clientName;
-                if (clientNameDisplay) clientNameDisplay.textContent = currentClientName;
+                if (clientNameDisplay) clientNameDisplay.textContent = currentClientName + ' 様';
 
                 // Load favorites
                 const savedFavs = localStorage.getItem(`b2b_favs_${currentUsername}`);
