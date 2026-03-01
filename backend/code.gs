@@ -75,7 +75,8 @@ function doGet(e) {
                 code: row[0], 
                 name: row[1], 
                 category: row[2] || '',
-                manufacturer: row[3] || ''
+                manufacturer: row[3] || '',
+                special: row[4] || ''  // E列: '別注' など
               });
           }
       }
@@ -200,18 +201,44 @@ function handleOrder(data) {
      const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
      const timestamp = new Date();
      const dateStr = getTargetDateStr(timestamp);
-     const sheet = getOrCreateOrderSheet(ss, dateStr, clientType); // 直送フラグを渡す
+     const sheet = getOrCreateOrderSheet(ss, dateStr, clientType);
 
-     const rowsToAdd = [];
+     // --- ItemMasterから別注商品コードのセットを取得 ---
+     const specialCodes = new Set();
+     try {
+         const masterSheet = ss.getSheetByName(SHEET_NAMES.MASTER);
+         if (masterSheet) {
+             const masterValues = masterSheet.getDataRange().getValues();
+             for (let i = 1; i < masterValues.length; i++) {
+                 const row = masterValues[i];
+                 if (row[0] && String(row[4] || '').trim() !== '') { // E列に何か入力あれば別注
+                     specialCodes.add(String(row[0]));
+                 }
+             }
+         }
+     } catch(e) {
+         console.warn('別注商品の取得に失敗:', e);
+     }
+
+     const normalRows = [];
+     const specialRows = [];
      const orderLabel = clientType === CLIENT_TYPE_DIRECT ? '【直送発注】' : '【新規発注】';
      let orderSummaryForLINE = `${orderLabel}\nサロン名: ${clientName}\n\n`;
 
      orders.forEach(order => {
          if(order.qty > 0) {
-             rowsToAdd.push([timestamp, order.code, order.qty, order.name, clientName, remarks]);
+             const row = [timestamp, order.code, order.qty, order.name, clientName, remarks];
+             if (specialCodes.has(String(order.code))) {
+                 specialRows.push(row); // 別注は末尾に
+             } else {
+                 normalRows.push(row); // 通常は先に
+             }
              orderSummaryForLINE += `・${order.name}: ${order.qty}点\n`;
          }
      });
+
+     // 通常商品 → 別注商品の順でまとめて書き込み
+     const rowsToAdd = [...normalRows, ...specialRows];
 
      if(rowsToAdd.length > 0) {
          const startRow = sheet.getLastRow() + 1;
@@ -284,18 +311,39 @@ function handleUpdateOrder(data) {
           }
      }
 
-     // 2. Append new rows
-     const rowsToAdd = [];
+     // 2. Append new rows（別注商品は末尾に）
+     const specialCodesUpd = new Set();
+     try {
+         const masterSheet = ss.getSheetByName(SHEET_NAMES.MASTER);
+         if (masterSheet) {
+             const masterValues = masterSheet.getDataRange().getValues();
+             for (let i = 1; i < masterValues.length; i++) {
+                 const row = masterValues[i];
+                 if (row[0] && String(row[4] || '').trim() !== '') {
+                     specialCodesUpd.add(String(row[0]));
+                 }
+             }
+         }
+     } catch(e) { console.warn('別注商品取得失敗:', e); }
+
+     const normalRowsUpd = [];
+     const specialRowsUpd = [];
      const updateLabel = clientType === CLIENT_TYPE_DIRECT ? '【直送発注内容変更】' : '【発注内容変更】';
      let orderSummaryForLINE = `${updateLabel}\nサロン名: ${clientName}\n\n`;
 
      orders.forEach(order => {
          if(order.qty > 0) {
-             rowsToAdd.push([originalTimestamp, order.code, order.qty, order.name, clientName, remarks]);
+             const row = [originalTimestamp, order.code, order.qty, order.name, clientName, remarks];
+             if (specialCodesUpd.has(String(order.code))) {
+                 specialRowsUpd.push(row);
+             } else {
+                 normalRowsUpd.push(row);
+             }
              orderSummaryForLINE += `・${order.name}: ${order.qty}点\n`;
          }
      });
 
+     const rowsToAdd = [...normalRowsUpd, ...specialRowsUpd];
      if(rowsToAdd.length > 0) {
          const startRow = sheet.getLastRow() + 1;
          sheet.getRange(startRow, 1, rowsToAdd.length, rowsToAdd[0].length).setValues(rowsToAdd);
