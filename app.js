@@ -21,6 +21,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const loginForm = document.getElementById('login-form');
     const loginContainer = document.getElementById('login-container');
     const orderContainer = document.getElementById('order-container');
+    const refreshItemsBtn = document.getElementById('refresh-items-btn');
     const logoutBtn = document.getElementById('logout-btn');
     const totalQtySpan = document.getElementById('total-qty');
     const orderSubmitBtn = document.getElementById('order-submit-btn');
@@ -55,6 +56,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentCategoryFilter = 'all';
     let editingOrderId = null;
     let currentCart = {};
+
+    const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours in ms
 
     // --- Utility Functions ---
     const normalizeForSearch = (str) => {
@@ -652,14 +655,37 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // --- Fetch Items from API ---
-    const fetchItems = async () => {
-        showLoading('サーバーに接続中...');
+    const fetchItems = async (forceFetch = false) => {
+        if (!currentUsername) return;
+
+        // Check cache first
+        if (!forceFetch) {
+            const cachedData = localStorage.getItem('b2b_items_cache');
+            const cachedTs = localStorage.getItem('b2b_items_ts');
+            const now = Date.now();
+
+            if (cachedData && cachedTs && (now - parseInt(cachedTs) < CACHE_DURATION)) {
+                console.log('Using cached item data (valid for 24h)');
+                try {
+                    itemsData = JSON.parse(cachedData);
+                    renderManufacturerChips();
+                    renderCategoryChips();
+                    renderItems(itemsData);
+                    if (announcementBanner) announcementBanner.classList.remove('hidden');
+                    loadDraft();
+                    return; // Exit early if cache is valid
+                } catch (e) {
+                    console.error('Failed to parse cache:', e);
+                }
+            }
+        }
+
+        showLoading(forceFetch ? '最新データを取得中...' : 'サーバーに接続中...');
         try {
             const url = `${CONFIG.API_URL}?action=items`;
             const response = await fetch(url);
 
             showLoading('データを解析中 (11,000件)...');
-            // Small pause to let the UI update the text
             await new Promise(resolve => setTimeout(resolve, 50));
 
             const result = await response.json();
@@ -669,6 +695,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 await new Promise(resolve => setTimeout(resolve, 10));
 
                 itemsData = result.data;
+
+                // Save to cache
+                localStorage.setItem('b2b_items_cache', JSON.stringify(itemsData));
+                localStorage.setItem('b2b_items_ts', Date.now().toString());
+
                 renderManufacturerChips();
                 renderCategoryChips();
                 renderItems(itemsData);
@@ -677,6 +708,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     announcementBanner.classList.remove('hidden');
                 }
                 loadDraft();
+                if (forceFetch) console.log('Manual refresh complete. Cache updated.');
             } else {
                 alert('商品データの取得に失敗しました: ' + result.message);
             }
@@ -687,6 +719,10 @@ document.addEventListener('DOMContentLoaded', () => {
             hideLoading();
         }
     };
+
+    if (refreshItemsBtn) {
+        refreshItemsBtn.addEventListener('click', () => fetchItems(true));
+    }
 
     // --- Login (API) ---
     loginForm.addEventListener('submit', async (e) => {

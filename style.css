@@ -104,6 +104,29 @@ button:active {
     color: var(--text-main);
 }
 
+#refresh-items-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    line-height: 1;
+    border-radius: 50%;
+    background: #ffffff;
+    border: 1px solid var(--border-color);
+    box-shadow: none;
+}
+
+#refresh-items-btn:hover {
+    background: var(--primary-light);
+    border-color: var(--primary);
+}
+
+#refresh-items-btn:active {
+    transform: rotate(30deg) scale(0.9);
+}
+
 /* --- Login Form --- */
 #login-container {
     margin-top: 10vh;
