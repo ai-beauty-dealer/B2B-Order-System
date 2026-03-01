@@ -46,9 +46,9 @@ function getOrCreateOrderSheet(ss, dateStr, clientType) {
   let sheet = ss.getSheetByName(sheetName);
   if (!sheet) {
     sheet = ss.insertSheet(sheetName);
-    // ヘッダーを追加
-    sheet.appendRow(['タイムスタンプ', '商品コード', '個数', '商品名', '得意先名', '備考']);
-    sheet.getRange(1, 1, 1, 6).setFontWeight('bold').setBackground(
+    // ヘッダーを追加（A:タイムスタンプ B:商品コード C:個数 D:商品名 E:得意先名 F:ステータス G:備考）
+    sheet.appendRow(['タイムスタンプ', '商品コード', '個数', '商品名', '得意先名', 'ステータス', '備考']);
+    sheet.getRange(1, 1, 1, 7).setFontWeight('bold').setBackground(
       clientType === CLIENT_TYPE_DIRECT ? '#fff2cc' : '#f3f3f3' // 直送シートは黄色で区別
     );
     sheet.setFrozenRows(1);
@@ -227,7 +227,7 @@ function handleOrder(data) {
 
      orders.forEach(order => {
          if(order.qty > 0) {
-             const row = [timestamp, order.code, order.qty, order.name, clientName, remarks];
+             const row = [timestamp, order.code, order.qty, order.name, clientName, '', remarks]; // F:ステータス(空), G:備考
               if (specialCodes.has(String(order.code)) || String(order.code).startsWith('CUSTOM_ITEM_')) {
                  specialRows.push(row); // 別注・特注は末尾に
              } else {
@@ -333,7 +333,7 @@ function handleUpdateOrder(data) {
 
      orders.forEach(order => {
          if(order.qty > 0) {
-             const row = [originalTimestamp, order.code, order.qty, order.name, clientName, remarks];
+             const row = [originalTimestamp, order.code, order.qty, order.name, clientName, '', remarks]; // F:ステータス(空), G:備考
              if (specialCodesUpd.has(String(order.code)) || String(order.code).startsWith('CUSTOM_ITEM_')) {
                  specialRowsUpd.push(row);
              } else {
