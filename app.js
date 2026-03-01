@@ -1052,6 +1052,12 @@ document.addEventListener('DOMContentLoaded', () => {
         orderContainer.classList.add('hidden');
         loginContainer.classList.remove('hidden');
         loginForm.reset();
+        // Re-apply saved ID if remembered
+        if (localStorage.getItem('b2b_remember_me') === 'true') {
+            const savedId = localStorage.getItem('b2b_saved_username');
+            if (savedId && usernameInput) usernameInput.value = savedId;
+            if (rememberMeCheckbox) rememberMeCheckbox.checked = true;
+        }
         itemListContainer.innerHTML = '';
         historyListContainer.innerHTML = '';
         totalQtySpan.textContent = '0';
