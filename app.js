@@ -46,6 +46,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const cancelEditBtn = document.getElementById('cancel-edit-btn');
     const saveDraftBtn = document.getElementById('save-draft-btn');
     const customItemsWrapper = document.getElementById('custom-items-wrapper');
+    const clientNameDisplay = document.getElementById('client-name-display');
 
     // Cart Sidebar Elements
     const cartSidebarEl = document.getElementById('cart-sidebar');
@@ -898,6 +899,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (result.status === 'success') {
                 currentUsername = username;
                 currentClientName = result.clientName;
+                if (clientNameDisplay) clientNameDisplay.textContent = currentClientName;
 
                 // Load favorites
                 const savedFavs = localStorage.getItem(`b2b_favs_${currentUsername}`);

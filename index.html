@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>AI Beauty Dealer - B2B Order System</title>
-    <link rel="stylesheet" href="style.css?v=2.10.1">
+    <link rel="stylesheet" href="style.css?v=2.11">
 </head>
 
 <body>
@@ -38,9 +38,13 @@
 
     <!-- Order Screen (Initially Hidden) -->
     <div id="order-container" class="container hidden">
-        <header style="display: flex; align-items: center; gap: 10px;">
-            <h2 style="margin: 0;">商品一覧</h2>
-            <button id="refresh-items-btn" title="マスタを最新に更新">🔄</button>
+        <header style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <h2 style="margin: 0; white-space: nowrap;">商品一覧</h2>
+                <button id="refresh-items-btn" title="マスタを最新に更新">🔄</button>
+            </div>
+            <div id="client-name-display"
+                style="font-weight: 600; color: var(--primary); font-size: 0.9rem; margin-left: 5px;"></div>
             <div style="flex-grow: 1;"></div>
             <button id="cart-toggle-btn" class="btn-secondary" title="カート一覧">
                 🛒 <span id="cart-badge">0</span>点
@@ -137,8 +141,8 @@
             <button id="modal-confirm-btn" class="btn-primary" style="flex: 1;">注文を確定する</button>
         </div>
     </div>
-    <script src="config.js?v=2.10.1"></script>
-    <script src="app.js?v=2.10.1"></script>
+    <script src="config.js?v=2.11"></script>
+    <script src="app.js?v=2.11"></script>
 
     <!-- Cart Sidebar -->
     <div id="cart-sidebar" class="cart-sidebar hidden">
