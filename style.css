@@ -729,17 +729,8 @@ input[type=number]::-webkit-outer-spin-button {
 
 /* --- Responsive Adjustments --- */
 @media (max-width: 480px) {
-    .item-card {
-        flex-direction: column;
-        align-items: flex-start;
-        padding: 16px;
-    }
-
-    .order-controls {
-        margin-top: 16px;
-        width: 100%;
-        justify-content: space-between;
-        padding: 8px;
+    .qty-input {
+        width: 60px;
     }
 
     .qty-input {
