@@ -1,9 +1,5 @@
-window.clearCacheSurgically = () => {
-    localStorage.removeItem('b2b_items_cache');
-    localStorage.removeItem('b2b_items_ts');
-    alert('キャッシュを消去しました。ページを再読み込みします。');
-    location.reload();
-};
+// v2.11.8 (HISTORY-SYNC)
+
 
 document.addEventListener('DOMContentLoaded', () => {
     console.log('--- B2B Order System v2.11.8 (HISTORY-SYNC) Loaded ---');
@@ -129,10 +125,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Surgical Cache Clearing (v2.10) ---
     window.clearCacheSurgically = () => {
         const keysToKeep = [];
-        // Identify favorite keys to preserve
+        // Identify keys to preserve (Favorites and Login identity)
         for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
-            if (key.startsWith('b2b_favs_')) {
+            if (key.startsWith('b2b_favs_') ||
+                key === 'b2b_saved_username' ||
+                key === 'b2b_remember_me') {
                 keysToKeep.push({ key, value: localStorage.getItem(key) });
             }
         }
