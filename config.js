@@ -3,5 +3,5 @@
 
 const CONFIG = {
     // GASのウェブアプリURLをここに設定します
-    API_URL: 'https://script.google.com/macros/s/AKfycbyyt4EyoCyQeZBArqrKyNXFzWnwdGHqc5fTDzzvwLsgNHrlgZ56zMHF2b0snXWC0OiE/exec'
+    API_URL: 'https://script.google.com/macros/s/AKfycbzieAQiDMHVAW5IIg9pSMXh9a8W_p3bkXZxKSHdjpcS4Tjr5ajTz6tI4qLW3hs4FiWv/exec'
 };
