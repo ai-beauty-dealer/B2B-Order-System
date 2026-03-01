@@ -274,9 +274,9 @@ header {
     display: flex;
     overflow-x: auto;
     gap: 8px;
-    padding: 4px 4px 16px 4px;
-    /* padding-bottom to allow scrollbar without cutting shadow */
-    margin-bottom: 8px;
+    padding: 8px 4px 16px 4px;
+    /* increased top padding slightly */
+    margin-bottom: 0px;
     scroll-behavior: smooth;
     -webkit-overflow-scrolling: touch;
 }
@@ -289,6 +289,57 @@ header {
 .category-scroll-wrapper {
     -ms-overflow-style: none;
     scrollbar-width: none;
+}
+
+/* --- Scroll Arrows (Phase 15) --- */
+.scroll-container-outer {
+    position: relative;
+    display: flex;
+    align-items: center;
+    margin-bottom: 4px;
+}
+
+.scroll-arrow {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-80%);
+    /* Adjusted for chip padding */
+    width: 32px;
+    height: 32px;
+    background: rgba(255, 255, 255, 0.9);
+    border: 1px solid var(--border-color);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 20;
+    transition: all 0.2s ease;
+    font-size: 1.4rem;
+    color: var(--secondary);
+    user-select: none;
+}
+
+@media (max-width: 768px) {
+    .scroll-arrow {
+        display: none;
+        /* Hide on mobile since touch swipe works best */
+    }
+}
+
+.scroll-arrow:hover {
+    background: #ffffff;
+    border-color: var(--primary);
+    color: var(--primary);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.scroll-arrow.left {
+    left: -12px;
+}
+
+.scroll-arrow.right {
+    right: -12px;
 }
 
 .category-chip {

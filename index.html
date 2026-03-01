@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>AI Beauty Dealer - B2B Order System</title>
-    <link rel="stylesheet" href="style.css?v=2.05">
+    <link rel="stylesheet" href="style.css?v=2.06">
 </head>
 
 <body>
@@ -61,43 +61,52 @@
         </div>
 
         <!-- Manufacturer Chips -->
-        <div id="manufacturer-chips-container" class="category-scroll-wrapper"
-            style="margin-bottom: 0px; padding-bottom: 8px;">
-            <!-- Manufacturer Chips injected by JS -->
+        <div class="scroll-container-outer">
+            <button class="scroll-arrow left" onclick="scrollContent('manufacturer-chips-container', -200)">‹</button>
+            <div id="manufacturer-chips-container" class="category-scroll-wrapper" style="margin-bottom: 0px;">
+                <!-- Manufacturer Chips injected by JS -->
+            </div>
+            <button class="scroll-arrow right" onclick="scrollContent('manufacturer-chips-container', 200)">›</button>
         </div>
 
         <!-- Category Chips -->
-        <div id="category-chips-container" class="category-scroll-wrapper">
-            <!-- Chips injected by JS -->
-        </div>
-
-        <div id="item-list">
-            <!-- Items will be loaded here dynamically -->
-        </div>
-
-        <!-- Custom Items Wrapper -->
-        <div id="custom-items-wrapper" style="margin-top: 20px;">
-            <div id="custom-items-list">
-                <!-- Dynamic custom items injected here -->
+        <div class="scroll-container-outer">
+            <button class="scroll-arrow left" onclick="scrollContent('category-chips-container', -200)">‹</button>
+            <div id="category-chips-container" class="category-scroll-wrapper">
+                <!-- Category Chips injected by JS -->
             </div>
-            <button id="add-custom-item-btn" type="button" class="btn-secondary"
-                style="width: 100%; border: 2px dashed var(--primary-color); background: #f8fafc; color: var(--primary-color); padding: 12px; font-weight: bold; margin-top: 10px;">
-                ＋ 特注・その他の商品を追加する
-            </button>
+            <button class="scroll-arrow right" onclick="scrollContent('category-chips-container', 200)">›</button>
         </div>
+        <!-- Chips injected by JS -->
+    </div>
 
-        <div id="history-list" class="hidden">
-            <!-- Order history will be loaded here dynamically -->
-        </div>
+    <div id="item-list">
+        <!-- Items will be loaded here dynamically -->
+    </div>
 
-        <div class="cart-summary">
-            <p>選択中: <span id="total-qty">0</span>点</p>
-            <button id="cancel-edit-btn" class="btn-secondary hidden"
-                style="background:#fff; border-radius: var(--radius-full);">編集取消</button>
-            <button id="save-draft-btn" class="btn-secondary"
-                style="background:#f1f5f9; border-radius: var(--radius-full); color: var(--text-main); font-weight: 500;">一時保存</button>
-            <button id="order-submit-btn" class="btn-primary">発注する</button>
+    <!-- Custom Items Wrapper -->
+    <div id="custom-items-wrapper" style="margin-top: 20px;">
+        <div id="custom-items-list">
+            <!-- Dynamic custom items injected here -->
         </div>
+        <button id="add-custom-item-btn" type="button" class="btn-secondary"
+            style="width: 100%; border: 2px dashed var(--primary-color); background: #f8fafc; color: var(--primary-color); padding: 12px; font-weight: bold; margin-top: 10px;">
+            ＋ 特注・その他の商品を追加する
+        </button>
+    </div>
+
+    <div id="history-list" class="hidden">
+        <!-- Order history will be loaded here dynamically -->
+    </div>
+
+    <div class="cart-summary">
+        <p>選択中: <span id="total-qty">0</span>点</p>
+        <button id="cancel-edit-btn" class="btn-secondary hidden"
+            style="background:#fff; border-radius: var(--radius-full);">編集取消</button>
+        <button id="save-draft-btn" class="btn-secondary"
+            style="background:#f1f5f9; border-radius: var(--radius-full); color: var(--text-main); font-weight: 500;">一時保存</button>
+        <button id="order-submit-btn" class="btn-primary">発注する</button>
+    </div>
     </div> <!-- Close order-container -->
 
     <!-- Confirmation Screen -->
@@ -125,8 +134,8 @@
             <button id="modal-confirm-btn" class="btn-primary" style="flex: 1;">注文を確定する</button>
         </div>
     </div>
-    <script src="config.js?v=2.05"></script>
-    <script src="app.js?v=2.05"></script>
+    <script src="config.js?v=2.06"></script>
+    <script src="app.js?v=2.06"></script>
 </body>
 
 </html>

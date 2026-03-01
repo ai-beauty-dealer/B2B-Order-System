@@ -1,5 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.04 (NO-OVERLAY) Loaded ---');
+    console.log('--- B2B Order System v2.06 (SCROLL-ARROWS) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -93,6 +93,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!currentUsername) return;
         localStorage.setItem(`b2b_draft_${currentUsername}`, JSON.stringify(currentCart));
         console.log('Draft saved');
+    };
+
+    // Global scroll helper for chip arrows
+    window.scrollContent = (elementId, distance) => {
+        const element = document.getElementById(elementId);
+        if (element) {
+            element.scrollBy({ left: distance, behavior: 'smooth' });
+        }
     };
 
     const loadDraft = () => {
