@@ -279,12 +279,17 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const syncHistoryToFavs = () => {
+        console.log('[SyncFavs] currentClientName:', currentClientName);
+        console.log('[SyncFavs] historyFavoritesData keys:', historyFavoritesData ? Object.keys(historyFavoritesData).slice(0, 5) : null);
+
         if (!currentClientName || !historyFavoritesData) {
             showSyncMsg('データが読み込まれていないか、ログイン情報が不正です。', 'error');
             return;
         }
 
         const historyCodes = historyFavoritesData[currentClientName];
+        console.log('[SyncFavs] historyCodes count:', historyCodes ? historyCodes.length : 'NOT FOUND');
+
         if (!historyCodes || historyCodes.length === 0) {
             showSyncMsg('このサロンの導入履歴データが見つかりません。', 'error');
             return;
@@ -292,8 +297,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         let addedCount = 0;
         historyCodes.forEach(code => {
-            if (!favoriteItems.includes(code)) {
-                favoriteItems.push(code);
+            const strCode = String(code); // 型を文字列に統一
+            if (!favoriteItems.includes(strCode)) {
+                favoriteItems.push(strCode);
                 addedCount++;
             }
         });
@@ -328,7 +334,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Filter by current tab selection before rendering
         let displayItems = items;
         if (currentFilter === 'favorites') {
-            displayItems = displayItems.filter(item => favoriteItems.includes(item.code));
+            displayItems = displayItems.filter(item => favoriteItems.includes(String(item.code)));
         }
 
         // Filter by selected manufacturer
