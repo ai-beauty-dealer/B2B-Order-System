@@ -2,7 +2,8 @@
 // 🛠️ B2B Order System - Backend (GAS)
 // ==========================================
 
-const SPREADSHEET_ID = 'YOUR_SPREADSHEET_ID_HERE'; // ★構築時にスプレッドシートのIDを入力する
+const SPREADSHEET_ID = 'YOUR_SPREADSHEET_ID_HERE'; // ★ここにご自身のスプレッドシートIDを貼り付けてください！
+// スプレッドシートのIDは、URLの「/d/」と「/edit」の間の文字列（例: 1abc...xyz）です。
 
 // --- 設定 ---
 const SHEET_NAMES = {
