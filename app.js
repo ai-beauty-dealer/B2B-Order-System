@@ -568,6 +568,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({
                     action: 'cancel_order',
                     clientName: currentClientName,
+                    clientType: currentClientType, // '直送' or ''
                     orderId: orderId
                 })
             });

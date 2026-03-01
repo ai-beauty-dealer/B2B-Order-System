@@ -280,11 +280,13 @@ function handleCancelOrder(data) {
      const orderDate = new Date(parseInt(orderId));
      const dateStr = getTargetDateStr(orderDate);
      
-     // 直送シートを優先して探し、なければ通常シートを探す
-     let sheet = ss.getSheetByName(dateStr + '直送');
-     if (!sheet) sheet = ss.getSheetByName(dateStr);
-     if (!sheet) sheet = ss.getSheetByName(SHEET_NAMES.ORDERS);
-     if (!sheet) throw new Error("Order sheet for this date not found.");
+     const targetSheetName = dateStr + clientType;
+     let sheet = ss.getSheetByName(targetSheetName);
+     if (!sheet) {
+         // 互換性のためOrdersシートも確認するが、基本は見つからないはず
+         sheet = ss.getSheetByName(SHEET_NAMES.ORDERS);
+     }
+     if (!sheet) throw new Error("対象の日付のシートが見つかりません: " + targetSheetName);
 
      const values = sheet.getDataRange().getValues();
      let deletedCount = 0;
