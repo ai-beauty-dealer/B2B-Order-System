@@ -1094,6 +1094,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (result.status === 'success') {
                 alert(isEditing ? '発注内容を変更しました。' : '発注が完了しました！\n引き続き発注いただけます。');
+
+                // --- Automatically add ordered items to favorites ---
+                let favsUpdated = false;
+                orders.forEach(order => {
+                    const strCode = String(order.code);
+                    // Skip custom items (CUSTOM_ITEM_ prefix)
+                    if (!strCode.startsWith('CUSTOM_ITEM_')) {
+                        if (!favoriteItems.includes(strCode)) {
+                            favoriteItems.push(strCode);
+                            favsUpdated = true;
+                        }
+                    }
+                });
+
+                if (favsUpdated) {
+                    localStorage.setItem(`b2b_favs_${currentUsername}`, JSON.stringify(favoriteItems));
+                    renderItems(itemsData); // Update UI stars
+                }
+
                 localStorage.removeItem(`b2b_draft_${currentUsername}`);
 
                 // Clear custom item fields safely
