@@ -333,11 +333,17 @@ function handleUpdateOrder(data) {
      if (!sheet) throw new Error("対象の注文データが見つかりません。操作用シート名: " + targetSheetName);
      console.log("Using sheet for update:", sheet.getName(), "clientType:", clientType);
 
-     // 1. Delete old rows
+     // 1. Collect existing status and then Delete old rows
      const values = sheet.getDataRange().getValues();
+     const statusMap = {}; // code -> status
      for(let i = values.length - 1; i >= 1; i--) {
           const row = values[i];
           if(row[4] === clientName && new Date(row[0]).getTime() === parseInt(orderId)) {
+               const code = String(row[1]);
+               const status = row[5]; // Column F: Status
+               if (status) {
+                   statusMap[code] = status;
+               }
                sheet.deleteRow(i + 1);
           }
      }
@@ -376,8 +382,10 @@ function handleUpdateOrder(data) {
 
      orders.forEach(order => {
          if(order.qty > 0) {
-             const isSpecial = specialCodesUpd.has(String(order.code)) || String(order.code).startsWith('CUSTOM_ITEM_');
-             const row = [originalTimestamp, order.code, order.qty, order.name, clientName, '', remarks, isSpecial ? '別注' : ''];
+             const strCode = String(order.code);
+             const isSpecial = specialCodesUpd.has(strCode) || strCode.startsWith('CUSTOM_ITEM_');
+             const existingStatus = statusMap[strCode] || '';
+             const row = [originalTimestamp, order.code, order.qty, order.name, clientName, existingStatus, remarks, isSpecial ? '別注' : ''];
              if (isSpecial) {
                  specialRowsUpd.push(row);
              } else {
