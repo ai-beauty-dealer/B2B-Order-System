@@ -1,5 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.10 (FAVS-SAVER) Loaded ---');
+    console.log('--- B2B Order System v2.11.8 (HISTORY-SYNC) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -47,6 +47,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const saveDraftBtn = document.getElementById('save-draft-btn');
     const customItemsWrapper = document.getElementById('custom-items-wrapper');
     const clientNameDisplay = document.getElementById('client-name-display');
+    const syncFavsWrapper = document.getElementById('sync-favs-wrapper');
+    const syncHistoryFavsBtn = document.getElementById('sync-history-favs-btn');
+    const syncMsgArea = document.getElementById('sync-msg');
 
     // Cart Sidebar Elements
     const cartSidebarEl = document.getElementById('cart-sidebar');
@@ -62,6 +65,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentClientName = '';
     let itemsData = [];
     let favoriteItems = [];
+    let historyFavoritesData = null; // Mapping from history_favorites.json
     let currentFilter = 'all';
     let currentManufacturerFilter = 'all';
     let currentCategoryFilter = 'all';
@@ -252,6 +256,62 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (saveDraftBtn) {
         saveDraftBtn.addEventListener('click', saveDraft);
+    }
+
+    // --- Sync History Favorites (v2.11) ---
+    const fetchHistoryFavorites = async () => {
+        try {
+            const response = await fetch('history_favorites.json');
+            if (response.ok) {
+                historyFavoritesData = await response.json();
+                console.log('History favorites data loaded');
+            }
+        } catch (e) {
+            console.warn('Failed to load history_favorites.json', e);
+        }
+    };
+
+    const syncHistoryToFavs = () => {
+        if (!currentClientName || !historyFavoritesData) {
+            showSyncMsg('データが読み込まれていないか、ログイン情報が不正です。', 'error');
+            return;
+        }
+
+        const historyCodes = historyFavoritesData[currentClientName];
+        if (!historyCodes || historyCodes.length === 0) {
+            showSyncMsg('このサロンの導入履歴データが見つかりません。', 'error');
+            return;
+        }
+
+        let addedCount = 0;
+        historyCodes.forEach(code => {
+            if (!favoriteItems.includes(code)) {
+                favoriteItems.push(code);
+                addedCount++;
+            }
+        });
+
+        if (addedCount > 0) {
+            localStorage.setItem(`b2b_favs_${currentUsername}`, JSON.stringify(favoriteItems));
+            showSyncMsg(`${addedCount}件の商品をお気に入りに追加しました！`, 'success');
+            renderItems(itemsData); // Re-render to show stars
+        } else {
+            showSyncMsg('すべてのお気に入りは既に同期済みです。', 'info');
+        }
+    };
+
+    const showSyncMsg = (text, type) => {
+        if (!syncMsgArea) return;
+        syncMsgArea.textContent = text;
+        syncMsgArea.style.color = type === 'error' ? '#b91c1c' : '#166534';
+        syncMsgArea.classList.remove('hidden');
+        setTimeout(() => {
+            syncMsgArea.classList.add('hidden');
+        }, 3000);
+    };
+
+    if (syncHistoryFavsBtn) {
+        syncHistoryFavsBtn.addEventListener('click', syncHistoryToFavs);
     }
 
     // --- Render Items ---
@@ -665,6 +725,7 @@ document.addEventListener('DOMContentLoaded', () => {
             itemListContainer.classList.add('hidden');
             searchWrapper.classList.add('hidden');
             cartSummary.classList.add('hidden');
+            if (syncFavsWrapper) syncFavsWrapper.classList.add('hidden');
             if (customItemsWrapper) customItemsWrapper.classList.add('hidden');
             historyListContainer.classList.remove('hidden');
             fetchHistory();
@@ -672,6 +733,16 @@ document.addEventListener('DOMContentLoaded', () => {
             itemListContainer.classList.remove('hidden');
             searchWrapper.classList.remove('hidden');
             cartSummary.classList.remove('hidden');
+
+            // Sync Favorite Button visibility
+            if (syncFavsWrapper) {
+                if (tabId === 'tab-favorites') {
+                    syncFavsWrapper.classList.remove('hidden');
+                } else {
+                    syncFavsWrapper.classList.add('hidden');
+                }
+            }
+
             if (customItemsWrapper) customItemsWrapper.classList.remove('hidden');
             historyListContainer.classList.add('hidden');
 
@@ -919,6 +990,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.log('Login successful, starting data fetch in 300ms...');
                 setTimeout(() => {
                     fetchItems();
+                    switchTab('tab-all'); // Explicitly set initial tab state
                 }, 300);
             } else {
                 alert('ログインに失敗しました: ' + result.message);
@@ -1089,4 +1161,7 @@ document.addEventListener('DOMContentLoaded', () => {
             executeOrderActual(orders, isEditing, remarks);
         });
     }
+
+    // --- Initial Fetch ---
+    fetchHistoryFavorites();
 });

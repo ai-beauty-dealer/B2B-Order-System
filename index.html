@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>AI Beauty Dealer - B2B Order System</title>
-    <link rel="stylesheet" href="style.css?v=2.11.6">
+    <link rel="stylesheet" href="style.css?v=2.11.8">
 </head>
 
 <body>
@@ -61,6 +61,16 @@
             <button id="tab-all" class="tab-btn active">すべて</button>
             <button id="tab-favorites" class="tab-btn">お気に入り ★</button>
             <button id="tab-history" class="tab-btn">発注履歴 🕒</button>
+        </div>
+
+        <!-- Sync from History Button (Visible only on Favorites tab) -->
+        <div id="sync-favs-wrapper" style="margin-bottom: 12px;">
+            <button id="sync-history-favs-btn" class="btn-secondary"
+                style="width: 100%; background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; font-weight: 600; padding: 10px; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                🔄 導入履歴からお気に入りに同期
+            </button>
+            <p id="sync-msg" class="hidden"
+                style="font-size: 0.75rem; text-align: center; margin-top: 4px; color: #166534; font-weight: 500;"></p>
         </div>
 
         <div class="search-container" id="search-wrapper">
@@ -141,8 +151,8 @@
             <button id="modal-confirm-btn" class="btn-primary" style="flex: 1;">注文を確定する</button>
         </div>
     </div>
-    <script src="config.js?v=2.11.6"></script>
-    <script src="app.js?v=2.11.6"></script>
+    <script src="config.js?v=2.11.8"></script>
+    <script src="app.js?v=2.11.8"></script>
 
     <!-- Cart Sidebar -->
     <div id="cart-sidebar" class="cart-sidebar hidden">
