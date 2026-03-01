@@ -167,7 +167,9 @@ function handleLogin(data) {
         if(String(values[i][0]) === String(username) && String(values[i][1]) === String(password)) {
             authSuccess = true;
             clientName = values[i][2]; // C列の得意先名
-            clientType = String(values[i][3] || '').trim(); // D列のサロン種別
+            // 「直送」と完全一致する場合のみ直送扱いとし、それ以外（空文字や「通常」等）は一律通常('')とする
+            const rawType = String(values[i][3] || '').trim();
+            clientType = (rawType === CLIENT_TYPE_DIRECT) ? CLIENT_TYPE_DIRECT : '';
             break;
         }
     }
@@ -282,11 +284,15 @@ function handleCancelOrder(data) {
      
      const targetSheetName = dateStr + clientType;
      let sheet = ss.getSheetByName(targetSheetName);
+     
      if (!sheet) {
-         // 互換性のためOrdersシートも確認するが、基本は見つからないはず
+         // 指定されたシートがない場合、通常・直送のクロスオーバーを避けるため、一律Ordersに逃がす
+         console.warn("Sheet not found, falling back to Orders:", targetSheetName);
          sheet = ss.getSheetByName(SHEET_NAMES.ORDERS);
      }
-     if (!sheet) throw new Error("対象の日付のシートが見つかりません: " + targetSheetName);
+     
+     if (!sheet) throw new Error("対象の注文データが見つかりません。シート名: " + targetSheetName);
+     console.log("Using sheet for cancel:", sheet.getName(), "clientType:", clientType);
 
      const values = sheet.getDataRange().getValues();
      let deletedCount = 0;
@@ -318,10 +324,14 @@ function handleUpdateOrder(data) {
      
      const targetSheetName = dateStr + clientType;
      let sheet = ss.getSheetByName(targetSheetName);
+
      if (!sheet) {
+         console.warn("Sheet not found, falling back to Orders:", targetSheetName);
          sheet = ss.getSheetByName(SHEET_NAMES.ORDERS);
      }
-     if (!sheet) throw new Error("対象の日付のシートが見つかりません: " + targetSheetName);
+     
+     if (!sheet) throw new Error("対象の注文データが見つかりません。操作用シート名: " + targetSheetName);
+     console.log("Using sheet for update:", sheet.getName(), "clientType:", clientType);
 
      // 1. Delete old rows
      const values = sheet.getDataRange().getValues();
