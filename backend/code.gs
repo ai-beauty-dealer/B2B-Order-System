@@ -46,10 +46,10 @@ function getOrCreateOrderSheet(ss, dateStr, clientType) {
   let sheet = ss.getSheetByName(sheetName);
   if (!sheet) {
     sheet = ss.insertSheet(sheetName);
-    // ヘッダーを追加（A:タイムスタンプ B:商品コード C:個数 D:商品名 E:得意先名 F:ステータス G:備考）
-    sheet.appendRow(['タイムスタンプ', '商品コード', '個数', '商品名', '得意先名', 'ステータス', '備考']);
-    sheet.getRange(1, 1, 1, 7).setFontWeight('bold').setBackground(
-      clientType === CLIENT_TYPE_DIRECT ? '#fff2cc' : '#f3f3f3' // 直送シートは黄色で区別
+    // ヘッダーを追加（A:タイムスタンプ B:商品コード C:個数 D:商品名 E:得意先名 F:ステータス G:備考 H:別注）
+    sheet.appendRow(['タイムスタンプ', '商品コード', '個数', '商品名', '得意先名', 'ステータス', '備考', '別注']);
+    sheet.getRange(1, 1, 1, 8).setFontWeight('bold').setBackground(
+      clientType === CLIENT_TYPE_DIRECT ? '#fff2cc' : '#f3f3f3'
     );
     sheet.setFrozenRows(1);
   }
@@ -192,7 +192,7 @@ function handleOrder(data) {
      const clientName = data.clientName;
      const orders = data.orders;
      const remarks = data.remarks || '';
-     const clientType = data.clientType || ''; // '直送' or ''
+     const clientType = data.clientType || '';
 
      if(!clientName || !orders || !Array.isArray(orders) || orders.length === 0) {
          throw new Error("Invalid order data format.");
@@ -203,7 +203,7 @@ function handleOrder(data) {
      const dateStr = getTargetDateStr(timestamp);
      const sheet = getOrCreateOrderSheet(ss, dateStr, clientType);
 
-     // --- ItemMasterから別注商品コードのセットを取得 ---
+     // --- 1. ItemMasterから別注商品コードのセットを取得 ---
      const specialCodes = new Set();
      try {
          const masterSheet = ss.getSheetByName(SHEET_NAMES.MASTER);
@@ -211,38 +211,56 @@ function handleOrder(data) {
              const masterValues = masterSheet.getDataRange().getValues();
              for (let i = 1; i < masterValues.length; i++) {
                  const row = masterValues[i];
-                 if (row[0] && String(row[4] || '').trim() !== '') { // E列に何か入力あれば別注
+                 if (row[0] && String(row[4] || '').trim() !== '') {
                      specialCodes.add(String(row[0]));
                  }
              }
          }
-     } catch(e) {
-         console.warn('別注商品の取得に失敗:', e);
+     } catch(e) { console.warn('別注商品の取得に失敗:', e); }
+
+     // --- 2. シート内の「別注セクション」の開始位置（H列）を特定 ---
+     const lastRow = sheet.getLastRow();
+     let firstSpecialRow = lastRow + 1; // デフォルトは末尾
+     if (lastRow > 1) {
+         const colHValues = sheet.getRange(1, 8, lastRow, 1).getValues();
+         for (let i = 1; i < colHValues.length; i++) {
+             if (String(colHValues[i][0]).trim() === '別注') {
+                 firstSpecialRow = i + 1;
+                 break;
+             }
+         }
      }
 
      const normalRows = [];
      const specialRows = [];
-     const orderLabel = clientType === CLIENT_TYPE_DIRECT ? '【直送発注】' : '【新規発注】';
-     let orderSummaryForLINE = `${orderLabel}\nサロン名: ${clientName}\n\n`;
+     let orderSummaryForLINE = `${clientType === CLIENT_TYPE_DIRECT ? '【直送発注】' : '【新規発注】'}\nサロン名: ${clientName}\n\n`;
 
      orders.forEach(order => {
          if(order.qty > 0) {
-             const row = [timestamp, order.code, order.qty, order.name, clientName, '', remarks]; // F:ステータス(空), G:備考
-              if (specialCodes.has(String(order.code)) || String(order.code).startsWith('CUSTOM_ITEM_')) {
-                 specialRows.push(row); // 別注・特注は末尾に
+             const isSpecial = specialCodes.has(String(order.code)) || String(order.code).startsWith('CUSTOM_ITEM_');
+             // F:ステータス, G:備考, H:別注
+             const row = [timestamp, order.code, order.qty, order.name, clientName, '', remarks, isSpecial ? '別注' : ''];
+             
+             if (isSpecial) {
+                 specialRows.push(row);
              } else {
-                 normalRows.push(row); // 通常は先に
+                 normalRows.push(row);
              }
              orderSummaryForLINE += `・${order.name}: ${order.qty}点\n`;
          }
      });
 
-     // 通常商品 → 別注商品の順でまとめて書き込み
-     const rowsToAdd = [...normalRows, ...specialRows];
+     // --- 3. 配置（通常商品は別注エリアの前に挿入、別注商品は常に最下部） ---
+     if (normalRows.length > 0) {
+         sheet.insertRowsBefore(firstSpecialRow, normalRows.length);
+         sheet.getRange(firstSpecialRow, 1, normalRows.length, normalRows[0].length).setValues(normalRows);
+         // 通常商品を挿入したため、以降の最下部位置を更新
+         firstSpecialRow += normalRows.length; 
+     }
 
-     if(rowsToAdd.length > 0) {
-         const startRow = sheet.getLastRow() + 1;
-         sheet.getRange(startRow, 1, rowsToAdd.length, rowsToAdd[0].length).setValues(rowsToAdd);
+     if (specialRows.length > 0) {
+         const bottomRow = sheet.getLastRow() + 1;
+         sheet.getRange(bottomRow, 1, specialRows.length, specialRows[0].length).setValues(specialRows);
      }
      
      if (remarks) orderSummaryForLINE += `\n【備考】\n${remarks}`;
@@ -311,7 +329,7 @@ function handleUpdateOrder(data) {
           }
      }
 
-     // 2. Append new rows（別注商品は末尾に）
+     // 2. Append new rows（絶対的末尾配置対応）
      const specialCodesUpd = new Set();
      try {
          const masterSheet = ss.getSheetByName(SHEET_NAMES.MASTER);
@@ -326,15 +344,28 @@ function handleUpdateOrder(data) {
          }
      } catch(e) { console.warn('別注商品取得失敗:', e); }
 
+     // 挿入位置（別注セクションの開始行）を特定
+     const lastRowUpd = sheet.getLastRow();
+     let firstSpecialRowUpd = lastRowUpd + 1;
+     if (lastRowUpd > 1) {
+         const colHValuesUpd = sheet.getRange(1, 8, lastRowUpd, 1).getValues();
+         for (let i = 1; i < colHValuesUpd.length; i++) {
+             if (String(colHValuesUpd[i][0]).trim() === '別注') {
+                 firstSpecialRowUpd = i + 1;
+                 break;
+             }
+         }
+     }
+
      const normalRowsUpd = [];
      const specialRowsUpd = [];
-     const updateLabel = clientType === CLIENT_TYPE_DIRECT ? '【直送発注内容変更】' : '【発注内容変更】';
-     let orderSummaryForLINE = `${updateLabel}\nサロン名: ${clientName}\n\n`;
+     let orderSummaryForLINE = `${clientType === CLIENT_TYPE_DIRECT ? '【直送発注内容変更】' : '【発注内容変更】'}\nサロン名: ${clientName}\n\n`;
 
      orders.forEach(order => {
          if(order.qty > 0) {
-             const row = [originalTimestamp, order.code, order.qty, order.name, clientName, '', remarks]; // F:ステータス(空), G:備考
-             if (specialCodesUpd.has(String(order.code)) || String(order.code).startsWith('CUSTOM_ITEM_')) {
+             const isSpecial = specialCodesUpd.has(String(order.code)) || String(order.code).startsWith('CUSTOM_ITEM_');
+             const row = [originalTimestamp, order.code, order.qty, order.name, clientName, '', remarks, isSpecial ? '別注' : ''];
+             if (isSpecial) {
                  specialRowsUpd.push(row);
              } else {
                  normalRowsUpd.push(row);
@@ -343,10 +374,14 @@ function handleUpdateOrder(data) {
          }
      });
 
-     const rowsToAdd = [...normalRowsUpd, ...specialRowsUpd];
-     if(rowsToAdd.length > 0) {
-         const startRow = sheet.getLastRow() + 1;
-         sheet.getRange(startRow, 1, rowsToAdd.length, rowsToAdd[0].length).setValues(rowsToAdd);
+     if (normalRowsUpd.length > 0) {
+         sheet.insertRowsBefore(firstSpecialRowUpd, normalRowsUpd.length);
+         sheet.getRange(firstSpecialRowUpd, 1, normalRowsUpd.length, normalRowsUpd[0].length).setValues(normalRowsUpd);
+         firstSpecialRowUpd += normalRowsUpd.length;
+     }
+     if (specialRowsUpd.length > 0) {
+         const bottomRowUpd = sheet.getLastRow() + 1;
+         sheet.getRange(bottomRowUpd, 1, specialRowsUpd.length, specialRowsUpd[0].length).setValues(specialRowsUpd);
      }
      
      if (remarks) orderSummaryForLINE += `\n【備考】\n${remarks}`;
