@@ -102,6 +102,23 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // --- Cart Sidebar Renderer ---
+    // Sync helper: update the item card's qty input (if visible on screen)
+    const syncCardQty = (code, newQty) => {
+        const input = itemListContainer.querySelector(`.qty-input[data-code="${code}"]`);
+        if (input) input.value = newQty;
+    };
+
+    // Update cart from sidebar and sync everything
+    const updateFromCart = (code, name, newQty) => {
+        if (newQty > 0) {
+            currentCart[code] = { qty: newQty, name };
+        } else {
+            delete currentCart[code];
+        }
+        syncCardQty(code, newQty);
+        calculateTotal();
+    };
+
     const renderCartSidebar = () => {
         if (!cartSidebarList) return;
         const cartItems = Object.entries(currentCart).filter(([, v]) => v.qty > 0);
@@ -119,12 +136,33 @@ document.addEventListener('DOMContentLoaded', () => {
             const row = document.createElement('div');
             row.className = 'cart-item-row';
             row.innerHTML = `
-                <div class="cart-item-name">
-                    <span style="font-size:0.75rem; color: var(--text-muted);">${code}</span><br>
-                    ${data.name}
+                <div class="cart-item-info">
+                    <span class="cart-item-code">${code}</span>
+                    <span class="cart-item-name">${data.name}</span>
                 </div>
-                <span class="cart-item-qty">${data.qty}点</span>
+                <div class="cart-item-controls">
+                    <button class="cart-qty-btn cart-minus" data-code="${code}">−</button>
+                    <span class="cart-qty-display">${data.qty}</span>
+                    <button class="cart-qty-btn cart-plus" data-code="${code}">+</button>
+                    <button class="cart-delete-btn" data-code="${code}" title="削除">&times;</button>
+                </div>
             `;
+
+            // Minus button
+            row.querySelector('.cart-minus').addEventListener('click', () => {
+                const current = (currentCart[code]?.qty || 0);
+                updateFromCart(code, data.name, Math.max(0, current - 1));
+            });
+            // Plus button
+            row.querySelector('.cart-plus').addEventListener('click', () => {
+                const current = (currentCart[code]?.qty || 0);
+                updateFromCart(code, data.name, current + 1);
+            });
+            // Delete button
+            row.querySelector('.cart-delete-btn').addEventListener('click', () => {
+                updateFromCart(code, data.name, 0);
+            });
+
             cartSidebarList.appendChild(row);
         });
     };
@@ -217,6 +255,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const isFav = favoriteItems.includes(item.code);
             const card = document.createElement('div');
             card.className = 'item-card';
+            card.dataset.code = item.code; // For cart sidebar sync
             card.innerHTML = `
                 <div class="item-info">
                     <span class="item-code">${item.code}</span>

@@ -855,32 +855,96 @@ input[type=number]::-webkit-outer-spin-button {
 .cart-item-row {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 8px;
     padding: 10px 8px;
     border-bottom: 1px solid var(--border-color);
-    gap: 8px;
 }
 
 .cart-item-row:last-child {
     border-bottom: none;
 }
 
+.cart-item-info {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+    gap: 2px;
+}
+
+.cart-item-code {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    font-weight: 400;
+}
+
 .cart-item-name {
     font-size: 0.82rem;
     font-weight: 500;
     color: var(--text-main);
-    flex: 1;
     line-height: 1.35;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
-.cart-item-qty {
-    font-size: 0.85rem;
+/* Controls: −  qty  +  ×  */
+.cart-item-controls {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.cart-qty-btn {
+    width: 26px;
+    height: 26px;
+    border-radius: var(--radius-md);
+    background: var(--primary-light);
+    border: 1px solid #bfdbfe;
+    color: var(--primary);
+    font-size: 1rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0;
+}
+
+.cart-qty-btn:hover {
+    background: var(--primary);
+    color: #ffffff;
+}
+
+.cart-qty-display {
+    font-size: 0.9rem;
     font-weight: 700;
     color: var(--primary);
-    white-space: nowrap;
-    background: var(--primary-light);
-    padding: 3px 8px;
-    border-radius: var(--radius-full);
+    min-width: 24px;
+    text-align: center;
+}
+
+.cart-delete-btn {
+    width: 26px;
+    height: 26px;
+    border-radius: var(--radius-md);
+    background: #fff0f0;
+    border: 1px solid #fecaca;
+    color: var(--danger);
+    font-size: 1.1rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0;
+    margin-left: 2px;
+}
+
+.cart-delete-btn:hover {
+    background: var(--danger);
+    color: #ffffff;
 }
 
 /* Sidebar footer with total */
