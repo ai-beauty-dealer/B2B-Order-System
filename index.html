@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>AI Beauty Dealer - B2B Order System</title>
-    <link rel="stylesheet" href="style.css?v=2.09">
+    <link rel="stylesheet" href="style.css?v=2.10">
 </head>
 
 <body>
@@ -31,7 +31,7 @@
         </form>
         <div style="margin-top: 24px; text-align: center; border-top: 1px solid #eee; padding-top: 16px;">
             <p style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 8px;">画面が動かない・真っ黒な場合：</p>
-            <button onclick="localStorage.clear(); location.reload();"
+            <button onclick="clearCacheSurgically();"
                 style="font-size: 0.75rem; background: #fee2e2; color: #b91c1c; padding: 6px 12px; border-radius: 6px; border: 1px solid #fecaca; font-weight: 600;">ブラウザのキャッシュを強制消去</button>
         </div>
     </div>
@@ -137,8 +137,8 @@
             <button id="modal-confirm-btn" class="btn-primary" style="flex: 1;">注文を確定する</button>
         </div>
     </div>
-    <script src="config.js?v=2.09"></script>
-    <script src="app.js?v=2.09"></script>
+    <script src="config.js?v=2.10"></script>
+    <script src="app.js?v=2.10"></script>
 
     <!-- Cart Sidebar -->
     <div id="cart-sidebar" class="cart-sidebar hidden">
@@ -151,6 +151,10 @@
         </div>
         <div class="cart-sidebar-footer">
             <p class="cart-sidebar-total">合計 <strong id="cart-sidebar-total-qty">0</strong> 点</p>
+            <div class="cart-sidebar-actions">
+                <button id="cart-save-draft-btn" class="btn-secondary">一時保存</button>
+                <button id="cart-order-submit-btn" class="btn-primary">発注する</button>
+            </div>
         </div>
     </div>
     <div id="cart-overlay" class="cart-overlay hidden"></div>

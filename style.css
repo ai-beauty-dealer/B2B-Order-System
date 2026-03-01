@@ -945,6 +945,18 @@ input[type=number]::-webkit-outer-spin-button {
     font-weight: 600;
     color: var(--text-main);
     text-align: right;
+    margin-bottom: 12px;
+}
+
+.cart-sidebar-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.cart-sidebar-actions button {
+    flex: 1;
+    padding: 10px;
+    font-size: 0.85rem;
 }
 
 .cart-sidebar-total strong {

@@ -1,5 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.06 (SCROLL-ARROWS) Loaded ---');
+    console.log('--- B2B Order System v2.10 (FAVS-SAVER) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -101,6 +101,30 @@ document.addEventListener('DOMContentLoaded', () => {
         renderCartSidebar();
     };
 
+    // --- Surgical Cache Clearing (v2.10) ---
+    window.clearCacheSurgically = () => {
+        const keysToKeep = [];
+        // Identify favorite keys to preserve
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key.startsWith('b2b_favs_')) {
+                keysToKeep.push({ key, value: localStorage.getItem(key) });
+            }
+        }
+
+        // Clear everything
+        localStorage.clear();
+
+        // Restore favorites
+        keysToKeep.forEach(item => {
+            localStorage.setItem(item.key, item.value);
+        });
+
+        alert('商品データのキャッシュを消去しました（お気に入りは保存されました）。画面を再読み込みします。');
+        location.reload();
+    };
+
+
     // --- Cart Sidebar Renderer ---
     // Sync helper: update the item card's qty input (if visible on screen)
     const syncCardQty = (code, newQty) => {
@@ -180,6 +204,24 @@ document.addEventListener('DOMContentLoaded', () => {
     if (cartToggleBtn) cartToggleBtn.addEventListener('click', openCartSidebar);
     if (cartCloseBtn) cartCloseBtn.addEventListener('click', closeCartSidebar);
     if (cartOverlay) cartOverlay.addEventListener('click', closeCartSidebar);
+
+    // Sidebar Action Buttons (v2.10)
+    const cartSaveBtn = document.getElementById('cart-save-draft-btn');
+    const cartOrderBtn = document.getElementById('cart-order-submit-btn');
+
+    if (cartSaveBtn) {
+        cartSaveBtn.addEventListener('click', () => {
+            if (saveDraftBtn) saveDraftBtn.click();
+            closeCartSidebar();
+        });
+    }
+    if (cartOrderBtn) {
+        cartOrderBtn.addEventListener('click', () => {
+            if (orderSubmitBtn) orderSubmitBtn.click();
+            closeCartSidebar();
+        });
+    }
+
 
     const saveDraft = () => {
         if (!currentUsername) return;
