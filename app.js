@@ -369,13 +369,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         displayItems.forEach(item => {
-            const isFav = favoriteItems.includes(item.code);
+            const strCode = String(item.code); // 常に文字列として扱う
+            const isFav = favoriteItems.includes(strCode);
             const card = document.createElement('div');
             card.className = 'item-row';
-            card.dataset.code = item.code;
+            card.dataset.code = strCode;
             const currentQty = currentCart[item.code] ? currentCart[item.code].qty : 0;
             card.innerHTML = `
-                <button type="button" class="btn-fav ${isFav ? 'active' : ''}" data-code="${item.code}">${isFav ? '★' : '☆'}</button>
+                <button type="button" class="btn-fav ${isFav ? 'active' : ''}" data-code="${strCode}">${isFav ? '★' : '☆'}</button>
                 <div class="item-row-info">
                     <span class="item-code">${item.code}</span>
                     <span class="item-row-name">${item.name}</span>
@@ -393,14 +394,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Favorite toggle
             favBtn.addEventListener('click', () => {
-                if (favoriteItems.includes(item.code)) {
+                if (favoriteItems.includes(strCode)) {
                     // Remove
-                    favoriteItems = favoriteItems.filter(c => c !== item.code);
+                    favoriteItems = favoriteItems.filter(c => c !== strCode);
                     favBtn.classList.remove('active');
                     favBtn.textContent = '☆';
                 } else {
                     // Add
-                    favoriteItems.push(item.code);
+                    favoriteItems.push(strCode);
                     favBtn.classList.add('active');
                     favBtn.textContent = '★';
                 }
