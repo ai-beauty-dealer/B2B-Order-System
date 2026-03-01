@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>AI Beauty Dealer - B2B Order System</title>
-    <link rel="stylesheet" href="style.css?v=2.06">
+    <link rel="stylesheet" href="style.css?v=2.07">
 </head>
 
 <body>
@@ -42,6 +42,9 @@
             <h2 style="margin: 0;">商品一覧</h2>
             <button id="refresh-items-btn" title="マスタを最新に更新">🔄</button>
             <div style="flex-grow: 1;"></div>
+            <button id="cart-toggle-btn" class="btn-secondary" title="カート一覧">
+                🛒 <span id="cart-badge">0</span>点
+            </button>
             <button id="logout-btn" class="btn-secondary">ログアウト</button>
         </header>
 
@@ -134,8 +137,23 @@
             <button id="modal-confirm-btn" class="btn-primary" style="flex: 1;">注文を確定する</button>
         </div>
     </div>
-    <script src="config.js?v=2.06"></script>
-    <script src="app.js?v=2.06"></script>
+    <script src="config.js?v=2.07"></script>
+    <script src="app.js?v=2.07"></script>
+
+    <!-- Cart Sidebar -->
+    <div id="cart-sidebar" class="cart-sidebar hidden">
+        <div class="cart-sidebar-header">
+            <h3>🛒 カート</h3>
+            <button id="cart-close-btn" class="cart-close-btn">&times;</button>
+        </div>
+        <div id="cart-sidebar-list" class="cart-sidebar-list">
+            <!-- Cart items injected by JS -->
+        </div>
+        <div class="cart-sidebar-footer">
+            <p class="cart-sidebar-total">合計 <strong id="cart-sidebar-total-qty">0</strong> 点</p>
+        </div>
+    </div>
+    <div id="cart-overlay" class="cart-overlay hidden"></div>
 </body>
 
 </html>

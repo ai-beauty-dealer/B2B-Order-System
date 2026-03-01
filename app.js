@@ -46,6 +46,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const cancelEditBtn = document.getElementById('cancel-edit-btn');
     const saveDraftBtn = document.getElementById('save-draft-btn');
 
+    // Cart Sidebar Elements
+    const cartSidebarEl = document.getElementById('cart-sidebar');
+    const cartSidebarList = document.getElementById('cart-sidebar-list');
+    const cartSidebarTotalQty = document.getElementById('cart-sidebar-total-qty');
+    const cartToggleBtn = document.getElementById('cart-toggle-btn');
+    const cartCloseBtn = document.getElementById('cart-close-btn');
+    const cartBadge = document.getElementById('cart-badge');
+    const cartOverlay = document.getElementById('cart-overlay');
+
     // State
     let currentUsername = '';
     let currentClientName = '';
@@ -87,7 +96,52 @@ document.addEventListener('DOMContentLoaded', () => {
         let total = 0;
         Object.values(currentCart).forEach(item => { total += item.qty || 0; });
         totalQtySpan.textContent = total;
+        // Update cart badge + sidebar
+        if (cartBadge) cartBadge.textContent = total;
+        renderCartSidebar();
     };
+
+    // --- Cart Sidebar Renderer ---
+    const renderCartSidebar = () => {
+        if (!cartSidebarList) return;
+        const cartItems = Object.entries(currentCart).filter(([, v]) => v.qty > 0);
+        const total = cartItems.reduce((sum, [, v]) => sum + v.qty, 0);
+
+        if (cartSidebarTotalQty) cartSidebarTotalQty.textContent = total;
+
+        if (cartItems.length === 0) {
+            cartSidebarList.innerHTML = '<p class="cart-empty-msg">🛒 まだ商品が選ばれていません</p>';
+            return;
+        }
+
+        cartSidebarList.innerHTML = '';
+        cartItems.forEach(([code, data]) => {
+            const row = document.createElement('div');
+            row.className = 'cart-item-row';
+            row.innerHTML = `
+                <div class="cart-item-name">
+                    <span style="font-size:0.75rem; color: var(--text-muted);">${code}</span><br>
+                    ${data.name}
+                </div>
+                <span class="cart-item-qty">${data.qty}点</span>
+            `;
+            cartSidebarList.appendChild(row);
+        });
+    };
+
+    // Cart sidebar open/close
+    const openCartSidebar = () => {
+        if (cartSidebarEl) cartSidebarEl.classList.remove('hidden');
+        if (cartOverlay) cartOverlay.classList.remove('hidden');
+        renderCartSidebar();
+    };
+    const closeCartSidebar = () => {
+        if (cartSidebarEl) cartSidebarEl.classList.add('hidden');
+        if (cartOverlay) cartOverlay.classList.add('hidden');
+    };
+    if (cartToggleBtn) cartToggleBtn.addEventListener('click', openCartSidebar);
+    if (cartCloseBtn) cartCloseBtn.addEventListener('click', closeCartSidebar);
+    if (cartOverlay) cartOverlay.addEventListener('click', closeCartSidebar);
 
     const saveDraft = () => {
         if (!currentUsername) return;
