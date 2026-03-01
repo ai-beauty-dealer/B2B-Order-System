@@ -382,12 +382,11 @@ header {
     box-shadow: 0 4px 8px rgba(51, 65, 85, 0.25);
 }
 
-/* --- List Container Grid --- */
+/* --- List Container --- */
 #item-list {
-    display: grid;
-    /* responsive 2-column fallback: min 140px, max 1fr */
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-    gap: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
 }
 
 /* --- Item Cards --- */
