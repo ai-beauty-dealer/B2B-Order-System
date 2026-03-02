@@ -9,7 +9,8 @@ const SPREADSHEET_ID = 'YOUR_SPREADSHEET_ID_HERE'; // ★ここにご自身の�
 const SHEET_NAMES = {
   MASTER: 'ItemMaster',
   CLIENT: 'ClientMaster',
-  ORDERS: 'Orders'
+  ORDERS: 'Orders',
+  SETTINGS: 'Settings'
 };
 const CLIENT_TYPE_DIRECT = '直送'; // D列に入力するフラグ
 
@@ -175,11 +176,21 @@ function handleLogin(data) {
     }
 
     if(authSuccess) {
+         // お知らせテキストを取得
+         let announcement = "";
+         try {
+             const settingsSheet = ss.getSheetByName(SHEET_NAMES.SETTINGS);
+             if (settingsSheet) {
+                 announcement = String(settingsSheet.getRange("B1").getValue() || "").trim();
+             }
+         } catch(e) { console.warn("Settings fetch failed:", e); }
+
          return ContentService.createTextOutput(JSON.stringify({ 
              status: 'success', 
              message: 'Login successful', 
              clientName: clientName,
-             clientType: clientType  // '直送' or ''
+             clientType: clientType,
+             announcement: announcement
          })).setMimeType(ContentService.MimeType.JSON);
     } else {
          return ContentService.createTextOutput(JSON.stringify({ 

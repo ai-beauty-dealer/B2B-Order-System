@@ -1030,6 +1030,17 @@ document.addEventListener('DOMContentLoaded', () => {
                     clientNameDisplay.textContent = currentClientName + ' 様' + typeLabel;
                 }
 
+                // Announcement banner control
+                if (announcementBanner && document.getElementById('announcement-text')) {
+                    const announcementText = result.announcement || '';
+                    if (announcementText) {
+                        document.getElementById('announcement-text').textContent = announcementText;
+                        announcementBanner.classList.remove('hidden');
+                    } else {
+                        announcementBanner.classList.add('hidden');
+                    }
+                }
+
                 // Load favorites
                 const savedFavs = localStorage.getItem(`b2b_favs_${currentUsername}`);
                 if (savedFavs) {
