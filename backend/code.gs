@@ -176,12 +176,19 @@ function handleLogin(data) {
     }
 
     if(authSuccess) {
-         // お知らせテキストを取得
+         // お知らせテキストを取得 (A1: 見出し, B1: 内容)
          let announcement = "";
          try {
              const settingsSheet = ss.getSheetByName(SHEET_NAMES.SETTINGS);
              if (settingsSheet) {
-                 announcement = String(settingsSheet.getRange("B1").getValue() || "").trim();
+                 const title = String(settingsSheet.getRange("A1").getValue() || "").trim();
+                 const content = String(settingsSheet.getRange("B1").getValue() || "").trim();
+                 
+                 if (title && content) {
+                     announcement = "【" + title + "】 " + content;
+                 } else {
+                     announcement = title || content; // 片方だけある場合
+                 }
              }
          } catch(e) { console.warn("Settings fetch failed:", e); }
 
