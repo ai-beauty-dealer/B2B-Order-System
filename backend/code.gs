@@ -515,11 +515,15 @@ function checkIncompleteOrders() {
 
         const values = sheet.getDataRange().getValues();
         for (let i = 1; i < values.length; i++) {
+            const salonName = String(values[i][4] || '').trim();
+            const itemName = String(values[i][3] || '').trim();
+            if (!salonName || !itemName) continue; // データがない空行はスキップ
+
             const status = String(values[i][5] || '').trim(); // F列: ステータス
             if (status !== '完了') {
                 incompleteItems.push({
-                    salon: values[i][4], // E列: 得意先名
-                    item: values[i][3],  // D列: 商品名
+                    salon: salonName,
+                    item: itemName,
                     sheet: sheetName.includes('直送') ? '直送' : '通常'
                 });
             }
