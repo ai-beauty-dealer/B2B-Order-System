@@ -131,19 +131,29 @@ function doGet(e) {
 
 // 2. POST リクエスト処理
 function doPost(e) {
+    const lock = LockService.getScriptLock();
     try {
+        // 最大30秒間、他の処理が終わるのを待機
+        if (!lock.tryLock(30000)) {
+            throw new Error("サーバーが混み合っています。少し時間をおいてから再度お試しください。");
+        }
+
         if (!e.postData || !e.postData.contents) throw new Error("No POST data received.");
         const postData = JSON.parse(e.postData.contents);
         const action = postData.action;
 
         if (action === 'login') return handleLogin(postData);
         else if (action === 'order') return handleOrder(postData);
-        else if (action === 'cancel_order') return handleCancelOrder(postData);
         else if (action === 'update_order') return handleUpdateOrder(postData);
-        else throw new Error("Invalid action parameter.");
+        else if (action === 'cancel_order') return handleCancelOrder(postData);
+        else throw new Error("Invalid action parameter for POST.");
+
     } catch (error) {
         return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: error.toString() }))
-          .setMimeType(ContentService.MimeType.JSON);
+            .setMimeType(ContentService.MimeType.JSON);
+    } finally {
+        // 処理が終わったら必ずロックを解放
+        lock.releaseLock();
     }
 }
 
