@@ -1051,6 +1051,21 @@ document.addEventListener('DOMContentLoaded', () => {
                     favoriteItems = [];
                 }
 
+                // Maintenance mode control
+                if (result.isMaintenance) {
+                    loginContainer.classList.add('hidden');
+                    const maintenanceContainer = document.getElementById('maintenance-container');
+                    const maintenanceMsgEl = document.getElementById('maintenance-message');
+                    if (maintenanceContainer) {
+                        if (maintenanceMsgEl && result.maintenanceMessage) {
+                            maintenanceMsgEl.innerHTML = result.maintenanceMessage.replace(/\n/g, '<br>');
+                        }
+                        maintenanceContainer.classList.remove('hidden');
+                    }
+                    hideLoading();
+                    return; // Stop further execution
+                }
+
                 // Switch screen
                 loginContainer.classList.add('hidden');
                 orderContainer.classList.remove('hidden');
