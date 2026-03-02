@@ -446,3 +446,112 @@ function sendLineNotification(message) {
         console.error("Failed to send LINE Notification: " + error.toString());
     }
 }
+// ------------------------------------------
+// 🤖 AI秘書: 通知機能
+// ------------------------------------------
+
+/**
+ * 1. 朝7時の未発注通知
+ * ClientMasterのE列（発注曜日）を確認し、本日発注予定で未着のサロンを通知
+ */
+function checkMorningOrders() {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const clientSheet = ss.getSheetByName(SHEET_NAMES.CLIENT);
+    if (!clientSheet) return;
+
+    const today = new Date();
+    const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
+    const todayName = dayNames[today.getDay()];
+    const dateStr = Utilities.formatDate(today, Session.getScriptTimeZone(), "yyyy-MM-dd");
+
+    const clients = clientSheet.getDataRange().getValues();
+    const todayOrderClients = []; // 本日発注予定のサロン
+
+    // 1. 本日発注予定のサロンを抽出 (A:ID, B:PW, C:名, D:種別, E:曜日)
+    for (let i = 1; i < clients.length; i++) {
+        const schedule = String(clients[i][4] || '');
+        if (schedule.includes(todayName)) {
+            todayOrderClients.push({
+                name: clients[i][2],
+                type: String(clients[i][3] || '').trim()
+            });
+        }
+    }
+
+    if (todayOrderClients.length === 0) return;
+
+    // 2. すでに届いている注文を確認
+    const registeredNormal = getOrderedClientNames(ss, dateStr);
+    const registeredDirect = getOrderedClientNames(ss, dateStr + CLIENT_TYPE_DIRECT);
+    const allRegistered = new Set([...registeredNormal, ...registeredDirect]);
+
+    // 3. 未着のサロンをリストアップ
+    const missing = todayOrderClients.filter(c => !allRegistered.has(c.name));
+
+    if (missing.length > 0) {
+        let msg = `【AI秘書】朝のアラート☀️\n本日発注予定ですが、まだ届いていないサロン様が ${missing.length} 件あります。\n\n`;
+        missing.forEach(c => {
+            msg += `・${c.name}${c.type === CLIENT_TYPE_DIRECT ? '(直送)' : ''}\n`;
+        });
+        sendLineNotification(msg);
+    }
+}
+
+/**
+ * 2. 10時半の未完了通知
+ * ステータスが「完了」になっていない注文をすべて通知
+ */
+function checkIncompleteOrders() {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const today = new Date();
+    const dateStr = Utilities.formatDate(today, Session.getScriptTimeZone(), "yyyy-MM-dd");
+
+    let incompleteItems = [];
+
+    // 通常シートと直送シートの両方をチェック
+    [dateStr, dateStr + CLIENT_TYPE_DIRECT].forEach(sheetName => {
+        const sheet = ss.getSheetByName(sheetName);
+        if (!sheet) return;
+
+        const values = sheet.getDataRange().getValues();
+        for (let i = 1; i < values.length; i++) {
+            const status = String(values[i][5] || '').trim(); // F列: ステータス
+            if (status !== '完了') {
+                incompleteItems.push({
+                    salon: values[i][4], // E列: 得意先名
+                    item: values[i][3],  // D列: 商品名
+                    sheet: sheetName.includes('直送') ? '直送' : '通常'
+                });
+            }
+        }
+    });
+
+    if (incompleteItems.length > 0) {
+        let msg = `【AI秘書】処理漏れアラート⚠️\n本日分の注文で、まだ「完了」になっていない項目が ${incompleteItems.length} 件あります。\n\n`;
+        // 重複を除いてサロン単位でまとめる
+        const summary = {};
+        incompleteItems.forEach(x => {
+            if (!summary[x.salon]) summary[x.salon] = [];
+            summary[x.salon].push(x.item);
+        });
+
+        for (const salon in summary) {
+            msg += `▼${salon}\n`;
+            summary[salon].forEach(item => msg += ` ・${item}\n`);
+            msg += `\n`;
+        }
+        sendLineNotification(msg);
+    }
+}
+
+// ヘルパー: 指定シートから注文済みのサロン名一覧を取得
+function getOrderedClientNames(ss, sheetName) {
+    const sheet = ss.getSheetByName(sheetName);
+    if (!sheet) return [];
+    const values = sheet.getDataRange().getValues();
+    const names = new Set();
+    for (let i = 1; i < values.length; i++) {
+        if (values[i][4]) names.add(values[i][4]);
+    }
+    return Array.from(names);
+}
