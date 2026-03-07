@@ -697,6 +697,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const startEditingOrder = (orderId, items) => {
         editingOrderId = orderId;
         currentCart = {}; // Reset cart for editing
+        cartOrder = []; // Reset cart order
 
         // Restore quantities from the history items into cart
         items.forEach(item => {
@@ -727,6 +728,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const resetEditMode = () => {
         editingOrderId = null;
         currentCart = {}; // Clear cart
+        cartOrder = []; // Clear cart order
         if (orderSubmitBtn) orderSubmitBtn.textContent = '発注する';
         if (cancelEditBtn) cancelEditBtn.classList.add('hidden');
         if (customItemsList) customItemsList.innerHTML = '';
