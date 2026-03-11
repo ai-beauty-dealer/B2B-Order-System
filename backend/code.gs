@@ -10,7 +10,8 @@ const SHEET_NAMES = {
   MASTER: 'ItemMaster',
   CLIENT: 'ClientMaster',
   ORDERS: 'Orders',
-  SETTINGS: 'Settings'
+  SETTINGS: 'Settings',
+  FAVORITES: 'Favorites'
 };
 const CLIENT_TYPE_DIRECT = '直送'; // D列に入力するフラグ
 
@@ -108,7 +109,8 @@ function doGet(e) {
                 date: Utilities.formatDate(orderDate, Session.getScriptTimeZone(), "yyyy/MM/dd HH:mm"),
                 code: row[1],
                 qty: row[2],
-                name: row[3]
+                name: row[3],
+                status: row[5] || ''
               });
             }
           }
@@ -119,6 +121,23 @@ function doGet(e) {
       history.sort((a, b) => b.orderId - a.orderId);
 
       return ContentService.createTextOutput(JSON.stringify({ status: 'success', data: history }))
+        .setMimeType(ContentService.MimeType.JSON);
+    } else if (action === 'get_favorites') {
+      const clientName = e.parameter.clientName;
+      if (!clientName) throw new Error("clientName parameter is required");
+      
+      let favs = [];
+      const sheet = ss.getSheetByName(SHEET_NAMES.FAVORITES);
+      if (sheet) {
+        const values = sheet.getDataRange().getValues();
+        for (let i = 1; i < values.length; i++) {
+          if (values[i][0] === clientName) {
+            favs = String(values[i][1] || '').split(',').map(s => s.trim()).filter(x => x);
+            break;
+          }
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({ status: 'success', data: favs }))
         .setMimeType(ContentService.MimeType.JSON);
     } else {
         throw new Error("Invalid action parameter for GET.");
@@ -146,6 +165,7 @@ function doPost(e) {
         else if (action === 'order') return handleOrder(postData);
         else if (action === 'update_order') return handleUpdateOrder(postData);
         else if (action === 'cancel_order') return handleCancelOrder(postData);
+        else if (action === 'save_favorites') return handleSaveFavorites(postData);
         else throw new Error("Invalid action parameter for POST.");
 
     } catch (error) {
@@ -178,14 +198,32 @@ function handleLogin(data) {
         if(String(values[i][0]) === String(username) && String(values[i][1]) === String(password)) {
             authSuccess = true;
             clientName = values[i][2]; // C列の得意先名
-            // 「直送」と完全一致する場合のみ直送扱いとし、それ以外（空文字や「通常」等）は一律通常('')とする
             const rawType = String(values[i][3] || '').trim();
-            clientType = (rawType === CLIENT_TYPE_DIRECT) ? CLIENT_TYPE_DIRECT : '';
+            if (rawType === 'マスター' || rawType === 'MASTER') {
+                clientType = 'MASTER';
+            } else if (rawType === CLIENT_TYPE_DIRECT) {
+                clientType = CLIENT_TYPE_DIRECT;
+            } else {
+                clientType = '';
+            }
             break;
         }
     }
 
     if(authSuccess) {
+         let allClients = [];
+         if (clientType === 'MASTER') {
+             for(let j=1; j<values.length; j++) {
+                 const type = String(values[j][3] || '').trim();
+                 if (type !== 'マスター' && type !== 'MASTER' && String(values[j][2])) {
+                     allClients.push({
+                         name: values[j][2],
+                         type: type === CLIENT_TYPE_DIRECT ? CLIENT_TYPE_DIRECT : ''
+                     });
+                 }
+             }
+         }
+
          // 設定情報を取得 (A1: お知らせ見出し, B1: お知らせ内容, C1: メンテフラグ, D1: メンテメッセージ)
          let announcement = "";
          let isMaintenance = false;
@@ -211,6 +249,8 @@ function handleLogin(data) {
              message: 'Login successful', 
              clientName: clientName,
              clientType: clientType,
+             isMaster: (clientType === 'MASTER'),
+             allClients: allClients,
              announcement: announcement,
              isMaintenance: isMaintenance,
              maintenanceMessage: maintenanceMessage
@@ -376,7 +416,7 @@ function handleUpdateOrder(data) {
                const code = String(row[1]);
                const status = row[5]; // Column F: Status
                if (status) {
-                   statusMap[code] = status;
+                   statusMap[code] = status || '';
                }
                sheet.deleteRow(i + 1);
           }
@@ -418,7 +458,7 @@ function handleUpdateOrder(data) {
          if(order.qty > 0) {
              const strCode = String(order.code);
              const isSpecial = specialCodesUpd.has(strCode) || strCode.startsWith('CUSTOM_ITEM_');
-             const existingStatus = statusMap[strCode] || '';
+             const existingStatus = typeof statusMap[strCode] === 'string' ? statusMap[strCode] : '';
              const row = [originalTimestamp, order.code, order.qty, order.name, clientName, existingStatus, remarks, isSpecial ? '別注' : ''];
              if (isSpecial) {
                  specialRowsUpd.push(row);
@@ -444,6 +484,39 @@ function handleUpdateOrder(data) {
 
      return ContentService.createTextOutput(JSON.stringify({ status: 'success', message: 'Order updated' }))
        .setMimeType(ContentService.MimeType.JSON);
+}
+
+// --- お気に入り保存処理 ---
+function handleSaveFavorites(data) {
+     const clientName = data.clientName;
+     const favorites = data.favorites; // array of strings
+     if(!clientName || !Array.isArray(favorites)) throw new Error("Invalid request");
+     
+     const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+     let sheet = ss.getSheetByName(SHEET_NAMES.FAVORITES);
+     
+     if (!sheet) {
+         sheet = ss.insertSheet(SHEET_NAMES.FAVORITES);
+         sheet.appendRow(['得意先名', 'お気に入りコード(カンマ区切り)']);
+     }
+     
+     const values = sheet.getDataRange().getValues();
+     let foundRow = -1;
+     for (let i = 1; i < values.length; i++) {
+         if (values[i][0] === clientName) {
+             foundRow = i + 1;
+             break;
+         }
+     }
+     
+     const favString = favorites.join(',');
+     if (foundRow !== -1) {
+         sheet.getRange(foundRow, 2).setValue(favString);
+     } else {
+         sheet.appendRow([clientName, favString]);
+     }
+     
+     return ContentService.createTextOutput(JSON.stringify({ status: 'success' })).setMimeType(ContentService.MimeType.JSON);
 }
 
 // ------------------------------------------

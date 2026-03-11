@@ -35,6 +35,21 @@
             </div>
             <button type="submit" id="login-btn" class="btn-primary">ログイン</button>
         </form>
+        <!-- Master Salon Selector (Initially Hidden) -->
+        <div id="master-salon-selector" class="hidden"
+            style="margin-top: 16px; padding-top: 16px; border-top: 1px solid #eee;">
+            <p style="font-size: 0.875rem; font-weight: bold; margin-bottom: 8px; color: var(--primary);">【マスターアカウント】
+            </p>
+            <label for="master-salon-select"
+                style="font-size: 0.875rem; margin-bottom: 4px; display: block;">ログインするサロンを選択</label>
+            <select id="master-salon-select"
+                style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #cbd5e1; margin-bottom: 12px;">
+                <!-- Options injected by JS -->
+            </select>
+            <button type="button" id="master-login-btn" class="btn-primary" style="margin-bottom: 8px;">入室する</button>
+            <button type="button" id="master-cancel-btn" class="btn-secondary">ログアウト</button>
+        </div>
+
         <div style="margin-top: 24px; text-align: center; border-top: 1px solid #eee; padding-top: 16px;">
             <p style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 8px;">画面が動かない・真っ黒な場合：</p>
             <button onclick="clearCacheSurgically();"

@@ -57,6 +57,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const syncHistoryFavsBtn = document.getElementById('sync-history-favs-btn');
     const syncMsgArea = document.getElementById('sync-msg');
 
+    // Master Account UI
+    const masterLoginBtn = document.getElementById('master-login-btn');
+    const masterCancelBtn = document.getElementById('master-cancel-btn');
+    const masterSalonSelect = document.getElementById('master-salon-select');
+
     // Load saved ID if exists
     const savedId = localStorage.getItem('b2b_saved_username');
     const isRemembered = localStorage.getItem('b2b_remember_me') === 'true';
@@ -233,6 +238,20 @@ document.addEventListener('DOMContentLoaded', () => {
     if (cartCloseBtn) cartCloseBtn.addEventListener('click', closeCartSidebar);
     if (cartOverlay) cartOverlay.addEventListener('click', closeCartSidebar);
 
+    // --- Save Favorites to Cloud Helper ---
+    const saveFavoritesToCloud = () => {
+        if (!currentClientName) return;
+        fetch(CONFIG.API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({
+                action: 'save_favorites',
+                clientName: currentClientName,
+                favorites: favoriteItems
+            })
+        }).catch(e => console.error('Failed to save favorites to cloud', e));
+    };
+
     // Sidebar Action Buttons (v2.10)
     const cartSaveBtn = document.getElementById('cart-save-draft-btn');
     const cartOrderBtn = document.getElementById('cart-order-submit-btn');
@@ -321,6 +340,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (addedCount > 0) {
             localStorage.setItem(`b2b_favs_${currentUsername}`, JSON.stringify(favoriteItems));
+            saveFavoritesToCloud();
             showSyncMsg(`${addedCount}件の商品をお気に入りに追加しました！`, 'success');
             renderItems(itemsData); // Re-render to show stars
         } else {
@@ -422,6 +442,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 // Save to local storage
                 localStorage.setItem(`b2b_favs_${currentUsername}`, JSON.stringify(favoriteItems));
+                saveFavoritesToCloud();
 
                 // If we are on the favorites tab, re-render to hide removed item instantly
                 // Note: Re-rendering clears quantity inputs. For MVP this is acceptable.
@@ -502,13 +523,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 detailsHtml += `<div class="history-item"><span>${item.name}</span><span>${item.qty}点</span></div>`;
             });
 
+            const isCompleted = items.length > 0 && items[0].status === '完了';
+            const badgeHtml = isCompleted ? `<span style="font-size: 0.75rem; color: #166534; background: #dcfce7; padding: 2px 8px; border-radius: 12px; margin-left: 8px; font-weight: bold; border: 1px solid #bbf7d0; display: inline-block;">発注済み（${date}）</span>` : '';
+
             const card = document.createElement('div');
             card.className = 'history-group-card';
 
             card.innerHTML = `
                 <div class="history-header">
-                    <div>
-                        <div class="history-date">${date}</div>
+                    <div style="width: 100%;">
+                        <div class="history-date" style="display: flex; align-items: center; flex-wrap: wrap; gap: 4px;">${date}${badgeHtml}</div>
                         <div class="history-summary">計 ${totalItems}点</div>
                     </div>
                     <div class="history-toggle">▼</div>
@@ -990,6 +1014,69 @@ document.addEventListener('DOMContentLoaded', () => {
         refreshItemsBtn.addEventListener('click', () => fetchItems(true));
     }
 
+    // --- Login Helper ---
+    const processLoginSuccess = async (announcement, isMaintenance, maintenanceMessage) => {
+        if (clientNameDisplay) {
+            const typeLabel = currentClientType === '直送' ? ' [直送]' : '';
+            clientNameDisplay.textContent = currentClientName + ' 様' + typeLabel;
+        }
+
+        // Announcement banner control
+        if (announcementBanner && document.getElementById('announcement-text')) {
+            if (announcement) {
+                document.getElementById('announcement-text').textContent = announcement;
+                announcementBanner.classList.remove('hidden');
+            } else {
+                announcementBanner.classList.add('hidden');
+            }
+        }
+
+        // Maintenance mode control
+        if (isMaintenance) {
+            loginContainer.classList.add('hidden');
+            const maintenanceContainer = document.getElementById('maintenance-container');
+            const maintenanceMsgEl = document.getElementById('maintenance-message');
+            if (maintenanceContainer) {
+                if (maintenanceMsgEl && maintenanceMessage) {
+                    maintenanceMsgEl.innerHTML = maintenanceMessage.replace(/\n/g, '<br>');
+                }
+                maintenanceContainer.classList.remove('hidden');
+            }
+            hideLoading();
+            return;
+        }
+
+        // Load favorites from Cloud first, fallback to local
+        try {
+            const favRes = await fetch(`${CONFIG.API_URL}?action=get_favorites&clientName=${encodeURIComponent(currentClientName)}`);
+            const favData = await favRes.json();
+            if (favData.status === 'success' && favData.data && favData.data.length > 0) {
+                favoriteItems = favData.data;
+                localStorage.setItem(`b2b_favs_${currentUsername}`, JSON.stringify(favoriteItems));
+                console.log('Loaded favorites from cloud');
+            } else {
+                const savedFavs = localStorage.getItem(`b2b_favs_${currentUsername}`);
+                favoriteItems = savedFavs ? JSON.parse(savedFavs) : [];
+            }
+        } catch (e) {
+            console.warn('Failed to load favorites from cloud, falling back to local', e);
+            const savedFavs = localStorage.getItem(`b2b_favs_${currentUsername}`);
+            favoriteItems = savedFavs ? JSON.parse(savedFavs) : [];
+        }
+
+        // Switch screen
+        loginContainer.classList.add('hidden');
+        orderContainer.classList.remove('hidden');
+
+        // --- ANTI-FREEZE: Delay fetchItems slightly ---
+        console.log('Login successful, starting data fetch in 300ms...');
+        setTimeout(() => {
+            fetchItems();
+            switchTab('tab-all'); // Explicitly set initial tab state
+        }, 300);
+        hideLoading();
+    };
+
     // --- Login (API) ---
     loginForm.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -1025,69 +1112,73 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 currentUsername = username;
-                currentClientName = result.clientName;
-                currentClientType = result.clientType || ''; // '直送' or ''
-                if (clientNameDisplay) {
-                    const typeLabel = currentClientType === '直送' ? ' [直送]' : '';
-                    clientNameDisplay.textContent = currentClientName + ' 様' + typeLabel;
-                }
 
-                // Announcement banner control
-                if (announcementBanner && document.getElementById('announcement-text')) {
-                    const announcementText = result.announcement || '';
-                    if (announcementText) {
-                        document.getElementById('announcement-text').textContent = announcementText;
-                        announcementBanner.classList.remove('hidden');
-                    } else {
-                        announcementBanner.classList.add('hidden');
-                    }
-                }
+                // --- Master Account Logic ---
+                if (result.isMaster) {
+                    const masterAllClients = result.allClients || [];
+                    const selectEl = document.getElementById('master-salon-select');
+                    if (selectEl) {
+                        selectEl.innerHTML = '';
+                        masterAllClients.forEach(c => {
+                            const option = document.createElement('option');
+                            option.value = JSON.stringify(c);
+                            const typeLabel = c.type === '直送' ? ' [直送]' : '';
+                            option.textContent = c.name + typeLabel;
+                            selectEl.appendChild(option);
+                        });
+                        loginForm.classList.add('hidden');
+                        document.getElementById('master-salon-selector').classList.remove('hidden');
 
-                // Load favorites
-                const savedFavs = localStorage.getItem(`b2b_favs_${currentUsername}`);
-                if (savedFavs) {
-                    try {
-                        favoriteItems = JSON.parse(savedFavs);
-                    } catch (e) { favoriteItems = []; }
-                } else {
-                    favoriteItems = [];
-                }
-
-                // Maintenance mode control
-                if (result.isMaintenance) {
-                    loginContainer.classList.add('hidden');
-                    const maintenanceContainer = document.getElementById('maintenance-container');
-                    const maintenanceMsgEl = document.getElementById('maintenance-message');
-                    if (maintenanceContainer) {
-                        if (maintenanceMsgEl && result.maintenanceMessage) {
-                            maintenanceMsgEl.innerHTML = result.maintenanceMessage.replace(/\n/g, '<br>');
-                        }
-                        maintenanceContainer.classList.remove('hidden');
+                        // Save these temporarily to pass to the processLoginSuccess later
+                        selectEl.dataset.announcement = result.announcement || '';
+                        selectEl.dataset.isMaintenance = result.isMaintenance || false;
+                        selectEl.dataset.maintenanceMessage = result.maintenanceMessage || '';
                     }
                     hideLoading();
-                    return; // Stop further execution
+                    return;
                 }
 
-                // Switch screen
-                loginContainer.classList.add('hidden');
-                orderContainer.classList.remove('hidden');
+                currentClientName = result.clientName;
+                currentClientType = result.clientType || ''; // '直送' or ''
 
-                // --- ANTI-FREEZE: Delay fetchItems slightly ---
-                console.log('Login successful, starting data fetch in 300ms...');
-                setTimeout(() => {
-                    fetchItems();
-                    switchTab('tab-all'); // Explicitly set initial tab state
-                }, 300);
+                await processLoginSuccess(result.announcement, result.isMaintenance, result.maintenanceMessage);
             } else {
                 alert('ログインに失敗しました: ' + result.message);
             }
         } catch (error) {
             console.error(error);
             alert('通信に失敗しました。');
-        } finally {
             hideLoading();
         }
     });
+
+    if (masterLoginBtn) {
+        masterLoginBtn.addEventListener('click', async () => {
+            const selectedVal = masterSalonSelect.value;
+            if (!selectedVal) return;
+            const clientData = JSON.parse(selectedVal);
+            currentClientName = clientData.name;
+            currentClientType = clientData.type;
+
+            document.getElementById('master-salon-selector').classList.add('hidden');
+            loginForm.classList.remove('hidden');
+
+            showLoading('サロンデータを準備中...');
+            await processLoginSuccess(
+                masterSalonSelect.dataset.announcement || '',
+                masterSalonSelect.dataset.isMaintenance === 'true',
+                masterSalonSelect.dataset.maintenanceMessage || ''
+            );
+        });
+    }
+
+    if (masterCancelBtn) {
+        masterCancelBtn.addEventListener('click', () => {
+            document.getElementById('master-salon-selector').classList.add('hidden');
+            loginForm.classList.remove('hidden');
+            currentUsername = '';
+        });
+    }
 
     // --- Logout ---
     logoutBtn.addEventListener('click', () => {
@@ -1157,6 +1248,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 if (favsUpdated) {
                     localStorage.setItem(`b2b_favs_${currentUsername}`, JSON.stringify(favoriteItems));
+                    saveFavoritesToCloud();
                     renderItems(itemsData);
                 }
                 localStorage.removeItem(`b2b_draft_${currentUsername}`);
