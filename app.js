@@ -524,7 +524,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             const isCompleted = items.length > 0 && items[0].status === '完了';
-            const badgeHtml = isCompleted ? `<span style="font-size: 0.75rem; color: #166534; background: #dcfce7; padding: 2px 8px; border-radius: 12px; margin-left: 8px; font-weight: bold; border: 1px solid #bbf7d0; display: inline-block;">発注済み（${date}）</span>` : '';
+            const badgeHtml = isCompleted ? `<span style="font-size: 0.75rem; color: #166534; background: #dcfce7; padding: 2px 8px; border-radius: 12px; margin-left: 8px; font-weight: bold; border: 1px solid #bbf7d0; display: inline-block;">発注済み</span>` : '';
 
             const card = document.createElement('div');
             card.className = 'history-group-card';
