@@ -57,6 +57,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const syncHistoryFavsBtn = document.getElementById('sync-history-favs-btn');
     const syncMsgArea = document.getElementById('sync-msg');
 
+    // Helper: LocalStorage keys (include clientName for master account isolation)
+    const getFavsKey = () => `b2b_favs_${currentUsername}_${currentClientName}`;
+    const getDraftKey = () => `b2b_draft_${currentUsername}_${currentClientName}`;
+
     // Master Account UI
     const masterLoginBtn = document.getElementById('master-login-btn');
     const masterCancelBtn = document.getElementById('master-cancel-btn');
@@ -271,8 +275,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
     const saveDraft = () => {
-        if (!currentUsername) return;
-        localStorage.setItem(`b2b_draft_${currentUsername}`, JSON.stringify(currentCart));
+        localStorage.setItem(getDraftKey(), JSON.stringify(currentCart));
         console.log('Draft saved');
     };
 
@@ -289,8 +292,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupScrollArrows('cat-arrow-left', 'cat-arrow-right', 'category-chips-container');
 
     const loadDraft = () => {
-        if (!currentUsername) return;
-        const savedDraft = localStorage.getItem(`b2b_draft_${currentUsername}`);
+        const savedDraft = localStorage.getItem(getDraftKey());
         if (!savedDraft) return;
         console.log('Draft detected for user:', currentUsername);
     };
@@ -339,7 +341,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         if (addedCount > 0) {
-            localStorage.setItem(`b2b_favs_${currentUsername}`, JSON.stringify(favoriteItems));
+            localStorage.setItem(getFavsKey(), JSON.stringify(favoriteItems));
             saveFavoritesToCloud();
             showSyncMsg(`${addedCount}件の商品をお気に入りに追加しました！`, 'success');
             renderItems(itemsData); // Re-render to show stars
@@ -441,7 +443,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     favBtn.textContent = '★';
                 }
                 // Save to local storage
-                localStorage.setItem(`b2b_favs_${currentUsername}`, JSON.stringify(favoriteItems));
+                localStorage.setItem(getFavsKey(), JSON.stringify(favoriteItems));
                 saveFavoritesToCloud();
 
                 // If we are on the favorites tab, re-render to hide removed item instantly
@@ -1052,15 +1054,15 @@ document.addEventListener('DOMContentLoaded', () => {
             const favData = await favRes.json();
             if (favData.status === 'success' && favData.data && favData.data.length > 0) {
                 favoriteItems = favData.data;
-                localStorage.setItem(`b2b_favs_${currentUsername}`, JSON.stringify(favoriteItems));
+                localStorage.setItem(getFavsKey(), JSON.stringify(favoriteItems));
                 console.log('Loaded favorites from cloud');
             } else {
-                const savedFavs = localStorage.getItem(`b2b_favs_${currentUsername}`);
+                const savedFavs = localStorage.getItem(getFavsKey());
                 favoriteItems = savedFavs ? JSON.parse(savedFavs) : [];
             }
         } catch (e) {
             console.warn('Failed to load favorites from cloud, falling back to local', e);
-            const savedFavs = localStorage.getItem(`b2b_favs_${currentUsername}`);
+            const savedFavs = localStorage.getItem(getFavsKey());
             favoriteItems = savedFavs ? JSON.parse(savedFavs) : [];
         }
 
@@ -1157,6 +1159,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const selectedVal = masterSalonSelect.value;
             if (!selectedVal) return;
             const clientData = JSON.parse(selectedVal);
+            
+            // 重要: 前のサロン（またはマスター自身の）データが混ざらないよう完全クリア
+            favoriteItems = [];
+            currentCart = {};
+            cartOrder = [];
+            
             currentClientName = clientData.name;
             currentClientType = clientData.type;
 
@@ -1177,6 +1185,10 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('master-salon-selector').classList.add('hidden');
             loginForm.classList.remove('hidden');
             currentUsername = '';
+            // 切替キャンセル時もクリアしておく
+            favoriteItems = [];
+            currentCart = {};
+            cartOrder = [];
         });
     }
 
@@ -1247,11 +1259,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 });
                 if (favsUpdated) {
-                    localStorage.setItem(`b2b_favs_${currentUsername}`, JSON.stringify(favoriteItems));
+                    localStorage.setItem(getFavsKey(), JSON.stringify(favoriteItems));
                     saveFavoritesToCloud();
                     renderItems(itemsData);
                 }
-                localStorage.removeItem(`b2b_draft_${currentUsername}`);
+                localStorage.removeItem(getDraftKey());
                 if (customItemsList) customItemsList.innerHTML = '';
                 resetEditMode();
             } else {

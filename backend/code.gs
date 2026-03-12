@@ -666,3 +666,64 @@ function getOrderedClientNames(ss, sheetName) {
     }
     return Array.from(names);
 }
+
+/**
+ * 3. 朝8時の別注商品通知
+ * すべての注文シート（日付形式 & Orders）を走査し、
+ * ステータスが「完了」でない「別注」商品をリストアップして通知
+ */
+function checkMorningSpecialOrders() {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheets = ss.getSheets();
+    const dateSheetRegex = /^\d{4}-\d{2}-\d{2}(直送)?$/;
+    
+    const specialPendingItems = []; // { salon: string, item: string, date: string }
+
+    sheets.forEach(sheet => {
+        const sheetName = sheet.getName();
+        // 日付シートまたはOrdersシートが対象
+        if (dateSheetRegex.test(sheetName) || sheetName === SHEET_NAMES.ORDERS) {
+            const values = sheet.getDataRange().getValues();
+            // A:日時, B:コード, C:個数, D:商品名, E:サロン名, F:ステータス, G:備考, H:別注
+            for (let i = 1; i < values.length; i++) {
+                const status = String(values[i][5] || '').trim();
+                const isSpecial = String(values[i][7] || '').trim() === '別注';
+                
+                // 別注かつ未完了のものを抽出
+                if (isSpecial && status !== '完了') {
+                    const orderDate = values[i][0] instanceof Date ? 
+                        Utilities.formatDate(values[i][0], Session.getScriptTimeZone(), "MM/dd") : "不明";
+                        
+                    specialPendingItems.push({
+                        salon: String(values[i][4] || '不明').trim(),
+                        item: String(values[i][3] || '不明').trim(),
+                        date: orderDate
+                    });
+                }
+            }
+        }
+    });
+
+    if (specialPendingItems.length > 0) {
+        let msg = `【AI秘書】別注商品のリマインド🔔\n未完了の別注商品が ${specialPendingItems.length} 件あります。確認をお願いします。\n\n`;
+        
+        // サロンごとにまとめる
+        const summary = {};
+        specialPendingItems.forEach(x => {
+            if (!summary[x.salon]) summary[x.salon] = [];
+            summary[x.salon].push(`${x.item} (${x.date})`);
+        });
+
+        for (const salon in summary) {
+            msg += `▼${salon}\n`;
+            summary[salon].forEach(detail => msg += ` ・${detail}\n`);
+            msg += `\n`;
+        }
+        
+        sendLineNotification(msg);
+        console.log("Morning special orders alert sent.");
+    } else {
+        console.log("No pending special orders found.");
+    }
+}
+
