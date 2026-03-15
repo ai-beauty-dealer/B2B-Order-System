@@ -340,7 +340,7 @@ function handleOrder(data) {
      }
      
      if (remarks) orderSummaryForLINE += `\n【備考】\n${remarks}`;
-     sendLineNotification(orderSummaryForLINE);
+     sendNotification(orderSummaryForLINE);
 
      return ContentService.createTextOutput(JSON.stringify({ status: 'success', message: 'Order recorded successfully' }))
        .setMimeType(ContentService.MimeType.JSON);
@@ -480,7 +480,7 @@ function handleUpdateOrder(data) {
      }
      
      if (remarks) orderSummaryForLINE += `\n【備考】\n${remarks}`;
-     sendLineNotification(orderSummaryForLINE);
+     sendNotification(orderSummaryForLINE);
 
      return ContentService.createTextOutput(JSON.stringify({ status: 'success', message: 'Order updated' }))
        .setMimeType(ContentService.MimeType.JSON);
@@ -520,17 +520,28 @@ function handleSaveFavorites(data) {
 }
 
 // ------------------------------------------
-// LINE通知処理
+// 通知処理（LINE & Discord）
 // ------------------------------------------
+
+/**
+ * 汎用通知関数: LINEへの送信を試み、エラーがあればDiscordへ、または両方に送る
+ */
+function sendNotification(message) {
+    // 1. LINE通知 (現在制限中のためエラーになる可能性が高い)
+    const lineSuccess = sendLineNotification(message);
+
+    // 2. Discord通知 (バックアップまたは常時送信用)
+    sendDiscordNotification(message);
+}
+
 function sendLineNotification(message) {
     try {
         const token = PropertiesService.getScriptProperties().getProperty('LINE_CHANNEL_ACCESS_TOKEN');
         const groupId = PropertiesService.getScriptProperties().getProperty('GROUP_ID');
 
-        // Only send if properties are set, otherwise silently skip
         if (!token || !groupId) {
-            console.log("LINE Notification skipped: Credentials not found in Script Properties.");
-            return;
+            console.log("LINE Notification skipped: Credentials not found.");
+            return false;
         }
 
         const url = 'https://api.line.me/v2/bot/message/push';
@@ -545,14 +556,50 @@ function sendLineNotification(message) {
                 'Content-Type': 'application/json',
                 'Authorization': 'Bearer ' + token
             },
+            payload: JSON.stringify(payload),
+            muteHttpExceptions: true // 429エラーなどをログに残すために追加
+        };
+
+        const response = UrlFetchApp.fetch(url, options);
+        const responseCode = response.getResponseCode();
+        
+        if (responseCode !== 200) {
+            console.error(`LINE API Error: ${responseCode} - ${response.getContentText()}`);
+            return false;
+        }
+        
+        return true;
+    } catch (error) {
+        console.error("Failed to send LINE Notification: " + error.toString());
+        return false;
+    }
+}
+
+function sendDiscordNotification(message) {
+    try {
+        const webhookUrl = PropertiesService.getScriptProperties().getProperty('DISCORD_WEBHOOK_URL');
+        if (!webhookUrl) {
+            console.log("Discord Notification skipped: DISCORD_WEBHOOK_URL not found in Script Properties.");
+            return;
+        }
+
+        const payload = {
+            content: message
+        };
+
+        const options = {
+            method: 'post',
+            contentType: 'application/json',
             payload: JSON.stringify(payload)
         };
 
-        UrlFetchApp.fetch(url, options);
+        UrlFetchApp.fetch(webhookUrl, options);
+        console.log("✅ Discord message sent successfully.");
     } catch (error) {
-        console.error("Failed to send LINE Notification: " + error.toString());
+        console.error("Failed to send Discord Notification: " + error.toString());
     }
 }
+
 // ------------------------------------------
 // 🤖 AI秘書: 通知機能
 // ------------------------------------------
@@ -567,17 +614,30 @@ function checkMorningOrders() {
     if (!clientSheet) return;
 
     const today = new Date();
+    const dayOfWeek = today.getDay(); // 0:日, 1:月, ...
+    
+    // 1. 日曜日は通知を送らない
+    if (dayOfWeek === 0) {
+        console.log("Sunday: Skipping morning order check.");
+        return;
+    }
+
     const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
-    const todayName = dayNames[today.getDay()];
+    const todayName = dayNames[dayOfWeek];
     const dateStr = Utilities.formatDate(today, Session.getScriptTimeZone(), "yyyy-MM-dd");
 
-    const clients = clientSheet.getDataRange().getValues();
-    const todayOrderClients = []; // 本日発注予定のサロン
+    // 2. チェック対象の曜日を決定（月曜日の統合チェックを削除し、当日の曜日のみに修正）
+    const targetDays = [todayName];
 
-    // 1. 本日発注予定のサロンを抽出 (A:ID, B:PW, C:名, D:種別, E:曜日)
+    const clients = clientSheet.getDataRange().getValues();
+    const todayOrderClients = []; // 発注予定のサロン
+
+    // 3. 発注予定のサロンを抽出 (A:ID, B:PW, C:名, D:種別, E:曜日)
     for (let i = 1; i < clients.length; i++) {
         const schedule = String(clients[i][4] || '');
-        if (schedule.includes(todayName)) {
+        const isTarget = targetDays.some(d => schedule.includes(d));
+        
+        if (isTarget) {
             todayOrderClients.push({
                 name: clients[i][2],
                 type: String(clients[i][3] || '').trim()
@@ -587,20 +647,20 @@ function checkMorningOrders() {
 
     if (todayOrderClients.length === 0) return;
 
-    // 2. すでに届いている注文を確認
+    // 4. すでに届いている注文を確認
     const registeredNormal = getOrderedClientNames(ss, dateStr);
     const registeredDirect = getOrderedClientNames(ss, dateStr + CLIENT_TYPE_DIRECT);
     const allRegistered = new Set([...registeredNormal, ...registeredDirect]);
 
-    // 3. 未着のサロンをリストアップ
+    // 5. 未着のサロンをリストアップ
     const missing = todayOrderClients.filter(c => !allRegistered.has(c.name));
 
     if (missing.length > 0) {
-        let msg = `【AI秘書】朝のアラート☀️\n本日発注予定ですが、まだ届いていないサロン様が ${missing.length} 件あります。\n\n`;
+        let msg = `【AI秘書】朝のアラート☀️\n本日（${todayName}）発注予定ですが、まだ届いていないサロン様が ${missing.length} 件あります。\n\n`;
         missing.forEach(c => {
             msg += `・${c.name}${c.type === CLIENT_TYPE_DIRECT ? '(直送)' : ''}\n`;
         });
-        sendLineNotification(msg);
+        sendNotification(msg);
     }
 }
 
@@ -651,7 +711,7 @@ function checkIncompleteOrders() {
             summary[salon].forEach(item => msg += ` ・${item}\n`);
             msg += `\n`;
         }
-        sendLineNotification(msg);
+        sendNotification(msg);
     }
 }
 
@@ -720,7 +780,7 @@ function checkMorningSpecialOrders() {
             msg += `\n`;
         }
         
-        sendLineNotification(msg);
+        sendNotification(msg);
         console.log("Morning special orders alert sent.");
     } else {
         console.log("No pending special orders found.");
