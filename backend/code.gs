@@ -370,6 +370,19 @@ function handleCancelOrder(data) {
 
      const values = sheet.getDataRange().getValues();
      let deletedCount = 0;
+     let canceledItems = [];
+     
+     // 削除前に内容を収集（1行目はヘッダーなのでi=1から）
+     for(let i = 1; i < values.length; i++) {
+          const row = values[i];
+          // row[0]=タイムスタンプ, row[4]=クライアント名
+          if(row[4] === clientName && new Date(row[0]).getTime() === parseInt(orderId)) {
+               // row[7]=商品名, row[8]=数量
+               canceledItems.push(`・${row[7]} × ${row[8]}`);
+          }
+     }
+
+     // 行の削除（逆順で削除）
      for(let i = values.length - 1; i >= 1; i--) {
           const row = values[i];
           if(row[4] === clientName && new Date(row[0]).getTime() === parseInt(orderId)) {
@@ -379,7 +392,8 @@ function handleCancelOrder(data) {
      }
 
      if (deletedCount > 0) {
-          sendNotification(`【キャンセル通知】\nサロン名: ${clientName}\n対象の注文（ID: ${orderId}）がキャンセルされました。`);
+          let message = `【キャンセル通知】\nサロン名: ${clientName}\n内容:\n${canceledItems.join('\n')}\n（注文ID: ${orderId}）`;
+          sendNotification(message);
      }
 
      return ContentService.createTextOutput(JSON.stringify({ 
