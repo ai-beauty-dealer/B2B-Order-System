@@ -378,6 +378,10 @@ function handleCancelOrder(data) {
           }
      }
 
+     if (deletedCount > 0) {
+          sendNotification(`【キャンセル通知】\nサロン名: ${clientName}\n対象の注文（ID: ${orderId}）がキャンセルされました。`);
+     }
+
      return ContentService.createTextOutput(JSON.stringify({ 
           status: deletedCount > 0 ? 'success' : 'error', 
           message: deletedCount > 0 ? 'Order canceled' : 'Order not found' 
