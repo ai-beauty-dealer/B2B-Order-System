@@ -377,8 +377,8 @@ function handleCancelOrder(data) {
           const row = values[i];
           // row[0]=タイムスタンプ, row[4]=クライアント名
           if(row[4] === clientName && new Date(row[0]).getTime() === parseInt(orderId)) {
-               // row[7]=商品名, row[8]=数量
-               canceledItems.push(`・${row[7]} × ${row[8]}`);
+               // row[3]=商品名, row[2]=数量
+               canceledItems.push(`・${row[3]} × ${row[2]}`);
           }
      }
 
