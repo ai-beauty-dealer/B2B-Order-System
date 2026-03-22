@@ -132,6 +132,35 @@ document.addEventListener('DOMContentLoaded', () => {
         renderCartSidebar();
     };
 
+    /**
+     * Parse product name into structured info (Feature 1, 4)
+     * e.g. "ADX 8-Sapphire" -> { brand: "ADX", level: 8, tone: "Sapphire" }
+     */
+    const extractInfo = (name) => {
+        const parts = name.split(/[\s-]+/);
+        const brand = parts[0] || 'その他';
+        let level = null;
+        let tone = '';
+
+        // Looking for numbers (Level)
+        for (let i = 1; i < parts.length; i++) {
+            const num = parseInt(parts[i]);
+            if (!isNaN(num) && num > 0 && num < 20) {
+                level = num;
+                // Remaining parts after level are tone
+                tone = parts.slice(i + 1).join('-');
+                if (!tone && i > 1) tone = parts.slice(1, i).join('-');
+                break;
+            }
+        }
+        
+        if (!level && parts.length > 1) {
+            tone = parts.slice(1).join('-');
+        }
+
+        return { brand, level, tone: tone || 'Default' };
+    };
+
     // --- Surgical Cache Clearing (v2.10) ---
     window.clearCacheSurgically = () => {
         const keysToKeep = [];
@@ -405,96 +434,130 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        if (currentFilter === 'favorites') {
+            // Group and Sort (Feature 1, 4)
+            const grouped = {};
+            displayItems.forEach(item => {
+                const info = extractInfo(item.name);
+                if (!grouped[info.brand]) grouped[info.brand] = [];
+                grouped[info.brand].push({ item, info });
+            });
+
+            // Sort within each group: Level (asc) -> Tone
+            Object.keys(grouped).forEach(brand => {
+                grouped[brand].sort((a, b) => {
+                    if (a.info.level !== b.info.level) {
+                        if (a.info.level === null) return 1;
+                        if (b.info.level === null) return -1;
+                        return a.info.level - b.info.level;
+                    }
+                    return a.info.tone.localeCompare(b.info.tone);
+                });
+            });
+
+            // Render sections
+            Object.entries(grouped).sort().forEach(([brand, entries]) => {
+                const section = document.createElement('div');
+                section.className = 'brand-section';
+                
+                const header = document.createElement('div');
+                header.className = 'brand-header';
+                header.innerHTML = `<span>${brand}</span> <span class="brand-count">${entries.length}</span>`;
+                section.appendChild(header);
+
+                const list = document.createElement('div');
+                list.style.padding = '8px 0';
+                entries.forEach(({ item }) => {
+                    const strCode = String(item.code);
+                    const isFav = favoriteItems.includes(strCode);
+                    const card = createItemRow(item, isFav);
+                    list.appendChild(card);
+                });
+                section.appendChild(list);
+                itemListContainer.appendChild(section);
+            });
+            return;
+        }
+
+        // --- Standard List Rendering ---
         displayItems.forEach(item => {
-            const strCode = String(item.code); // 常に文字列として扱う
+            const strCode = String(item.code);
             const isFav = favoriteItems.includes(strCode);
-            const card = document.createElement('div');
-            card.className = 'item-row';
-            card.dataset.code = strCode;
-            const currentQty = currentCart[item.code] ? currentCart[item.code].qty : 0;
-            card.innerHTML = `
-                <button type="button" class="btn-fav ${isFav ? 'active' : ''}" data-code="${strCode}">${isFav ? '★' : '☆'}</button>
-                <div class="item-row-info">
-                    <span class="item-code">${item.code}</span>
-                    <span class="item-row-name">${item.name}</span>
-                </div>
-                <div class="order-controls">
-                    <button type="button" class="btn-qty minus">-</button>
-                    <input type="number" class="qty-input" data-code="${item.code}" data-name="${item.name}" value="${currentQty}" min="0">
-                    <button type="button" class="btn-qty plus">+</button>
-                </div>
-            `;
-
-            // Attach Events for this card
-            const input = card.querySelector('.qty-input');
-            const favBtn = card.querySelector('.btn-fav');
-
-            // Favorite toggle
-            favBtn.addEventListener('click', () => {
-                if (favoriteItems.includes(strCode)) {
-                    // Remove
-                    favoriteItems = favoriteItems.filter(c => c !== strCode);
-                    favBtn.classList.remove('active');
-                    favBtn.textContent = '☆';
-                } else {
-                    // Add
-                    favoriteItems.push(strCode);
-                    favBtn.classList.add('active');
-                    favBtn.textContent = '★';
-                }
-                // Save to local storage
-                localStorage.setItem(getFavsKey(), JSON.stringify(favoriteItems));
-                saveFavoritesToCloud();
-
-                // If we are on the favorites tab, re-render to hide removed item instantly
-                // Note: Re-rendering clears quantity inputs. For MVP this is acceptable.
-                if (currentFilter === 'favorites') {
-                    // Re-apply search filter if there's any text in the input
-                    const rawSearch = searchInput.value;
-                    if (rawSearch.trim() === '') {
-                        renderItems(itemsData);
-                    } else {
-                        const searchTokens = rawSearch.trim().split(/[\s　]+/);
-                        const filtered = itemsData.filter(item => {
-                            const normalizedName = normalizeForSearch(item.name);
-                            const normalizedCode = normalizeForSearch(item.code);
-                            const searchableText = normalizedName + normalizedCode;
-                            return searchTokens.every(token => searchableText.includes(normalizeForSearch(token)));
-                        });
-                        renderItems(filtered);
-                    }
-                }
-            });
-
-            const updateCart = (val) => {
-                if (val > 0) {
-                    if (!currentCart[item.code]) {
-                        cartOrder.push(String(item.code));
-                    }
-                    currentCart[item.code] = { qty: val, name: item.name };
-                } else {
-                    delete currentCart[item.code];
-                    cartOrder = cartOrder.filter(c => c !== String(item.code));
-                }
-            };
-
-            card.querySelector('.minus').addEventListener('click', () => {
-                let val = parseInt(input.value) || 0;
-                if (val > 0) { val -= 1; input.value = val; updateCart(val); calculateTotal(); }
-            });
-            card.querySelector('.plus').addEventListener('click', () => {
-                let val = parseInt(input.value) || 0;
-                val += 1; input.value = val; updateCart(val); calculateTotal();
-            });
-            input.addEventListener('change', () => {
-                let val = parseInt(input.value) || 0;
-                if (val < 0) { val = 0; input.value = 0; }
-                updateCart(val);
-                calculateTotal();
-            });
-
+            const card = createItemRow(item, isFav);
             itemListContainer.appendChild(card);
         });
+    };
+
+    // Helper to create a single item row (refactored for reuse)
+    const createItemRow = (item, isFav) => {
+        const strCode = String(item.code);
+        const card = document.createElement('div');
+        card.className = 'item-row';
+        card.dataset.code = strCode;
+        const currentQty = currentCart[item.code] ? currentCart[item.code].qty : 0;
+        card.innerHTML = `
+            <button type="button" class="btn-fav ${isFav ? 'active' : ''}" data-code="${strCode}">${isFav ? '★' : '☆'}</button>
+            <div class="item-row-info">
+                <span class="item-code">${item.code}</span>
+                <span class="item-row-name">${item.name}</span>
+            </div>
+            <div class="order-controls">
+                <button type="button" class="btn-qty minus">-</button>
+                <input type="number" class="qty-input" data-code="${item.code}" data-name="${item.name}" value="${currentQty}" min="0">
+                <button type="button" class="btn-qty plus">+</button>
+            </div>
+        `;
+
+        const input = card.querySelector('.qty-input');
+        const favBtn = card.querySelector('.btn-fav');
+
+        // Favorite toggle
+        favBtn.addEventListener('click', () => {
+            if (favoriteItems.includes(strCode)) {
+                favoriteItems = favoriteItems.filter(c => c !== strCode);
+                favBtn.classList.remove('active');
+                favBtn.textContent = '☆';
+            } else {
+                favoriteItems.push(strCode);
+                favBtn.classList.add('active');
+                favBtn.textContent = '★';
+            }
+            localStorage.setItem(getFavsKey(), JSON.stringify(favoriteItems));
+            saveFavoritesToCloud();
+
+            if (currentFilter === 'favorites') {
+                renderItems(itemsData);
+            }
+        });
+
+        const updateCart = (val) => {
+            if (val > 0) {
+                if (!currentCart[item.code]) {
+                    cartOrder.push(String(item.code));
+                }
+                currentCart[item.code] = { qty: val, name: item.name };
+            } else {
+                delete currentCart[item.code];
+                cartOrder = cartOrder.filter(c => c !== String(item.code));
+            }
+        };
+
+        card.querySelector('.minus').addEventListener('click', () => {
+            let val = parseInt(input.value) || 0;
+            if (val > 0) { val -= 1; input.value = val; updateCart(val); calculateTotal(); }
+        });
+        card.querySelector('.plus').addEventListener('click', () => {
+            let val = parseInt(input.value) || 0;
+            val += 1; input.value = val; updateCart(val); calculateTotal();
+        });
+        input.addEventListener('change', () => {
+            let val = parseInt(input.value) || 0;
+            if (val < 0) { val = 0; input.value = 0; }
+            updateCart(val);
+            calculateTotal();
+        });
+
+        return card;
     };
 
     // --- Render History ---
@@ -868,8 +931,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!manufacturerChipsContainer) return;
         manufacturerChipsContainer.innerHTML = '';
 
-        // Extract unique manufacturers from current data
-        const manufacturers = [...new Set(itemsData.map(item => item.manufacturer))].filter(Boolean);
+        const baseData = (currentFilter === 'favorites') 
+            ? itemsData.filter(i => favoriteItems.includes(String(i.code))) 
+            : itemsData;
+        const manufacturers = [...new Set(baseData.map(item => item.manufacturer))].filter(Boolean);
         if (manufacturers.length === 0) {
             manufacturerChipsContainer.style.display = 'none';
             return;
@@ -911,10 +976,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!categoryChipsContainer) return;
         categoryChipsContainer.innerHTML = '';
 
-        // Filter items by current manufacturer before extracting categories
-        const filteredByManufacturer = currentManufacturerFilter === 'all'
-            ? itemsData
-            : itemsData.filter(item => item.manufacturer === currentManufacturerFilter);
+        const baseData = (currentFilter === 'favorites') 
+            ? itemsData.filter(i => favoriteItems.includes(String(i.code))) 
+            : itemsData;
+
+        const filteredByManufacturer = (currentManufacturerFilter === 'all')
+            ? baseData
+            : baseData.filter(item => item.manufacturer === currentManufacturerFilter);
 
         // Extract unique categories (filter out empty strings)
         const categories = [...new Set(filteredByManufacturer.map(item => item.category))].filter(Boolean);
