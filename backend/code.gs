@@ -519,20 +519,16 @@ function handleSaveFavorites(data) {
      }
      
      const values = sheet.getDataRange().getValues();
-     let foundRow = -1;
-     for (let i = 1; i < values.length; i++) {
+     // 既存のデータを削除（重複防止）
+     for (let i = values.length - 1; i >= 1; i--) {
          if (values[i][0] === clientName) {
-             foundRow = i + 1;
-             break;
+             sheet.deleteRow(i + 1);
          }
      }
      
+     // 新しいデータを追加
      const favString = favorites.join(',');
-     if (foundRow !== -1) {
-         sheet.getRange(foundRow, 2).setValue(favString);
-     } else {
-         sheet.appendRow([clientName, favString]);
-     }
+     sheet.appendRow([clientName, favString]);
      
      return ContentService.createTextOutput(JSON.stringify({ status: 'success' })).setMimeType(ContentService.MimeType.JSON);
 }
