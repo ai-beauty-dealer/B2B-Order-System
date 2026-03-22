@@ -976,3 +976,109 @@ input[type=number]::-webkit-outer-spin-button {
         border-radius: 16px 16px 0 0;
     }
 }
+
+/* ================================================================
+   PHASE 16 - GROUPING & COLOR GRID
+   ================================================================ */
+
+.brand-section {
+    margin-bottom: 24px;
+    background: #ffffff;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-color);
+    overflow: hidden;
+}
+
+.brand-header {
+    background: #f1f5f9;
+    padding: 10px 16px;
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: #334155;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.brand-count {
+    font-size: 0.75rem;
+    background: #cbd5e1;
+    color: #475569;
+    padding: 2px 8px;
+    border-radius: var(--radius-full);
+}
+
+.color-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    gap: 8px;
+    padding: 12px;
+}
+
+.color-card {
+    background: #ffffff;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s;
+}
+
+.color-card:hover {
+    border-color: var(--primary);
+    background: var(--primary-light);
+}
+
+.color-info {
+    text-align: center;
+    width: 100%;
+}
+
+.color-tone {
+    font-size: 0.75rem;
+    font-weight: 700;
+    display: block;
+    color: var(--text-main);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.color-level {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
+.color-controls {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    justify-content: center;
+}
+
+.btn-qty-sm {
+    width: 24px;
+    height: 24px;
+    font-size: 0.9rem;
+    background: #ffffff;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+
+.qty-input-sm {
+    width: 26px;
+    text-align: center;
+    font-size: 0.85rem;
+    font-weight: 700;
+    border: none;
+    background: transparent;
+}

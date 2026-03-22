@@ -126,18 +126,20 @@ function doGet(e) {
       const clientName = e.parameter.clientName;
       if (!clientName) throw new Error("clientName parameter is required");
       
-      let favs = [];
+      const favsSet = new Set();
       const sheet = ss.getSheetByName(SHEET_NAMES.FAVORITES);
       if (sheet) {
         const values = sheet.getDataRange().getValues();
         for (let i = 1; i < values.length; i++) {
-          if (values[i][0] === clientName) {
-            favs = String(values[i][1] || '').split(',').map(s => s.trim()).filter(x => x);
-            break;
+          if (String(values[i][0]).trim() === clientName) {
+            // カンマ、スペース、改行、セミコロンなどで分割し、重複を除去して追加
+            const raw = String(values[i][1] || '');
+            const codes = raw.split(/[\s,;　\n]+/).map(s => s.trim()).filter(x => x);
+            codes.forEach(code => favsSet.add(code));
           }
         }
       }
-      return ContentService.createTextOutput(JSON.stringify({ status: 'success', data: favs }))
+      return ContentService.createTextOutput(JSON.stringify({ status: 'success', data: Array.from(favsSet) }))
         .setMimeType(ContentService.MimeType.JSON);
     } else {
         throw new Error("Invalid action parameter for GET.");
@@ -504,7 +506,7 @@ function handleUpdateOrder(data) {
        .setMimeType(ContentService.MimeType.JSON);
 }
 
-// --- お気に入り保存処理 ---
+// --- お気に入り保存処理 (正規化対応) ---
 function handleSaveFavorites(data) {
      const clientName = data.clientName;
      const favorites = data.favorites; // array of strings
@@ -518,21 +520,17 @@ function handleSaveFavorites(data) {
          sheet.appendRow(['得意先名', 'お気に入りコード(カンマ区切り)']);
      }
      
+     // 重複行や古い形式のデータをすべて削除する（逆順で走査）
      const values = sheet.getDataRange().getValues();
-     let foundRow = -1;
-     for (let i = 1; i < values.length; i++) {
-         if (values[i][0] === clientName) {
-             foundRow = i + 1;
-             break;
+     for (let i = values.length - 1; i >= 1; i--) {
+         if (String(values[i][0]).trim() === clientName) {
+             sheet.deleteRow(i + 1);
          }
      }
      
+     // 常に新しく1行として追加し、形式を統一（正規化）
      const favString = favorites.join(',');
-     if (foundRow !== -1) {
-         sheet.getRange(foundRow, 2).setValue(favString);
-     } else {
-         sheet.appendRow([clientName, favString]);
-     }
+     sheet.appendRow([clientName, favString]);
      
      return ContentService.createTextOutput(JSON.stringify({ status: 'success' })).setMimeType(ContentService.MimeType.JSON);
 }
