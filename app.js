@@ -132,26 +132,6 @@ document.addEventListener('DOMContentLoaded', () => {
         renderCartSidebar();
     };
 
-    // --- Info Extraction (Phase 16) ---
-    const extractInfo = (name) => {
-        if (!name) return { brand: 'Others', level: '', tone: '' };
-        
-        // Pattern: Brand [Shade] [Level] or [Brand] [Level]-[Shade]
-        const tokens = name.split(/[\s　]+/);
-        const brand = tokens[0] || 'Others';
-        
-        // Look for something like "8-SB" or "8SB" or "P-8"
-        const lastToken = tokens[tokens.length - 1] || '';
-        const levelMatch = lastToken.match(/(\d+)/);
-        const toneMatch = lastToken.replace(/(\d+)/, '').replace('-', '').trim();
-        
-        return {
-            brand,
-            level: levelMatch ? levelMatch[0] : '',
-            tone: toneMatch || 'Standard'
-        };
-    };
-
     // --- Surgical Cache Clearing (v2.10) ---
     window.clearCacheSurgically = () => {
         const keysToKeep = [];
@@ -425,169 +405,97 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        if (currentFilter === 'favorites') {
-            // --- Grouped Rendering (Phase 16) ---
-            const grouped = {};
-            displayItems.forEach(item => {
-                const info = extractInfo(item.name);
-                if (!grouped[info.brand]) grouped[info.brand] = [];
-                grouped[info.brand].push({ item, info });
-            });
-
-            Object.entries(grouped).forEach(([brand, entries]) => {
-                const section = document.createElement('div');
-                section.className = 'brand-section';
-                
-                const header = document.createElement('div');
-                header.className = 'brand-header';
-                header.innerHTML = `<span>${brand}</span> <span class="brand-count">${entries.length}</span>`;
-                section.appendChild(header);
-
-                const isColor = entries.some(e => e.item.category.includes('カラー'));
-                
-                if (isColor) {
-                    const grid = document.createElement('div');
-                    grid.className = 'color-grid';
-                    entries.forEach(({ item, info }) => {
-                        const cell = createColorCard(item, info);
-                        grid.appendChild(cell);
-                    });
-                    section.appendChild(grid);
-                } else {
-                    const list = document.createElement('div');
-                    list.style.padding = '8px';
-                    entries.forEach(({ item }) => {
-                        const row = createItemRow(item);
-                        list.appendChild(row);
-                    });
-                    section.appendChild(list);
-                }
-                itemListContainer.appendChild(section);
-            });
-            return;
-        }
-
-        // --- Standard List Rendering ---
         displayItems.forEach(item => {
-            const row = createItemRow(item);
-            itemListContainer.appendChild(row);
-        });
-    };
+            const strCode = String(item.code); // 常に文字列として扱う
+            const isFav = favoriteItems.includes(strCode);
+            const card = document.createElement('div');
+            card.className = 'item-row';
+            card.dataset.code = strCode;
+            const currentQty = currentCart[item.code] ? currentCart[item.code].qty : 0;
+            card.innerHTML = `
+                <button type="button" class="btn-fav ${isFav ? 'active' : ''}" data-code="${strCode}">${isFav ? '★' : '☆'}</button>
+                <div class="item-row-info">
+                    <span class="item-code">${item.code}</span>
+                    <span class="item-row-name">${item.name}</span>
+                </div>
+                <div class="order-controls">
+                    <button type="button" class="btn-qty minus">-</button>
+                    <input type="number" class="qty-input" data-code="${item.code}" data-name="${item.name}" value="${currentQty}" min="0">
+                    <button type="button" class="btn-qty plus">+</button>
+                </div>
+            `;
 
-    // Helper to create a standard item row (Refactored for reuse)
-    const createItemRow = (item) => {
-        const strCode = String(item.code);
-        const isFav = favoriteItems.includes(strCode);
-        const card = document.createElement('div');
-        card.className = 'item-row';
-        card.dataset.code = strCode;
-        const currentQty = currentCart[item.code] ? currentCart[item.code].qty : 0;
-        card.innerHTML = `
-            <button type="button" class="btn-fav ${isFav ? 'active' : ''}" data-code="${strCode}">${isFav ? '★' : '☆'}</button>
-            <div class="item-row-info">
-                <span class="item-code">${item.code}</span>
-                <span class="item-row-name">${item.name}</span>
-            </div>
-            <div class="order-controls">
-                <button type="button" class="btn-qty minus">-</button>
-                <input type="number" class="qty-input" data-code="${item.code}" data-name="${item.name}" value="${currentQty}" min="0">
-                <button type="button" class="btn-qty plus">+</button>
-            </div>
-        `;
-        attachItemEvents(card, item);
-        return card;
-    };
+            // Attach Events for this card
+            const input = card.querySelector('.qty-input');
+            const favBtn = card.querySelector('.btn-fav');
 
-    // Helper to create a color grid card
-    const createColorCard = (item, info) => {
-        const strCode = String(item.code);
-        const card = document.createElement('div');
-        card.className = 'color-card';
-        const currentQty = currentCart[item.code] ? currentCart[item.code].qty : 0;
-        card.innerHTML = `
-            <div class="color-info">
-                <span class="color-tone">${info.tone}</span>
-                <span class="color-level">${info.level ? 'Lv' + info.level : ''}</span>
-            </div>
-            <div class="color-controls">
-                <button type="button" class="btn-qty-sm minus">-</button>
-                <input type="number" class="qty-input-sm" data-code="${item.code}" data-name="${item.name}" value="${currentQty}" min="0">
-                <button type="button" class="btn-qty-sm plus">+</button>
-            </div>
-        `;
-        attachItemEvents(card, item, true);
-        return card;
-    };
-
-    // Shared event attachment logic
-    const attachItemEvents = (container, item, isSmall = false) => {
-        const strCode = String(item.code);
-        const input = container.querySelector(isSmall ? '.qty-input-sm' : '.qty-input');
-        const favBtn = container.querySelector('.btn-fav');
-        const minusBtn = container.querySelector('.minus');
-        const plusBtn = container.querySelector('.plus');
-
-        if (favBtn) {
+            // Favorite toggle
             favBtn.addEventListener('click', () => {
-                toggleFavorite(strCode, favBtn);
-            });
-        }
-
-        const updateCartLocal = (val) => {
-            if (val > 0) {
-                if (!currentCart[item.code]) {
-                    cartOrder.push(String(item.code));
+                if (favoriteItems.includes(strCode)) {
+                    // Remove
+                    favoriteItems = favoriteItems.filter(c => c !== strCode);
+                    favBtn.classList.remove('active');
+                    favBtn.textContent = '☆';
+                } else {
+                    // Add
+                    favoriteItems.push(strCode);
+                    favBtn.classList.add('active');
+                    favBtn.textContent = '★';
                 }
-                currentCart[item.code] = { qty: val, name: item.name };
-            } else {
-                delete currentCart[item.code];
-                cartOrder = cartOrder.filter(c => c !== String(item.code));
-            }
-            calculateTotal();
-            renderCartSidebar();
-        };
+                // Save to local storage
+                localStorage.setItem(getFavsKey(), JSON.stringify(favoriteItems));
+                saveFavoritesToCloud();
 
-        minusBtn.addEventListener('click', () => {
-            let val = parseInt(input.value) || 0;
-            if (val > 0) {
-                val--;
-                input.value = val;
-                updateCartLocal(val);
-            }
-        });
+                // If we are on the favorites tab, re-render to hide removed item instantly
+                // Note: Re-rendering clears quantity inputs. For MVP this is acceptable.
+                if (currentFilter === 'favorites') {
+                    // Re-apply search filter if there's any text in the input
+                    const rawSearch = searchInput.value;
+                    if (rawSearch.trim() === '') {
+                        renderItems(itemsData);
+                    } else {
+                        const searchTokens = rawSearch.trim().split(/[\s　]+/);
+                        const filtered = itemsData.filter(item => {
+                            const normalizedName = normalizeForSearch(item.name);
+                            const normalizedCode = normalizeForSearch(item.code);
+                            const searchableText = normalizedName + normalizedCode;
+                            return searchTokens.every(token => searchableText.includes(normalizeForSearch(token)));
+                        });
+                        renderItems(filtered);
+                    }
+                }
+            });
 
-        plusBtn.addEventListener('click', () => {
-            let val = parseInt(input.value) || 0;
-            val++;
-            input.value = val;
-            updateCartLocal(val);
-        });
+            const updateCart = (val) => {
+                if (val > 0) {
+                    if (!currentCart[item.code]) {
+                        cartOrder.push(String(item.code));
+                    }
+                    currentCart[item.code] = { qty: val, name: item.name };
+                } else {
+                    delete currentCart[item.code];
+                    cartOrder = cartOrder.filter(c => c !== String(item.code));
+                }
+            };
 
-        input.addEventListener('change', () => {
-            let val = parseInt(input.value) || 0;
-            if (val < 0) val = 0;
-            input.value = val;
-            updateCartLocal(val);
+            card.querySelector('.minus').addEventListener('click', () => {
+                let val = parseInt(input.value) || 0;
+                if (val > 0) { val -= 1; input.value = val; updateCart(val); calculateTotal(); }
+            });
+            card.querySelector('.plus').addEventListener('click', () => {
+                let val = parseInt(input.value) || 0;
+                val += 1; input.value = val; updateCart(val); calculateTotal();
+            });
+            input.addEventListener('change', () => {
+                let val = parseInt(input.value) || 0;
+                if (val < 0) { val = 0; input.value = 0; }
+                updateCart(val);
+                calculateTotal();
+            });
+
+            itemListContainer.appendChild(card);
         });
     };
-
-    const toggleFavorite = (strCode, btn) => {
-        if (favoriteItems.includes(strCode)) {
-            favoriteItems = favoriteItems.filter(c => c !== strCode);
-            btn.classList.remove('active');
-            btn.textContent = '☆';
-        } else {
-            favoriteItems.push(strCode);
-            btn.classList.add('active');
-            btn.textContent = '★';
-        }
-        localStorage.setItem(getFavsKey(), JSON.stringify(favoriteItems));
-        saveFavoritesToCloud();
-        if (currentFilter === 'favorites') {
-            renderItems(itemsData);
-        }
-    };
-
 
     // --- Render History ---
     const renderHistory = (historyData) => {
