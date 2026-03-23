@@ -142,23 +142,24 @@ document.addEventListener('DOMContentLoaded', () => {
         let level = null;
         let tone = '';
 
-        // Looking for numbers (Level)
         for (let i = 1; i < parts.length; i++) {
             const num = parseInt(parts[i]);
             if (!isNaN(num) && num > 0 && num < 20) {
                 level = num;
-                // Remaining parts after level are tone
                 tone = parts.slice(i + 1).join('-');
                 if (!tone && i > 1) tone = parts.slice(1, i).join('-');
                 break;
             }
         }
-        
-        if (!level && parts.length > 1) {
-            tone = parts.slice(1).join('-');
-        }
-
+        if (!level && parts.length > 1) tone = parts.slice(1).join('-');
         return { brand, level, tone: tone || 'Default' };
+    };
+
+    // Category detection (selective grouping - Feature 1)
+    const isGroupTarget = (category) => {
+        if (!category) return false;
+        const c = String(category);
+        return c.includes('カラー') || c.includes('パーマ') || c.includes('1剤') || c.includes('2剤') || c.includes('オキシ') || c.includes('縮毛') || c.includes('ストレート');
     };
 
     // --- Surgical Cache Clearing (v2.10) ---
@@ -435,7 +436,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (currentFilter === 'favorites') {
-            // Feature 4: Sort by Brand -> Level -> Tone
+            // Feature 4: Sort all by Brand -> Level -> Tone first
             displayItems.sort((a, b) => {
                 const infoA = extractInfo(a.name);
                 const infoB = extractInfo(b.name);
@@ -447,9 +448,58 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 return infoA.tone.localeCompare(infoB.tone);
             });
+
+            // Feature 1: Grouping for Color/Perm items
+            const grouped = {};
+            const otherItems = [];
+
+            displayItems.forEach(item => {
+                if (isGroupTarget(item.category)) {
+                    const info = extractInfo(item.name);
+                    if (!grouped[info.brand]) grouped[info.brand] = [];
+                    grouped[info.brand].push(item);
+                } else {
+                    otherItems.push(item);
+                }
+            });
+
+            // Render Grouped items (Accordions)
+            Object.entries(grouped).sort().forEach(([brand, items]) => {
+                const section = document.createElement('div');
+                section.className = 'brand-section';
+                
+                const header = document.createElement('div');
+                header.className = 'brand-header';
+                header.innerHTML = `
+                    <div>${brand} <span class="brand-count">${items.length}件</span></div>
+                    <span class="arrow">▼</span>
+                `;
+                header.addEventListener('click', () => {
+                    section.classList.toggle('expanded');
+                });
+                section.appendChild(header);
+
+                const content = document.createElement('div');
+                content.className = 'brand-content';
+                items.forEach(item => {
+                    const strCode = String(item.code);
+                    const isFav = favoriteItems.includes(strCode);
+                    content.appendChild(createItemRow(item, isFav));
+                });
+                section.appendChild(content);
+                itemListContainer.appendChild(section);
+            });
+
+            // Render Other items (Flat list)
+            otherItems.forEach(item => {
+                const strCode = String(item.code);
+                const isFav = favoriteItems.includes(strCode);
+                itemListContainer.appendChild(createItemRow(item, isFav));
+            });
+            return;
         }
 
-        // --- Standard List Rendering ---
+        // --- Standard List Rendering (All Tab) ---
         displayItems.forEach(item => {
             const strCode = String(item.code);
             const isFav = favoriteItems.includes(strCode);
