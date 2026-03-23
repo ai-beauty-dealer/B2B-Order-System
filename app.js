@@ -156,10 +156,16 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // Category detection (selective grouping - Feature 1)
-    const isGroupTarget = (category) => {
+    const isColor = (category) => {
         if (!category) return false;
         const c = String(category);
-        return c.includes('カラー') || c.includes('パーマ') || c.includes('1剤') || c.includes('2剤') || c.includes('オキシ') || c.includes('縮毛') || c.includes('ストレート');
+        return c.includes('カラー') || c.includes('1剤') || c.includes('2剤') || c.includes('オキシ') || c.includes('ハイトーン');
+    };
+
+    const isPerm = (category) => {
+        if (!category) return false;
+        const c = String(category);
+        return c.includes('パーマ') || c.includes('縮毛') || c.includes('ストレート') || c.includes('カーリング');
     };
 
     // --- Surgical Cache Clearing (v2.10) ---
@@ -449,29 +455,27 @@ document.addEventListener('DOMContentLoaded', () => {
                 return infoA.tone.localeCompare(infoB.tone);
             });
 
-            // Feature 1: Grouping for Color/Perm items
-            const grouped = {};
+            // Feature 1: Grouping by Category (Color vs Perm)
+            const colorGroup = [];
+            const permGroup = [];
             const otherItems = [];
 
             displayItems.forEach(item => {
-                if (isGroupTarget(item.category)) {
-                    const info = extractInfo(item.name);
-                    if (!grouped[info.brand]) grouped[info.brand] = [];
-                    grouped[info.brand].push(item);
-                } else {
-                    otherItems.push(item);
-                }
+                if (isColor(item.category)) colorGroup.push(item);
+                else if (isPerm(item.category)) permGroup.push(item);
+                else otherItems.push(item);
             });
 
-            // Render Grouped items (Accordions)
-            Object.entries(grouped).sort().forEach(([brand, items]) => {
+            // Helper to render accordion
+            const renderAccordion = (title, items) => {
+                if (items.length === 0) return;
                 const section = document.createElement('div');
                 section.className = 'brand-section';
                 
                 const header = document.createElement('div');
                 header.className = 'brand-header';
                 header.innerHTML = `
-                    <div>${brand} <span class="brand-count">${items.length}件</span></div>
+                    <div>${title} <span class="brand-count">${items.length}件</span></div>
                     <span class="arrow">▼</span>
                 `;
                 header.addEventListener('click', () => {
@@ -488,7 +492,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 section.appendChild(content);
                 itemListContainer.appendChild(section);
-            });
+            };
+
+            renderAccordion('カラー関連', colorGroup);
+            renderAccordion('パーマ関連', permGroup);
 
             // Render Other items (Flat list)
             otherItems.forEach(item => {
