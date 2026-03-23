@@ -435,48 +435,18 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (currentFilter === 'favorites') {
-            // Group and Sort (Feature 1, 4)
-            const grouped = {};
-            displayItems.forEach(item => {
-                const info = extractInfo(item.name);
-                if (!grouped[info.brand]) grouped[info.brand] = [];
-                grouped[info.brand].push({ item, info });
+            // Feature 4: Sort by Brand -> Level -> Tone
+            displayItems.sort((a, b) => {
+                const infoA = extractInfo(a.name);
+                const infoB = extractInfo(b.name);
+                if (infoA.brand !== infoB.brand) return infoA.brand.localeCompare(infoB.brand);
+                if (infoA.level !== infoB.level) {
+                    if (infoA.level === null) return 1;
+                    if (infoB.level === null) return -1;
+                    return infoA.level - infoB.level;
+                }
+                return infoA.tone.localeCompare(infoB.tone);
             });
-
-            // Sort within each group: Level (asc) -> Tone
-            Object.keys(grouped).forEach(brand => {
-                grouped[brand].sort((a, b) => {
-                    if (a.info.level !== b.info.level) {
-                        if (a.info.level === null) return 1;
-                        if (b.info.level === null) return -1;
-                        return a.info.level - b.info.level;
-                    }
-                    return a.info.tone.localeCompare(b.info.tone);
-                });
-            });
-
-            // Render sections
-            Object.entries(grouped).sort().forEach(([brand, entries]) => {
-                const section = document.createElement('div');
-                section.className = 'brand-section';
-                
-                const header = document.createElement('div');
-                header.className = 'brand-header';
-                header.innerHTML = `<span>${brand}</span> <span class="brand-count">${entries.length}</span>`;
-                section.appendChild(header);
-
-                const list = document.createElement('div');
-                list.style.padding = '8px 0';
-                entries.forEach(({ item }) => {
-                    const strCode = String(item.code);
-                    const isFav = favoriteItems.includes(strCode);
-                    const card = createItemRow(item, isFav);
-                    list.appendChild(card);
-                });
-                section.appendChild(list);
-                itemListContainer.appendChild(section);
-            });
-            return;
         }
 
         // --- Standard List Rendering ---
@@ -931,10 +901,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!manufacturerChipsContainer) return;
         manufacturerChipsContainer.innerHTML = '';
 
-        const baseData = (currentFilter === 'favorites') 
-            ? itemsData.filter(i => favoriteItems.includes(String(i.code))) 
-            : itemsData;
-        const manufacturers = [...new Set(baseData.map(item => item.manufacturer))].filter(Boolean);
+        // Extract unique manufacturers from current data
+        const manufacturers = [...new Set(itemsData.map(item => item.manufacturer))].filter(Boolean);
         if (manufacturers.length === 0) {
             manufacturerChipsContainer.style.display = 'none';
             return;
@@ -976,13 +944,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!categoryChipsContainer) return;
         categoryChipsContainer.innerHTML = '';
 
-        const baseData = (currentFilter === 'favorites') 
-            ? itemsData.filter(i => favoriteItems.includes(String(i.code))) 
-            : itemsData;
-
-        const filteredByManufacturer = (currentManufacturerFilter === 'all')
-            ? baseData
-            : baseData.filter(item => item.manufacturer === currentManufacturerFilter);
+        // Filter items by current manufacturer before extracting categories
+        const filteredByManufacturer = currentManufacturerFilter === 'all'
+            ? itemsData
+            : itemsData.filter(item => item.manufacturer === currentManufacturerFilter);
 
         // Extract unique categories (filter out empty strings)
         const categories = [...new Set(filteredByManufacturer.map(item => item.category))].filter(Boolean);
