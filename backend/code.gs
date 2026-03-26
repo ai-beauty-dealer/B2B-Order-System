@@ -78,7 +78,8 @@ function doGet(e) {
                 name: row[1], 
                 category: row[2] || '',
                 manufacturer: row[3] || '',
-                special: row[4] || ''
+                special: row[4] || '',
+                jan: row[5] || '' 
               });
           }
       }
