@@ -859,14 +859,32 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
     // --- Fetch History from API ---
-    const fetchHistory = async () => {
-        showLoading();
+    // Optimization: Implement Caching in LocalStorage
+    const fetchHistory = async (forceRefresh = false) => {
+        // 1. Check Cache first
+        const cacheKey = `b2b_history_${currentClientName}`;
+        const cachedHistory = localStorage.getItem(cacheKey);
+        const cachedTs = localStorage.getItem(cacheKey + '_ts');
+        const now = Date.now();
+        const CACHE_LIFE = 10 * 60 * 1000; // 10 minutes cache for history
+
+        if (!forceRefresh && cachedHistory && cachedTs && (now - parseInt(cachedTs) < CACHE_LIFE)) {
+            console.log('Using cached history');
+            renderHistory(JSON.parse(cachedHistory));
+            return;
+        }
+
+        showLoading('履歴を読み込み中...');
         try {
             const url = `${CONFIG.API_URL}?action=history&clientName=${encodeURIComponent(currentClientName)}`;
             const response = await fetch(url);
             const result = await response.json();
 
             if (result.status === 'success') {
+                // Save to cache
+                localStorage.setItem(cacheKey, JSON.stringify(result.data));
+                localStorage.setItem(cacheKey + '_ts', now.toString());
+                
                 renderHistory(result.data);
             } else {
                 alert('履歴の取得に失敗しました: ' + result.message);
@@ -895,7 +913,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (syncFavsWrapper) syncFavsWrapper.classList.add('hidden');
             if (customItemsWrapper) customItemsWrapper.classList.add('hidden');
             historyListContainer.classList.remove('hidden');
-            fetchHistory();
+            fetchHistory(false); // Try cache first
         } else {
             itemListContainer.classList.remove('hidden');
             searchWrapper.classList.remove('hidden');

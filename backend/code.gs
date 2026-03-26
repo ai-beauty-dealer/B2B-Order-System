@@ -67,61 +67,80 @@ function doGet(e) {
     if (action === 'items') {
       const sheet = ss.getSheetByName(SHEET_NAMES.MASTER);
       if (!sheet) throw new Error(`Sheet '${SHEET_NAMES.MASTER}' not found.`);
-      
-      const values = sheet.getDataRange().getValues();
-      const items = [];
-      for (let i = 1; i < values.length; i++) {
-          const row = values[i];
-          if (row[0] && row[1]) {
-              items.push({ 
-                code: row[0], 
-                name: row[1], 
-                category: row[2] || '',
-                manufacturer: row[3] || '',
-                special: row[4] || ''  // E列: '別注' など
-              });
-          }
-      }
-      return ContentService.createTextOutput(JSON.stringify({ status: 'success', data: items }))
-        .setMimeType(ContentService.MimeType.JSON);
-        
     } else if (action === 'history') {
       const clientName = e.parameter.clientName;
       if (!clientName) throw new Error("clientName parameter is required for history.");
       
       const history = [];
-      const sheets = ss.getSheets();
+      const MAX_HISTORY_ITEMS = 50; // 最新50件まで取得
+      const MAX_LOOKBACK_DAYS = 31; // 過去31日分まで遡る
       
-      // yyyy-MM-dd 形式、または yyyy-MM-dd直送 形式のシート名を正規表現で判定
-      const dateSheetRegex = /^\d{4}-\d{2}-\d{2}(直送)?$/;
-
-      sheets.forEach(sheet => {
-        const sheetName = sheet.getName();
-        if (dateSheetRegex.test(sheetName) || sheetName === SHEET_NAMES.ORDERS) {
-          const values = sheet.getDataRange().getValues();
-          // A: Timestamp, B: Code, C: Qty, D: Name, E: ClientName
-          for (let i = values.length - 1; i >= 1; i--) {
-            const row = values[i];
-            if (row[4] === clientName) {
-              const orderDate = new Date(row[0]);
-              history.push({
-                orderId: orderDate.getTime(),
-                date: Utilities.formatDate(orderDate, Session.getScriptTimeZone(), "yyyy/MM/dd HH:mm"),
-                code: row[1],
-                qty: row[2],
-                name: row[3],
-                status: row[5] || ''
-              });
-            }
+      // 1. 直近の日付を生成し、存在するシートだけを狙って読み込む（全シート走査を回避）
+      const today = new Date();
+      
+      for (let i = 0; i < MAX_LOOKBACK_DAYS; i++) {
+          const d = new Date(today.getTime());
+          d.setDate(today.getDate() - i);
+          
+          // 通常用と直送用の日付文字列を生成
+          const dateStr = Utilities.formatDate(d, Session.getScriptTimeZone(), "yyyy-MM-dd");
+          const targetSheetNames = [dateStr, dateStr + '直送'];
+          
+          for (const sheetName of targetSheetNames) {
+              const sheet = ss.getSheetByName(sheetName);
+              if (sheet) {
+                  const values = sheet.getDataRange().getValues();
+                  // 逆順（新しい順）にスキャン
+                  for (let j = values.length - 1; j >= 1; j--) {
+                      const row = values[j];
+                      if (row[4] === clientName) {
+                          const orderDate = new Date(row[0]);
+                          history.push({
+                              orderId: orderDate.getTime(),
+                              date: Utilities.formatDate(orderDate, Session.getScriptTimeZone(), "yyyy/MM/dd HH:mm"),
+                              code: row[1],
+                              qty: row[2],
+                              name: row[3],
+                              status: row[5] || ''
+                          });
+                      }
+                      if (history.length >= MAX_HISTORY_ITEMS) break;
+                  }
+              }
+              if (history.length >= MAX_HISTORY_ITEMS) break;
           }
-        }
-      });
+          if (history.length >= MAX_HISTORY_ITEMS) break;
+      }
 
-      // 日時順（降順）にソート
+      // 2. Ordersシート（例外的な古い履歴など）もチェックが必要なら最後に追加
+      if (history.length < MAX_HISTORY_ITEMS) {
+          const ordersSheet = ss.getSheetByName(SHEET_NAMES.ORDERS);
+          if (ordersSheet) {
+              const values = ordersSheet.getDataRange().getValues();
+              for (let j = values.length - 1; j >= 1; j--) {
+                  const row = values[j];
+                  if (row[4] === clientName) {
+                      const orderDate = new Date(row[0]);
+                      history.push({
+                          orderId: orderDate.getTime(),
+                          date: Utilities.formatDate(orderDate, Session.getScriptTimeZone(), "yyyy/MM/dd HH:mm"),
+                          code: row[1],
+                          qty: row[2],
+                          name: row[3],
+                          status: row[5] || ''
+                      });
+                  }
+                  if (history.length >= MAX_HISTORY_ITEMS) break;
+              }
+          }
+      }
+
+      // 最終的なソート（念のため）
       history.sort((a, b) => b.orderId - a.orderId);
 
       return ContentService.createTextOutput(JSON.stringify({ status: 'success', data: history }))
         .setMimeType(ContentService.MimeType.JSON);
+    }
     } else if (action === 'get_favorites') {
       const clientName = e.parameter.clientName;
       if (!clientName) throw new Error("clientName parameter is required");
