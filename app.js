@@ -1518,4 +1518,137 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Initial Fetch ---
     fetchHistoryFavorites();
+
+    // ==========================================
+    // 📷 Barcode Scanner Module
+    // ==========================================
+    const scanBtn = document.getElementById('scan-btn');
+    const scannerModal = document.getElementById('scanner-modal');
+    const scannerOverlay = document.getElementById('scanner-overlay');
+    const scannerCloseBtn = document.getElementById('scanner-close-btn');
+    const scannerStatus = document.getElementById('scanner-status');
+    const scanToast = document.getElementById('scan-toast');
+    const scanToastIcon = document.getElementById('scan-toast-icon');
+    const scanToastMessage = document.getElementById('scan-toast-message');
+
+    let html5QrcodeScanner = null;
+    let lastScannedCode = '';
+    let lastScanTime = 0;
+    const SCAN_COOLDOWN_MS = 2000; // 2秒クールダウン
+
+    // JAN → 商品の逆引きマップ (boot時に構築)
+    let janToItemMap = new Map();
+    const buildJanMap = () => {
+        janToItemMap.clear();
+        if (itemsData && itemsData.length > 0) {
+            itemsData.forEach(item => {
+                const jan = String(item.jan || '').trim();
+                if (jan) janToItemMap.set(jan, item);
+            });
+        }
+        console.log(`JAN Map built: ${janToItemMap.size} items indexed.`);
+    };
+
+    // トースト表示
+    const showScanToast = (message, isError = false) => {
+        if (!scanToast) return;
+        scanToastIcon.textContent = isError ? '⚠️' : '✅';
+        scanToastMessage.textContent = message;
+        scanToast.classList.remove('hidden', 'toast-error');
+        if (isError) scanToast.classList.add('toast-error');
+        clearTimeout(scanToast._timer);
+        scanToast._timer = setTimeout(() => scanToast.classList.add('hidden'), 2500);
+    };
+
+    // スキャン成功時の処理
+    const onScanSuccess = (decodedText) => {
+        const now = Date.now();
+        // クールダウンチェック（同じコードの連続スキャン防止）
+        if (decodedText === lastScannedCode && (now - lastScanTime) < SCAN_COOLDOWN_MS) {
+            return; // 無視
+        }
+        lastScannedCode = decodedText;
+        lastScanTime = now;
+
+        // JAN検索
+        const normalizedJan = String(decodedText).trim();
+        const matchedItem = janToItemMap.get(normalizedJan);
+
+        if (matchedItem) {
+            // ✅ 商品発見！カートに追加
+            const code = String(matchedItem.code);
+            const currentQty = currentCart[code] ? currentCart[code].qty : 0;
+            updateFromCart(code, matchedItem.name, currentQty + 1);
+            renderCartSidebar();
+            syncCardQty(code, currentQty + 1);
+
+            // 振動フィードバック (Android Chrome対応)
+            if (navigator.vibrate) navigator.vibrate(200);
+
+            showScanToast(`${matchedItem.name} を追加 (${currentQty + 1}個)`);
+            if (scannerStatus) scannerStatus.textContent = `✅ ${matchedItem.name} を追加しました`;
+        } else {
+            // ❌ 未登録
+            if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+            showScanToast(`未登録のバーコードです (${normalizedJan})`, true);
+            if (scannerStatus) scannerStatus.textContent = `⚠️ 未登録コード: ${normalizedJan}`;
+        }
+    };
+
+    // スキャナ起動
+    const startScanner = async () => {
+        if (!scannerModal || !scannerOverlay) return;
+        
+        // JAN Mapの構築（まだ構築されていない場合）
+        if (janToItemMap.size === 0) buildJanMap();
+
+        scannerModal.classList.remove('hidden');
+        scannerOverlay.classList.remove('hidden');
+        if (scannerStatus) scannerStatus.textContent = 'カメラ起動中...';
+
+        try {
+            html5QrcodeScanner = new Html5Qrcode("reader");
+            await html5QrcodeScanner.start(
+                { facingMode: "environment" }, // 背面カメラを優先
+                { 
+                    fps: 10, 
+                    qrbox: { width: 280, height: 150 },
+                    aspectRatio: 1.0
+                },
+                onScanSuccess,
+                () => {} // エラー（読み取り失敗）は毎フレーム呼ばれるので無視
+            );
+            if (scannerStatus) scannerStatus.textContent = 'バーコードを枠内に収めてください';
+        } catch (err) {
+            console.error("Camera error:", err);
+            // iOS Safari等でカメラ権限が拒否された場合のフォールバック
+            if (scannerStatus) {
+                scannerStatus.innerHTML = `
+                    <span style="color: #dc2626;">⚠️ カメラを起動できませんでした</span><br>
+                    <span style="font-size: 0.75rem; color: #64748b; margin-top: 4px; display: block;">
+                        スマホの設定 → Safari/Chrome → カメラ → 「許可」に変更してください
+                    </span>`;
+            }
+        }
+    };
+
+    // スキャナ停止
+    const stopScanner = async () => {
+        if (html5QrcodeScanner) {
+            try {
+                await html5QrcodeScanner.stop();
+                html5QrcodeScanner.clear();
+            } catch (e) { console.warn('Scanner stop error:', e); }
+            html5QrcodeScanner = null;
+        }
+        if (scannerModal) scannerModal.classList.add('hidden');
+        if (scannerOverlay) scannerOverlay.classList.add('hidden');
+        lastScannedCode = '';
+    };
+
+    // イベントリスナー
+    if (scanBtn) scanBtn.addEventListener('click', startScanner);
+    if (scannerCloseBtn) scannerCloseBtn.addEventListener('click', stopScanner);
+    if (scannerOverlay) scannerOverlay.addEventListener('click', stopScanner);
+
 });

@@ -6,7 +6,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="robots" content="noindex">
     <title>AI Beauty Dealer - B2B Order System</title>
-    <link rel="stylesheet" href="style.css?v=2.11.9">
+    <link rel="stylesheet" href="style.css?v=2.12.0">
+
 </head>
 
 <body>
@@ -104,6 +105,7 @@
 
         <div class="search-container" id="search-wrapper">
             <input type="text" id="search-input" placeholder="商品名で検索...">
+            <button id="scan-btn" class="scan-btn" title="バーコードスキャン">📷</button>
         </div>
 
         <!-- Manufacturer Chips -->
@@ -192,8 +194,9 @@
         </div>
     </div>
 
-    <script src="config.js?v=2.11.9"></script>
-    <script src="app.js?v=2.11.9"></script>
+    <script src="lib/html5-qrcode.min.js"></script>
+    <script src="config.js?v=2.12.0"></script>
+    <script src="app.js?v=2.12.0"></script>
 
     <!-- Cart Sidebar -->
     <div id="cart-sidebar" class="cart-sidebar hidden">
@@ -213,6 +216,25 @@
         </div>
     </div>
     <div id="cart-overlay" class="cart-overlay hidden"></div>
+
+    <!-- Scanner Modal -->
+    <div id="scanner-overlay" class="scanner-overlay hidden"></div>
+    <div id="scanner-modal" class="scanner-modal hidden">
+        <div class="scanner-header">
+            <h3>📷 バーコードスキャン</h3>
+            <button id="scanner-close-btn" class="scanner-close-btn">&times;</button>
+        </div>
+        <div id="reader" style="width: 100%; border-radius: 12px; overflow: hidden;"></div>
+        <div class="scanner-footer">
+            <p id="scanner-status">カメラ起動待ち...</p>
+        </div>
+    </div>
+
+    <!-- Scan Toast -->
+    <div id="scan-toast" class="scan-toast hidden">
+        <span id="scan-toast-icon">✅</span>
+        <span id="scan-toast-message">商品を追加しました</span>
+    </div>
 </body>
 
 </html>
