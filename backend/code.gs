@@ -140,7 +140,6 @@ function doGet(e) {
 
       return ContentService.createTextOutput(JSON.stringify({ status: 'success', data: history }))
         .setMimeType(ContentService.MimeType.JSON);
-    }
     } else if (action === 'get_favorites') {
       const clientName = e.parameter.clientName;
       if (!clientName) throw new Error("clientName parameter is required");
