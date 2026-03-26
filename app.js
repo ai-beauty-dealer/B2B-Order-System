@@ -632,8 +632,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="history-body hidden">
                     ${detailsHtml}
                     <div class="history-actions">
-                        <button class="btn-secondary edit-order-btn" data-order-id="${items[0].orderId}">変更</button>
-                        <button class="btn-danger cancel-order-btn" data-order-id="${items[0].orderId}">キャンセル</button>
+                        <button class="btn-secondary edit-order-btn ${isCompleted ? 'hidden' : ''}" data-order-id="${items[0].orderId}">変更</button>
+                        <button class="btn-danger cancel-order-btn ${isCompleted ? 'hidden' : ''}" data-order-id="${items[0].orderId}">キャンセル</button>
                     </div>
                 </div>
             `;

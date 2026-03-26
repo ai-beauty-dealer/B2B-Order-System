@@ -377,6 +377,10 @@ function handleCancelOrder(data) {
           const row = values[i];
           // row[0]=タイムスタンプ, row[4]=クライアント名
           if(row[4] === clientName && new Date(row[0]).getTime() === parseInt(orderId)) {
+               // ステータスチェック: すでに「完了」なら操作不可
+               if (String(row[5] || '').trim() === '完了') {
+                    throw new Error("この発注はすでに確定（発注済み）しているため、キャンセルできません。");
+               }
                // row[3]=商品名, row[2]=数量
                canceledItems.push(`・${row[3]} × ${row[2]}`);
           }
@@ -431,6 +435,10 @@ function handleUpdateOrder(data) {
      for(let i = values.length - 1; i >= 1; i--) {
           const row = values[i];
           if(row[4] === clientName && new Date(row[0]).getTime() === parseInt(orderId)) {
+               // ステータスチェック: すでに「完了」なら操作不可
+               if (String(row[5] || '').trim() === '完了') {
+                    throw new Error("この発注はすでに確定（発注済み）しているため、内容の変更はできません。");
+               }
                const code = String(row[1]);
                const status = row[5]; // Column F: Status
                if (status) {
