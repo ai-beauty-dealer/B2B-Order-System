@@ -96,7 +96,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let editingOrderId = null;
     let currentCart = {};
     let cartOrder = []; // Track the order in which items are added to the cart
-    let searchTimeout = null; // For debouncing
 
     const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours in ms
 
@@ -131,42 +130,6 @@ document.addEventListener('DOMContentLoaded', () => {
         // Update cart badge + sidebar
         if (cartBadge) cartBadge.textContent = total;
         renderCartSidebar();
-    };
-
-    /**
-     * Parse product name into structured info (Feature 1, 4)
-     * e.g. "ADX 8-Sapphire" -> { brand: "ADX", level: 8, tone: "Sapphire" }
-     */
-    const extractInfo = (name) => {
-        const parts = name.split(/[\s-]+/);
-        const brand = parts[0] || 'その他';
-        let level = null;
-        let tone = '';
-
-        for (let i = 1; i < parts.length; i++) {
-            const num = parseInt(parts[i]);
-            if (!isNaN(num) && num > 0 && num < 20) {
-                level = num;
-                tone = parts.slice(i + 1).join('-');
-                if (!tone && i > 1) tone = parts.slice(1, i).join('-');
-                break;
-            }
-        }
-        if (!level && parts.length > 1) tone = parts.slice(1).join('-');
-        return { brand, level, tone: tone || 'Default' };
-    };
-
-    // Category detection (selective grouping - Feature 1)
-    const isColor = (category) => {
-        if (!category) return false;
-        const c = String(category);
-        return c.includes('カラー') || c.includes('1剤') || c.includes('2剤') || c.includes('オキシ') || c.includes('ハイトーン');
-    };
-
-    const isPerm = (category) => {
-        if (!category) return false;
-        const c = String(category);
-        return c.includes('パーマ') || c.includes('縮毛') || c.includes('ストレート') || c.includes('カーリング');
     };
 
     // --- Surgical Cache Clearing (v2.10) ---
@@ -438,157 +401,100 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (displayItems.length === 0) {
-            itemListContainer.innerHTML = '<p style="text-align: center; padding: 20px; color: #64748b;">該当する商品が見つかりません。</p>';
+            itemListContainer.innerHTML = '<p>商品が見つかりません。</p>';
             return;
         }
 
-        if (currentFilter === 'favorites') {
-            // Feature 4: Sort all by Brand -> Level -> Tone first
-            displayItems.sort((a, b) => {
-                const infoA = extractInfo(a.name);
-                const infoB = extractInfo(b.name);
-                if (infoA.brand !== infoB.brand) return infoA.brand.localeCompare(infoB.brand);
-                if (infoA.level !== infoB.level) {
-                    if (infoA.level === null) return 1;
-                    if (infoB.level === null) return -1;
-                    return infoA.level - infoB.level;
+        displayItems.forEach(item => {
+            const strCode = String(item.code); // 常に文字列として扱う
+            const isFav = favoriteItems.includes(strCode);
+            const card = document.createElement('div');
+            card.className = 'item-row';
+            card.dataset.code = strCode;
+            const currentQty = currentCart[item.code] ? currentCart[item.code].qty : 0;
+            card.innerHTML = `
+                <button type="button" class="btn-fav ${isFav ? 'active' : ''}" data-code="${strCode}">${isFav ? '★' : '☆'}</button>
+                <div class="item-row-info">
+                    <span class="item-code">${item.code}</span>
+                    <span class="item-row-name">${item.name}</span>
+                </div>
+                <div class="order-controls">
+                    <button type="button" class="btn-qty minus">-</button>
+                    <input type="number" class="qty-input" data-code="${item.code}" data-name="${item.name}" value="${currentQty}" min="0">
+                    <button type="button" class="btn-qty plus">+</button>
+                </div>
+            `;
+
+            // Attach Events for this card
+            const input = card.querySelector('.qty-input');
+            const favBtn = card.querySelector('.btn-fav');
+
+            // Favorite toggle
+            favBtn.addEventListener('click', () => {
+                if (favoriteItems.includes(strCode)) {
+                    // Remove
+                    favoriteItems = favoriteItems.filter(c => c !== strCode);
+                    favBtn.classList.remove('active');
+                    favBtn.textContent = '☆';
+                } else {
+                    // Add
+                    favoriteItems.push(strCode);
+                    favBtn.classList.add('active');
+                    favBtn.textContent = '★';
                 }
-                return infoA.tone.localeCompare(infoB.tone);
+                // Save to local storage
+                localStorage.setItem(getFavsKey(), JSON.stringify(favoriteItems));
+                saveFavoritesToCloud();
+
+                // If we are on the favorites tab, re-render to hide removed item instantly
+                // Note: Re-rendering clears quantity inputs. For MVP this is acceptable.
+                if (currentFilter === 'favorites') {
+                    // Re-apply search filter if there's any text in the input
+                    const rawSearch = searchInput.value;
+                    if (rawSearch.trim() === '') {
+                        renderItems(itemsData);
+                    } else {
+                        const searchTokens = rawSearch.trim().split(/[\s　]+/);
+                        const filtered = itemsData.filter(item => {
+                            const normalizedName = normalizeForSearch(item.name);
+                            const normalizedCode = normalizeForSearch(item.code);
+                            const searchableText = normalizedName + normalizedCode;
+                            return searchTokens.every(token => searchableText.includes(normalizeForSearch(token)));
+                        });
+                        renderItems(filtered);
+                    }
+                }
             });
 
-            // Feature 1: Grouping by Category (Color vs Perm)
-            const colorGroup = [];
-            const permGroup = [];
-            const otherItems = [];
-
-            displayItems.forEach(item => {
-                if (isColor(item.category)) colorGroup.push(item);
-                else if (isPerm(item.category)) permGroup.push(item);
-                else otherItems.push(item);
-            });
-
-            // Helper to render accordion
-            const renderAccordion = (title, items) => {
-                if (items.length === 0) return;
-                const section = document.createElement('div');
-                section.className = 'brand-section';
-                
-                const header = document.createElement('div');
-                header.className = 'brand-header';
-                header.innerHTML = `
-                    <div>${title} <span class="brand-count">${items.length}件</span></div>
-                    <span class="arrow">▼</span>
-                `;
-                header.addEventListener('click', () => {
-                    section.classList.toggle('expanded');
-                });
-                section.appendChild(header);
-
-                const content = document.createElement('div');
-                content.className = 'brand-content';
-                items.forEach(item => {
-                    const strCode = String(item.code);
-                    const isFav = favoriteItems.includes(strCode);
-                    content.appendChild(createItemRow(item, isFav));
-                });
-                section.appendChild(content);
-                itemListContainer.appendChild(section);
+            const updateCart = (val) => {
+                if (val > 0) {
+                    if (!currentCart[item.code]) {
+                        cartOrder.push(String(item.code));
+                    }
+                    currentCart[item.code] = { qty: val, name: item.name };
+                } else {
+                    delete currentCart[item.code];
+                    cartOrder = cartOrder.filter(c => c !== String(item.code));
+                }
             };
 
-            renderAccordion('カラー関連', colorGroup);
-            renderAccordion('パーマ関連', permGroup);
-
-            // Render Other items (Flat list)
-            otherItems.forEach(item => {
-                const strCode = String(item.code);
-                const isFav = favoriteItems.includes(strCode);
-                itemListContainer.appendChild(createItemRow(item, isFav));
+            card.querySelector('.minus').addEventListener('click', () => {
+                let val = parseInt(input.value) || 0;
+                if (val > 0) { val -= 1; input.value = val; updateCart(val); calculateTotal(); }
             });
-            return;
-        }
+            card.querySelector('.plus').addEventListener('click', () => {
+                let val = parseInt(input.value) || 0;
+                val += 1; input.value = val; updateCart(val); calculateTotal();
+            });
+            input.addEventListener('change', () => {
+                let val = parseInt(input.value) || 0;
+                if (val < 0) { val = 0; input.value = 0; }
+                updateCart(val);
+                calculateTotal();
+            });
 
-        // --- Standard List Rendering (All Tab) ---
-        // Optimization: Use DocumentFragment for batch appending
-        const fragment = document.createDocumentFragment();
-        displayItems.forEach(item => {
-            const strCode = String(item.code);
-            const isFav = favoriteItems.includes(strCode);
-            const card = createItemRow(item, isFav);
-            fragment.appendChild(card);
+            itemListContainer.appendChild(card);
         });
-        itemListContainer.appendChild(fragment);
-    };
-
-    // Helper to create a single item row (refactored for reuse)
-    const createItemRow = (item, isFav) => {
-        const strCode = String(item.code);
-        const card = document.createElement('div');
-        card.className = 'item-row';
-        card.dataset.code = strCode;
-        const currentQty = currentCart[item.code] ? currentCart[item.code].qty : 0;
-        card.innerHTML = `
-            <button type="button" class="btn-fav ${isFav ? 'active' : ''}" data-code="${strCode}">${isFav ? '★' : '☆'}</button>
-            <div class="item-row-info">
-                <span class="item-code">${item.code}</span>
-                <span class="item-row-name">${item.name}</span>
-            </div>
-            <div class="order-controls">
-                <button type="button" class="btn-qty minus">-</button>
-                <input type="number" class="qty-input" data-code="${item.code}" data-name="${item.name}" value="${currentQty}" min="0">
-                <button type="button" class="btn-qty plus">+</button>
-            </div>
-        `;
-
-        const input = card.querySelector('.qty-input');
-        const favBtn = card.querySelector('.btn-fav');
-
-        // Favorite toggle
-        favBtn.addEventListener('click', () => {
-            if (favoriteItems.includes(strCode)) {
-                favoriteItems = favoriteItems.filter(c => c !== strCode);
-                favBtn.classList.remove('active');
-                favBtn.textContent = '☆';
-            } else {
-                favoriteItems.push(strCode);
-                favBtn.classList.add('active');
-                favBtn.textContent = '★';
-            }
-            localStorage.setItem(getFavsKey(), JSON.stringify(favoriteItems));
-            saveFavoritesToCloud();
-
-            if (currentFilter === 'favorites') {
-                renderItems(itemsData);
-            }
-        });
-
-        const updateCart = (val) => {
-            if (val > 0) {
-                if (!currentCart[item.code]) {
-                    cartOrder.push(String(item.code));
-                }
-                currentCart[item.code] = { qty: val, name: item.name };
-            } else {
-                delete currentCart[item.code];
-                cartOrder = cartOrder.filter(c => c !== String(item.code));
-            }
-        };
-
-        card.querySelector('.minus').addEventListener('click', () => {
-            let val = parseInt(input.value) || 0;
-            if (val > 0) { val -= 1; input.value = val; updateCart(val); calculateTotal(); }
-        });
-        card.querySelector('.plus').addEventListener('click', () => {
-            let val = parseInt(input.value) || 0;
-            val += 1; input.value = val; updateCart(val); calculateTotal();
-        });
-        input.addEventListener('change', () => {
-            let val = parseInt(input.value) || 0;
-            if (val < 0) { val = 0; input.value = 0; }
-            updateCart(val);
-            calculateTotal();
-        });
-
-        return card;
     };
 
     // --- Render History ---
@@ -636,8 +542,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="history-body hidden">
                     ${detailsHtml}
                     <div class="history-actions">
-                        <button class="btn-secondary edit-order-btn ${isCompleted ? 'hidden' : ''}" data-order-id="${items[0].orderId}">変更</button>
-                        <button class="btn-danger cancel-order-btn ${isCompleted ? 'hidden' : ''}" data-order-id="${items[0].orderId}">キャンセル</button>
+                        <button class="btn-secondary edit-order-btn" data-order-id="${items[0].orderId}">変更</button>
+                        <button class="btn-danger cancel-order-btn" data-order-id="${items[0].orderId}">キャンセル</button>
                     </div>
                 </div>
             `;
@@ -931,36 +837,30 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Search Logic ---
     searchInput.addEventListener('input', (e) => {
         const rawSearch = e.target.value;
+        if (rawSearch.trim() === '') {
+            renderItems(itemsData);
+        } else {
+            // Split by space for AND search
+            const searchTokens = rawSearch.trim().split(/[\s　]+/);
 
-        // Clear existing timeout (Debounce)
-        if (searchTimeout) clearTimeout(searchTimeout);
-        
-        // Add visual feedback (searching)
-        if (searchWrapper) searchWrapper.classList.add('searching');
+            const filteredItems = itemsData.filter(item => {
+                const normalizedName = normalizeForSearch(item.name);
+                const normalizedCode = normalizeForSearch(item.code);
+                const searchableText = normalizedName + normalizedCode;
 
-        searchTimeout = setTimeout(() => {
-            if (rawSearch.trim() === '') {
-                renderItems(itemsData);
-            } else {
-                // Split by space for AND search
-                const searchTokens = rawSearch.trim().split(/[\s　]+/);
-
-                const filteredItems = itemsData.filter(item => {
-                    // Use pre-normalized search key for performance
-                    const searchableText = item._searchKey || (item.name + item.code).toLowerCase();
-
-                    // Return true only if ALL tokens are found (AND search)
-                    return searchTokens.every(token => {
-                        const normalizedToken = normalizeForSearch(token);
-                        if (!normalizedToken) return true;
-                        return searchableText.includes(normalizedToken);
-                    });
+                // Return true only if ALL tokens are found (AND search)
+                return searchTokens.every(token => {
+                    const normalizedToken = normalizeForSearch(token);
+                    if (!normalizedToken) return true; // skip purely symbolic space
+                    return searchableText.includes(normalizedToken);
                 });
-                renderItems(filteredItems);
-            }
-            calculateTotal();
-            if (searchWrapper) searchWrapper.classList.remove('searching');
-        }, 300); // 300ms delay
+            });
+            renderItems(filteredItems);
+        }
+
+        // Note: Re-rendering clears inputs. In a real app we'd preserve state, 
+        // but for MVP it's safer to filter before picking quantities.
+        calculateTotal();
     });
 
     // --- Render Manufacturer Chips ---
@@ -1059,17 +959,12 @@ document.addEventListener('DOMContentLoaded', () => {
             if (cachedData && cachedTs && (now - parseInt(cachedTs) < CACHE_DURATION)) {
                 console.log('Using cached item data (valid for 24h)');
                 try {
-                    // Use setTimeout to avoid blocking main thread for large JSON parse
                     itemsData = JSON.parse(cachedData);
-                    
-                    // Delay low-priority rendering to prioritize UI responsiveness
-                    setTimeout(() => {
-                        renderManufacturerChips();
-                        renderCategoryChips();
-                        renderItems(itemsData);
-                        if (announcementBanner) announcementBanner.classList.remove('hidden');
-                        loadDraft();
-                    }, 0);
+                    renderManufacturerChips();
+                    renderCategoryChips();
+                    renderItems(itemsData);
+                    if (announcementBanner) announcementBanner.classList.remove('hidden');
+                    loadDraft();
                     return; // Exit early if cache is valid
                 } catch (e) {
                     console.error('Failed to parse cache:', e);
@@ -1091,15 +986,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 showLoading('画面を構築中...');
                 await new Promise(resolve => setTimeout(resolve, 10));
 
-                itemsData = result.data.map(item => {
-                    // Pre-calculate search key and groups
-                    return {
-                        ...item,
-                        _searchKey: normalizeForSearch(item.name + item.code),
-                        _isColor: isColor(item.category),
-                        _isPerm: isPerm(item.category)
-                    };
-                });
+                itemsData = result.data;
 
                 // Save to cache
                 localStorage.setItem('b2b_items_cache', JSON.stringify(itemsData));
@@ -1107,12 +994,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 renderManufacturerChips();
                 renderCategoryChips();
-                // Avoid rendering huge list immediately on login
-                if (currentFilter === 'all' && (currentManufacturerFilter === 'all' || currentCategoryFilter === 'all')) {
-                    renderItems(itemsData); // This will show the "Please select filters" message
-                } else {
-                    renderItems(itemsData);
-                }
+                renderItems(itemsData);
 
                 if (announcementBanner) {
                     announcementBanner.classList.remove('hidden');

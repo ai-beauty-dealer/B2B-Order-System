@@ -369,33 +369,34 @@ function handleCancelOrder(data) {
      console.log("Using sheet for cancel:", sheet.getName(), "clientType:", clientType);
 
      const values = sheet.getDataRange().getValues();
+     const headers = values[0];
+     const newValues = [headers];
      let deletedCount = 0;
      let canceledItems = [];
      
-     // 削除前に内容を収集（1行目はヘッダーなのでi=1から）
+     // 配列上で処理（1行目はヘッダーなのでi=1から）
      for(let i = 1; i < values.length; i++) {
           const row = values[i];
-          // row[0]=タイムスタンプ, row[4]=クライアント名
-          if(row[4] === clientName && new Date(row[0]).getTime() === parseInt(orderId)) {
+          const isTarget = (row[4] === clientName && new Date(row[0]).getTime() === parseInt(orderId));
+          
+          if(isTarget) {
                // ステータスチェック: すでに「完了」なら操作不可
                if (String(row[5] || '').trim() === '完了') {
                     throw new Error("この発注はすでに確定（発注済み）しているため、キャンセルできません。");
                }
                // row[3]=商品名, row[2]=数量
                canceledItems.push(`・${row[3]} × ${row[2]}`);
-          }
-     }
-
-     // 行の削除（逆順で削除）
-     for(let i = values.length - 1; i >= 1; i--) {
-          const row = values[i];
-          if(row[4] === clientName && new Date(row[0]).getTime() === parseInt(orderId)) {
-               sheet.deleteRow(i + 1);
                deletedCount++;
+          } else {
+               newValues.push(row);
           }
      }
-
+     
+     // 一括書き込み
      if (deletedCount > 0) {
+          sheet.clearContents();
+          sheet.getRange(1, 1, newValues.length, newValues[0].length).setValues(newValues);
+          
           let message = `【キャンセル通知】\nサロン名: ${clientName}\n内容:\n${canceledItems.join('\n')}\n（注文ID: ${orderId}）`;
           sendNotification(message);
      }
@@ -429,12 +430,17 @@ function handleUpdateOrder(data) {
      if (!sheet) throw new Error("対象の注文データが見つかりません。操作用シート名: " + targetSheetName);
      console.log("Using sheet for update:", sheet.getName(), "clientType:", clientType);
 
-     // 1. Collect existing status and then Delete old rows
+     // 1. Collect existing status and filter rows in memory
      const values = sheet.getDataRange().getValues();
+     const headers = values[0];
+     const newValuesBeforeSpecial = [headers];
      const statusMap = {}; // code -> status
-     for(let i = values.length - 1; i >= 1; i--) {
+     
+     for(let i = 1; i < values.length; i++) {
           const row = values[i];
-          if(row[4] === clientName && new Date(row[0]).getTime() === parseInt(orderId)) {
+          const isTarget = (row[4] === clientName && new Date(row[0]).getTime() === parseInt(orderId));
+          
+          if(isTarget) {
                // ステータスチェック: すでに「完了」なら操作不可
                if (String(row[5] || '').trim() === '完了') {
                     throw new Error("この発注はすでに確定（発注済み）しているため、内容の変更はできません。");
@@ -444,8 +450,16 @@ function handleUpdateOrder(data) {
                if (status) {
                    statusMap[code] = status || '';
                }
-               sheet.deleteRow(i + 1);
+               // Target rows are NOT added back to newValuesBeforeSpecial yet
+          } else {
+               newValuesBeforeSpecial.push(row);
           }
+     }
+
+     // 2. Clear and rewrite sheet (except for new rows to be inserted)
+     sheet.clearContents();
+     if (newValuesBeforeSpecial.length > 0) {
+          sheet.getRange(1, 1, newValuesBeforeSpecial.length, newValuesBeforeSpecial[0].length).setValues(newValuesBeforeSpecial);
      }
 
      // 2. Append new rows（絶対的末尾配置対応）
