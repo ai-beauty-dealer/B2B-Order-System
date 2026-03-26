@@ -67,6 +67,23 @@ function doGet(e) {
     if (action === 'items') {
       const sheet = ss.getSheetByName(SHEET_NAMES.MASTER);
       if (!sheet) throw new Error(`Sheet '${SHEET_NAMES.MASTER}' not found.`);
+      
+      const values = sheet.getDataRange().getValues();
+      const items = [];
+      for (let i = 1; i < values.length; i++) {
+          const row = values[i];
+          if (row[0] && row[1]) {
+              items.push({ 
+                code: row[0], 
+                name: row[1], 
+                category: row[2] || '',
+                manufacturer: row[3] || '',
+                special: row[4] || ''
+              });
+          }
+      }
+      return ContentService.createTextOutput(JSON.stringify({ status: 'success', data: items }))
+        .setMimeType(ContentService.MimeType.JSON);
     } else if (action === 'history') {
       const clientName = e.parameter.clientName;
       if (!clientName) throw new Error("clientName parameter is required for history.");
