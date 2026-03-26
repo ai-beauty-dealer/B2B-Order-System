@@ -695,7 +695,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const result = await response.json();
             if (result.status === 'success') {
                 alert('発注をキャンセルしました。');
-                fetchHistory(); // Refresh
+                fetchHistory(true); // Refresh
             } else {
                 alert('失敗しました: ' + result.message);
             }
@@ -1402,6 +1402,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 localStorage.removeItem(getDraftKey());
                 if (customItemsList) customItemsList.innerHTML = '';
                 resetEditMode();
+                fetchHistory(true); // Force refresh history to include the new order
             } else {
                 const errorMsg = result.message || '不明なエラーが発生しました。';
                 if (errorMsg.includes('サーバーが混み合っています')) {

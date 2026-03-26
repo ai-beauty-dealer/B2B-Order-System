@@ -92,12 +92,15 @@ function doGet(e) {
       const MAX_HISTORY_ITEMS = 50; // 最新50件まで取得
       const MAX_LOOKBACK_DAYS = 31; // 過去31日分まで遡る
       
-      // 1. 直近の日付を生成し、存在するシートだけを狙って読み込む（全シート走査を回避）
+      // 1. 11時以降の注文は「明日（または月曜）」のシートに書かれるため、
+      // 検索開始日を getTargetDateStr(today) を基準にして遡るように修正
       const today = new Date();
+      const nextOrderDateStr = getTargetDateStr(today);
+      const startDay = new Date(nextOrderDateStr);
       
       for (let i = 0; i < MAX_LOOKBACK_DAYS; i++) {
-          const d = new Date(today.getTime());
-          d.setDate(today.getDate() - i);
+          const d = new Date(startDay.getTime());
+          d.setDate(startDay.getDate() - i);
           
           // 通常用と直送用の日付文字列を生成
           const dateStr = Utilities.formatDate(d, Session.getScriptTimeZone(), "yyyy-MM-dd");
