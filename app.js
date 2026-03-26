@@ -1520,7 +1520,7 @@ document.addEventListener('DOMContentLoaded', () => {
     fetchHistoryFavorites();
 
     // ==========================================
-    // 📷 Barcode Scanner Module
+    // 📷 Barcode Scanner Module (v2 - High Sensitivity)
     // ==========================================
     const scanBtn = document.getElementById('scan-btn');
     const scannerModal = document.getElementById('scanner-modal');
@@ -1534,9 +1534,26 @@ document.addEventListener('DOMContentLoaded', () => {
     let html5QrcodeScanner = null;
     let lastScannedCode = '';
     let lastScanTime = 0;
-    const SCAN_COOLDOWN_MS = 2000; // 2秒クールダウン
+    const SCAN_COOLDOWN_MS = 1500; // 1.5秒クールダウン（2秒→短縮）
 
-    // JAN → 商品の逆引きマップ (boot時に構築)
+    // ビープ音生成（Web Audio API - iOS Safari対応）
+    let audioCtx = null;
+    const playBeep = (freq = 1000, duration = 100, type = 'sine') => {
+        try {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = type;
+            osc.frequency.value = freq;
+            gain.gain.value = 0.3;
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + duration / 1000);
+        } catch (e) { /* 音声非対応環境では無視 */ }
+    };
+
+    // JAN → 商品の逆引きマップ
     let janToItemMap = new Map();
     const buildJanMap = () => {
         janToItemMap.clear();
@@ -1563,32 +1580,31 @@ document.addEventListener('DOMContentLoaded', () => {
     // スキャン成功時の処理
     const onScanSuccess = (decodedText) => {
         const now = Date.now();
-        // クールダウンチェック（同じコードの連続スキャン防止）
         if (decodedText === lastScannedCode && (now - lastScanTime) < SCAN_COOLDOWN_MS) {
-            return; // 無視
+            return;
         }
         lastScannedCode = decodedText;
         lastScanTime = now;
 
-        // JAN検索
         const normalizedJan = String(decodedText).trim();
         const matchedItem = janToItemMap.get(normalizedJan);
 
         if (matchedItem) {
-            // ✅ 商品発見！カートに追加
             const code = String(matchedItem.code);
             const currentQty = currentCart[code] ? currentCart[code].qty : 0;
             updateFromCart(code, matchedItem.name, currentQty + 1);
             renderCartSidebar();
             syncCardQty(code, currentQty + 1);
 
-            // 振動フィードバック (Android Chrome対応)
+            // フィードバック: ビープ音 + 振動
+            playBeep(1000, 100);
             if (navigator.vibrate) navigator.vibrate(200);
 
             showScanToast(`${matchedItem.name} を追加 (${currentQty + 1}個)`);
             if (scannerStatus) scannerStatus.textContent = `✅ ${matchedItem.name} を追加しました`;
         } else {
-            // ❌ 未登録
+            // エラー: 低音ビープ + 振動パターン
+            playBeep(400, 200);
             if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
             showScanToast(`未登録のバーコードです (${normalizedJan})`, true);
             if (scannerStatus) scannerStatus.textContent = `⚠️ 未登録コード: ${normalizedJan}`;
@@ -1598,30 +1614,40 @@ document.addEventListener('DOMContentLoaded', () => {
     // スキャナ起動
     const startScanner = async () => {
         if (!scannerModal || !scannerOverlay) return;
-        
-        // JAN Mapの構築（まだ構築されていない場合）
         if (janToItemMap.size === 0) buildJanMap();
+
+        // iOS Safari: AudioContextのロック解除（ユーザージェスチャー内で初期化）
+        if (!audioCtx) {
+            try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) {}
+        }
 
         scannerModal.classList.remove('hidden');
         scannerOverlay.classList.remove('hidden');
         if (scannerStatus) scannerStatus.textContent = 'カメラ起動中...';
 
         try {
-            html5QrcodeScanner = new Html5Qrcode("reader");
+            html5QrcodeScanner = new Html5Qrcode("reader", {
+                // EAN-13（JANコード）に絞り込み → 解析速度2〜3倍向上
+                formatsToSupport: [ Html5QrcodeSupportedFormats.EAN_13 ],
+                verbose: false
+            });
             await html5QrcodeScanner.start(
-                { facingMode: "environment" }, // 背面カメラを優先
+                { facingMode: "environment" },
                 { 
-                    fps: 10, 
-                    qrbox: { width: 280, height: 150 },
-                    aspectRatio: 1.0
+                    fps: 15,
+                    qrbox: { width: 300, height: 120 },
+                    disableFlip: true,
+                    // ブラウザのネイティブBarcode Detection APIを優先使用（GPU高速化）
+                    experimentalFeatures: {
+                        useBarCodeDetectorIfSupported: true
+                    }
                 },
                 onScanSuccess,
-                () => {} // エラー（読み取り失敗）は毎フレーム呼ばれるので無視
+                () => {}
             );
             if (scannerStatus) scannerStatus.textContent = 'バーコードを枠内に収めてください';
         } catch (err) {
             console.error("Camera error:", err);
-            // iOS Safari等でカメラ権限が拒否された場合のフォールバック
             if (scannerStatus) {
                 scannerStatus.innerHTML = `
                     <span style="color: #dc2626;">⚠️ カメラを起動できませんでした</span><br>
