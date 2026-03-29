@@ -1,8 +1,8 @@
-// v2.11.8 (HISTORY-SYNC)
+// v2.12.6 (GLOBAL-SYNC-MASTER)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.11.8 (HISTORY-SYNC) Loaded ---');
+    console.log('--- B2B Order System v2.12.7 (DIAGNOSTIC-MODE) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -55,6 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const syncFavsWrapper = document.getElementById('sync-favs-wrapper');
     const syncHistoryFavsBtn = document.getElementById('sync-history-favs-btn');
+    const globalSyncBtn = document.getElementById('global-sync-btn');
     const syncMsgArea = document.getElementById('sync-msg');
 
     // Helper: LocalStorage keys (include clientName for master account isolation)
@@ -101,6 +102,24 @@ document.addEventListener('DOMContentLoaded', () => {
     const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours in ms
 
     // --- Utility Functions ---
+    const isValidCode = (code) => {
+        if (!code) return false;
+        // 万が一、GAS側の意図しないシングルクォートが混じっていてもここで無視・除去してチェック
+        const cleanS = String(code).replace(/^'/, '').toLowerCase();
+        
+        // 指数表記（e+が含まれる）は、スプレッドシート側でコードが数値として結合・破損したデータとみなして除外
+        if (cleanS.includes('e+')) {
+            console.warn('[Validation] Corrupted product code detected (scientific notation):', code);
+            return false;
+        }
+        // 桁数が異常に長い場合（20桁超）も破損の疑いがあるため除外
+        if (cleanS.length > 20) {
+            console.warn('[Validation] Abnormal code length detected:', cleanS);
+            return false;
+        }
+        return true;
+    };
+
     const normalizeForSearch = (str) => {
         if (!str) return '';
         str = String(str);
@@ -282,6 +301,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Save Favorites to Cloud Helper ---
     const saveFavoritesToCloud = () => {
         if (!currentClientName) return;
+        
+        // 【トリプル・ガード】保存直前に強制クリーンアップ（シングルクォート除去とバリデーションを徹底実行）
+        favoriteItems = favoriteItems
+            .map(c => String(c).replace(/^'/, ''))
+            .filter(c => isValidCode(c));
+            
         fetch(CONFIG.API_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -360,7 +385,8 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        const historyCodes = historyFavoritesData[currentClientName];
+        let historyCodes = historyFavoritesData[currentClientName] || [];
+        
         console.log('[SyncFavs] historyCodes count:', historyCodes ? historyCodes.length : 'NOT FOUND');
 
         if (!historyCodes || historyCodes.length === 0) {
@@ -369,13 +395,22 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         let addedCount = 0;
+        let corruptedCount = 0;
         historyCodes.forEach(code => {
-            const strCode = String(code); // 型を文字列に統一
-            if (!favoriteItems.includes(strCode)) {
-                favoriteItems.push(strCode);
-                addedCount++;
+            const strCode = String(code).replace(/^'/, '');
+            if (isValidCode(strCode)) {
+                if (!favoriteItems.includes(strCode)) {
+                    favoriteItems.push(strCode);
+                    addedCount++;
+                }
+            } else {
+                corruptedCount++;
             }
         });
+
+        if (corruptedCount > 0) {
+            console.error(`[SyncFavs] Skipped ${corruptedCount} corrupted items (scientific notation)`);
+        }
 
         if (addedCount > 0) {
             localStorage.setItem(getFavsKey(), JSON.stringify(favoriteItems));
@@ -386,6 +421,50 @@ document.addEventListener('DOMContentLoaded', () => {
             showSyncMsg('すべてのお気に入りは既に同期済みです。', 'info');
         }
     };
+
+    /**
+     * 🚀 [MASTER ONLY] 全サロン一括同期を実行
+     * history_favorites.json を取得し、スプレッドシートの履歴とマージするようバックエンドに依頼
+     */
+    const triggerGlobalHistorySync = async () => {
+        if (!confirm('【管理者設定】全サロンの「導入履歴(JSON)」と「発注履歴(スプレッドシート)」をお気に入りに一括同期しますか？\n\n※この操作は全得意先のデータに影響します。')) {
+            return;
+        }
+
+        showLoading('全サロン同期を実行中...');
+        try {
+            // 1. 導入履歴 (JSON) をロード
+            const jsonRes = await fetch('history_favorites.json');
+            const introHistory = jsonRes.ok ? await jsonRes.json() : null;
+
+            // 2. バックエンドへ送信
+            const response = await fetch(CONFIG.API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify({
+                    action: 'sync_all_history_to_favorites',
+                    extraData: introHistory
+                })
+            });
+
+            const result = await response.json();
+            if (result.status === 'success') {
+                alert('同期完了しました！\n' + (result.message || ''));
+                location.reload(); // 状態を再初期化
+            } else {
+                alert('同期に失敗しました: ' + (result.message || '不明なエラー'));
+            }
+        } catch (e) {
+            console.error(e);
+            alert('同期エラー: ' + e.toString());
+        } finally {
+            hideLoading();
+        }
+    };
+
+    if (globalSyncBtn) {
+        globalSyncBtn.addEventListener('click', triggerGlobalHistorySync);
+    }
 
     const showSyncMsg = (text, type) => {
         if (!syncMsgArea) return;
@@ -406,7 +485,8 @@ document.addEventListener('DOMContentLoaded', () => {
         itemListContainer.innerHTML = ''; // Clear current
 
         // Filter by current tab selection before rendering
-        let displayItems = items;
+        let displayItems = items.filter(item => isValidCode(item.code));
+        
         if (currentFilter === 'favorites') {
             displayItems = displayItems.filter(item => favoriteItems.includes(String(item.code)));
         }
@@ -529,7 +609,7 @@ document.addEventListener('DOMContentLoaded', () => {
         card.innerHTML = `
             <button type="button" class="btn-fav ${isFav ? 'active' : ''}" data-code="${strCode}">${isFav ? '★' : '☆'}</button>
             <div class="item-row-info">
-                <span class="item-code">${item.code}</span>
+                <span class="item-code">${strCode.replace(/^'/, '')}</span>
                 <span class="item-row-name">${item.name}</span>
             </div>
             <div class="order-controls">
@@ -549,10 +629,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 favBtn.classList.remove('active');
                 favBtn.textContent = '☆';
             } else {
+                // 指数表示などの破損データは登録を拒否 (v2.12.1)
+                if (!isValidCode(strCode)) {
+                    console.error('[Fav] Rejected corrupted code:', strCode);
+                    alert('商品コードが不正なため、お気に入りに登録できません。管理者に連絡してください。');
+                    return;
+                }
                 favoriteItems.push(strCode);
                 favBtn.classList.add('active');
                 favBtn.textContent = '★';
             }
+            
+            // 保存前に再度クリーンアップを徹底
+            favoriteItems = favoriteItems.filter(c => isValidCode(c));
+            
             localStorage.setItem(getFavsKey(), JSON.stringify(favoriteItems));
             saveFavoritesToCloud();
 
@@ -1110,10 +1200,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 await new Promise(resolve => setTimeout(resolve, 10));
 
                 itemsData = result.data.map(item => {
-                    // Pre-calculate search key and groups
+                    const cleanCode = String(item.code).replace(/^'/, '');
                     return {
                         ...item,
-                        _searchKey: normalizeForSearch(item.name + item.code),
+                        code: cleanCode,
+                        _searchKey: normalizeForSearch(item.name + cleanCode),
                         _isColor: isColor(item.category),
                         _isPerm: isPerm(item.category)
                     };
@@ -1189,12 +1280,15 @@ document.addEventListener('DOMContentLoaded', () => {
             const favRes = await fetch(`${CONFIG.API_URL}?action=get_favorites&clientName=${encodeURIComponent(currentClientName)}`);
             const favData = await favRes.json();
             if (favData.status === 'success' && favData.data && favData.data.length > 0) {
-                favoriteItems = favData.data;
+                // 有効なコードのみを抽出（指数表示などの破損データを除去し、シングルクォートも剥がす）
+                favoriteItems = favData.data
+                    .map(code => String(code).replace(/^'/, ''))
+                    .filter(code => isValidCode(code));
                 localStorage.setItem(getFavsKey(), JSON.stringify(favoriteItems));
-                console.log('Loaded favorites from cloud');
+                console.log('Loaded favorites from cloud (and filtered corrupted items)');
             } else {
                 const savedFavs = localStorage.getItem(getFavsKey());
-                favoriteItems = savedFavs ? JSON.parse(savedFavs) : [];
+                favoriteItems = savedFavs ? JSON.parse(savedFavs).filter(code => isValidCode(code)) : [];
             }
         } catch (e) {
             console.warn('Failed to load favorites from cloud, falling back to local', e);
@@ -1206,8 +1300,17 @@ document.addEventListener('DOMContentLoaded', () => {
         loginContainer.classList.add('hidden');
         orderContainer.classList.remove('hidden');
 
+        // 管理者ボタンの表示制御
+        if (globalSyncBtn) {
+            // 普通のサロン入室時に管理者ボタンを隠すが、masterログイン時のみの挙動を担保
+            if (currentClientType !== 'MASTER') {
+                globalSyncBtn.classList.add('hidden');
+                console.log('[DEBUG] Not Master, hiding GlobalSyncBtn');
+            }
+        }
+
         // --- ANTI-FREEZE: Delay fetchItems slightly ---
-        console.log('Login successful, starting data fetch in 300ms...');
+        console.log(`[DEBUG] Login successful for ${currentClientName}, starting data fetch...`);
         setTimeout(() => {
             fetchItems();
             switchTab('tab-all'); // Explicitly set initial tab state
@@ -1240,6 +1343,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const result = await response.json();
 
             if (result.status === 'success') {
+                console.log('[DEBUG] Login Success API result:', result);
                 // Remember Me logic
                 if (rememberMeCheckbox && rememberMeCheckbox.checked) {
                     localStorage.setItem('b2b_saved_username', username);
@@ -1253,6 +1357,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 // --- Master Account Logic ---
                 if (result.isMaster) {
+                    currentClientType = 'MASTER'; // Set master type
+                    console.log('[DEBUG] Master Account detected');
                     const masterAllClients = result.allClients || [];
                     const selectEl = document.getElementById('master-salon-select');
                     if (selectEl) {
@@ -1266,6 +1372,11 @@ document.addEventListener('DOMContentLoaded', () => {
                         });
                         loginForm.classList.add('hidden');
                         document.getElementById('master-salon-selector').classList.remove('hidden');
+                        
+                        if (globalSyncBtn) {
+                            console.log('[DEBUG] Showing GlobalSyncBtn for Master');
+                            globalSyncBtn.classList.remove('hidden');
+                        }
 
                         // Save these temporarily to pass to the processLoginSuccess later
                         selectEl.dataset.announcement = result.announcement || '';
@@ -1276,11 +1387,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     return;
                 }
 
-                currentClientName = result.clientName;
+                currentClientName = (result.clientName || '').trim();
                 currentClientType = result.clientType || ''; // '直送' or ''
 
                 await processLoginSuccess(result.announcement, result.isMaintenance, result.maintenanceMessage);
             } else {
+                console.error('[DEBUG] Login Failed result:', result);
                 alert('ログインに失敗しました: ' + result.message);
             }
         } catch (error) {
@@ -1301,7 +1413,7 @@ document.addEventListener('DOMContentLoaded', () => {
             currentCart = {};
             cartOrder = [];
             
-            currentClientName = clientData.name;
+            currentClientName = (clientData.name || '').trim();
             currentClientType = clientData.type;
 
             document.getElementById('master-salon-selector').classList.add('hidden');
@@ -1319,6 +1431,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (masterCancelBtn) {
         masterCancelBtn.addEventListener('click', () => {
             document.getElementById('master-salon-selector').classList.add('hidden');
+            if (globalSyncBtn) globalSyncBtn.classList.add('hidden');
             loginForm.classList.remove('hidden');
             currentUsername = '';
             // 切替キャンセル時もクリアしておく

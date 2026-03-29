@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="robots" content="noindex">
     <title>AI Beauty Dealer - B2B Order System</title>
-    <link rel="stylesheet" href="style.css?v=2.12.0">
+    <link rel="stylesheet" href="style.css?v=2.12.6">
 
 </head>
 
@@ -48,6 +48,10 @@
                 <!-- Options injected by JS -->
             </select>
             <button type="button" id="master-login-btn" class="btn-primary" style="margin-bottom: 8px;">入室する</button>
+            <button id="global-sync-btn" class="btn-primary hidden"
+                style="width: 100%; margin-top: 4px; margin-bottom: 8px; background: #4338ca; color: white; font-weight: bold; padding: 12px; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);">
+                🚀 【管理者】全サロン一括同期を実行
+            </button>
             <button type="button" id="master-cancel-btn" class="btn-secondary">ログアウト</button>
         </div>
 
@@ -195,8 +199,8 @@
     </div>
 
     <script src="lib/html5-qrcode.min.js"></script>
-    <script src="config.js?v=2.12.0"></script>
-    <script src="app.js?v=2.12.0"></script>
+    <script src="config.js?v=2.12.7"></script>
+    <script src="app.js?v=2.12.7"></script>
 
     <!-- Cart Sidebar -->
     <div id="cart-sidebar" class="cart-sidebar hidden">

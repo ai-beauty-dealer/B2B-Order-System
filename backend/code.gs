@@ -2,7 +2,7 @@
 // 🛠️ B2B Order System - Backend (GAS)
 // ==========================================
 
-const SPREADSHEET_ID = 'YOUR_SPREADSHEET_ID_HERE'; // ★ここにご自身のスプレッドシートIDを貼り付けてください！
+const SPREADSHEET_ID = '1dpMtNXhwRRPObS42bJ9BuGL4vMsOkYkQgyeTP1rG_i4'; // ★ここにご自身のスプレッドシートIDを貼り付けてください！
 // スプレッドシートのIDは、URLの「/d/」と「/edit」の間の文字列（例: 1abc...xyz）です。
 
 // --- 設定 ---
@@ -72,9 +72,12 @@ function doGet(e) {
       const items = [];
       for (let i = 1; i < values.length; i++) {
           const row = values[i];
-          if (row[0] && row[1]) {
+          const rawCode = String(row[0]).replace(/^'/, '').trim();
+          
+          // --- 指数表記（e+）や中身が壊れたコードは読み込み時点で完全に除外する ---
+          if (rawCode && row[1] && !rawCode.toLowerCase().includes('e+')) {
               items.push({ 
-                code: row[0], 
+                code: rawCode, 
                 name: row[1], 
                 category: row[2] || '',
                 manufacturer: row[3] || '',
@@ -171,7 +174,7 @@ function doGet(e) {
         const values = sheet.getDataRange().getValues();
         for (let i = 1; i < values.length; i++) {
           if (values[i][0] === clientName) {
-            favs = String(values[i][1] || '').split(',').map(s => s.trim()).filter(x => x);
+            favs = String(values[i][1] || '').split(',').map(s => s.trim().replace(/^'/, '')).filter(x => x);
             break;
           }
         }
@@ -205,6 +208,11 @@ function doPost(e) {
         else if (action === 'update_order') return handleUpdateOrder(postData);
         else if (action === 'cancel_order') return handleCancelOrder(postData);
         else if (action === 'save_favorites') return handleSaveFavorites(postData);
+        else if (action === 'sync_all_history_to_favorites') {
+            const result = syncAllHistoryToFavorites(postData.extraData);
+            return ContentService.createTextOutput(JSON.stringify({ status: 'success', message: result }))
+              .setMimeType(ContentService.MimeType.JSON);
+        }
         else throw new Error("Invalid action parameter for POST.");
 
     } catch (error) {
@@ -237,7 +245,7 @@ function handleLogin(data) {
         if(String(values[i][0]) === String(username) && String(values[i][1]) === String(password)) {
             authSuccess = true;
             clientName = values[i][2]; // C列の得意先名
-            const rawType = String(values[i][3] || '').trim();
+            const rawType = String(values[i][3] || '').trim().toUpperCase();
             if (rawType === 'マスター' || rawType === 'MASTER') {
                 clientType = 'MASTER';
             } else if (rawType === CLIENT_TYPE_DIRECT) {
@@ -565,7 +573,7 @@ function handleUpdateOrder(data) {
        .setMimeType(ContentService.MimeType.JSON);
 }
 
-// --- お気に入り保存処理 ---
+// --- お気に入り保存処理 (Self-Healing Mode) ---
 function handleSaveFavorites(data) {
      const clientName = data.clientName;
      const favorites = data.favorites; // array of strings
@@ -579,6 +587,9 @@ function handleSaveFavorites(data) {
          sheet.appendRow(['得意先名', 'お気に入りコード(カンマ区切り)']);
      }
      
+     // 強制的にB列を「プレーンテキスト(@)」として定義（保存時の指数表記化を完全に防ぐ）
+     sheet.getRange("B:B").setNumberFormat("@");
+
      const values = sheet.getDataRange().getValues();
      // 既存のデータを削除（重複防止）
      for (let i = values.length - 1; i >= 1; i--) {
@@ -587,9 +598,15 @@ function handleSaveFavorites(data) {
          }
      }
      
-     // 新しいデータを追加
-     const favString = favorites.join(',');
-     sheet.appendRow([clientName, favString]);
+     // 【ガード】保存直前に再度指数表記が含まれていないかチェックし、正常なものだけを連結
+     const cleanFavs = favorites.filter(code => {
+         const str = String(code).trim().replace(/^'/, '');
+         return str !== '' && !str.toLowerCase().includes('e+');
+     });
+     
+     const favString = cleanFavs.join(',');
+     // 先頭にシングルクォートを付けて強制的に文字列として書き込む
+     sheet.appendRow([clientName, "'" + favString]);
      
      return ContentService.createTextOutput(JSON.stringify({ status: 'success' })).setMimeType(ContentService.MimeType.JSON);
 }
@@ -802,6 +819,56 @@ function getOrderedClientNames(ss, sheetName) {
     return Array.from(names);
 }
 
+// ------------------------------------------
+// 🧹 メンテナンスツール: データクリーンアップ
+// ------------------------------------------
+
+/**
+ * お気に入りシート内の破損データ（指数表記など）をクリーンアップし、
+ * すべてのコードに強制的にシングルクォートを付与して文字列として保護します。
+ */
+function cleanupFavoritesData() {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName(SHEET_NAMES.FAVORITES);
+    if (!sheet) return "Favorites sheet not found.";
+
+    const values = sheet.getDataRange().getValues();
+    const newValues = [values[0]]; // ヘッダーを保持
+
+    let fixCount = 0;
+
+    for (let i = 1; i < values.length; i++) {
+        const clientName = values[i][0];
+        const rawFavs = String(values[i][1] || '');
+        
+        // 1. カンマで分割し、指数表記(e+)を含まない有効なコードのみを抽出
+        const codes = rawFavs.split(',').map(s => s.trim().replace(/^'/, ''));
+        const cleanCodes = codes.filter(code => {
+            if (!code) return false;
+            if (code.toLowerCase().includes('e+')) {
+                fixCount++;
+                return false;
+            }
+            if (code.length > 20) {
+                fixCount++;
+                return false;
+            }
+            return true;
+        });
+
+        // 2. 正規化されたコードを再度カンマで繋ぎ、先頭に ' を付けて保存
+        if (cleanCodes.length > 0) {
+            newValues.push([clientName, "'" + cleanCodes.join(',')]);
+        }
+    }
+
+    // シートを上書き
+    sheet.clearContents();
+    sheet.getRange(1, 1, newValues.length, newValues[0].length).setValues(newValues);
+    
+    return `クリーンアップ完了: ${fixCount}件の破損データを修正/除去しました。`;
+}
+
 /**
  * 3. 朝8時の別注商品通知
  * すべての注文シート（日付形式 & Orders）を走査し、
@@ -860,5 +927,91 @@ function checkMorningSpecialOrders() {
     } else {
         console.log("No pending special orders found.");
     }
+}
+
+// ------------------------------------------
+// 🧹 メンテナンスツール: 履歴からお気に入りを一括同期
+// ------------------------------------------
+
+/**
+ * 🧹 全得意先の発注履歴（スプレッドシート）＋ 導入履歴（JSONから送付）をマージしてお気に入りを生成
+ * @param {Object} introHistory - アプリ側から送られた history_favorites.json の内容 { Salon: [Code, ...] }
+ */
+function syncAllHistoryToFavorites(introHistory = null) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheets = ss.getSheets();
+  const dateSheetRegex = /^\d{4}-\d{2}-\d{2}(直送)?$/;
+  
+  // 1. 全履歴から (サロン名 -> Set of 商品コード) のマップを作成
+  const ordersMap = new Map();
+
+  // (A) スプレッドシート履歴をスキャン
+  sheets.forEach(sheet => {
+    const name = sheet.getName();
+    if (dateSheetRegex.test(name) || name === SHEET_NAMES.ORDERS) {
+      const data = sheet.getDataRange().getValues();
+      for (let i = 1; i < data.length; i++) {
+        const code = String(data[i][1] || '').trim().replace(/^'/, '');
+        const salon = String(data[i][4] || '').trim();
+        if (code && salon && !code.toLowerCase().includes('e+')) {
+          if (!ordersMap.has(salon)) ordersMap.set(salon, new Set());
+          ordersMap.get(salon).add(code);
+        }
+      }
+    }
+  });
+
+  // (B) 導入履歴 (JSON) をマージ
+  if (introHistory && typeof introHistory === 'object') {
+    for (const salon in introHistory) {
+      const codes = introHistory[salon];
+      if (Array.isArray(codes)) {
+        if (!ordersMap.has(salon)) ordersMap.set(salon, new Set());
+        const set = ordersMap.get(salon);
+        codes.forEach(c => {
+          const s = String(c).trim().replace(/^'/, '');
+          if (s && !s.toLowerCase().includes('e+')) set.add(s);
+        });
+      }
+    }
+  }
+
+  // 2. 現在のお気に入りデータを読み込む
+  let favSheet = ss.getSheetByName(SHEET_NAMES.FAVORITES);
+  if (!favSheet) {
+    favSheet = ss.insertSheet(SHEET_NAMES.FAVORITES);
+    favSheet.appendRow(['得意先名', 'お気に入りコード(カンマ区切り)']);
+    favSheet.getRange("B:B").setNumberFormat("@");
+  }
+  
+  const favData = favSheet.getDataRange().getValues();
+  const finalFavs = new Map();
+
+  for (let i = 1; i < favData.length; i++) {
+    const salon = String(favData[i][0]).trim();
+    const codes = String(favData[i][1] || '').split(',').map(s => s.trim().replace(/^'/, '')).filter(c => c && !c.toLowerCase().includes('e+'));
+    if (salon) finalFavs.set(salon, new Set(codes));
+  }
+
+  // 3. マージ実行
+  ordersMap.forEach((codes, salon) => {
+    if (!finalFavs.has(salon)) finalFavs.set(salon, new Set());
+    const currentSet = finalFavs.get(salon);
+    codes.forEach(c => currentSet.add(c));
+  });
+
+  // 4. 書き出し
+  const writeData = [[favData[0][0], favData[0][1]]];
+  finalFavs.forEach((codes, salon) => {
+    if (salon && codes.size > 0) {
+      writeData.push([salon, "'" + Array.from(codes).join(',')]);
+    }
+  });
+
+  favSheet.clearContents();
+  favSheet.getRange(1, 1, writeData.length, 2).setValues(writeData);
+  favSheet.getRange("B:B").setNumberFormat("@");
+
+  return `${writeData.length - 1} サロン分のお気に入りを同期完了（導入実績＋発注履歴）`;
 }
 
