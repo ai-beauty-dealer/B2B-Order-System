@@ -98,6 +98,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentCart = {};
     let cartOrder = []; // Track the order in which items are added to the cart
     let searchTimeout = null; // For debouncing
+    let loggedUnknownJans = new Set(); // 未登録JAN重複送信防止（キー: jan_サロン名）
 
     const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours in ms
 
@@ -1245,6 +1246,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Login Helper ---
     const processLoginSuccess = async (announcement, isMaintenance, maintenanceMessage) => {
+        loggedUnknownJans.clear(); // サロン切替時に未登録JANの送信済みSetをリセット
         if (clientNameDisplay) {
             const typeLabel = currentClientType === '直送' ? ' [直送]' : '';
             clientNameDisplay.textContent = currentClientName + ' 様' + typeLabel;
@@ -1449,6 +1451,7 @@ document.addEventListener('DOMContentLoaded', () => {
         favoriteItems = [];
         currentCart = {};
         cartOrder = [];
+        loggedUnknownJans.clear(); // 未登録JANの送信済みSetをリセット
 
         if (customItemsList) customItemsList.innerHTML = '';
 
@@ -1721,7 +1724,30 @@ document.addEventListener('DOMContentLoaded', () => {
             if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
             showScanToast(`未登録のバーコードです (${normalizedJan})`, true);
             if (scannerStatus) scannerStatus.textContent = `⚠️ 未登録コード: ${normalizedJan}`;
+
+            // 未登録JANコードをバックエンドに記録（非同期・Fire-and-forget）
+            logUnknownJan(normalizedJan);
         }
+    };
+
+    // 未登録JANコードをバックエンドに記録
+    const logUnknownJan = (janCode) => {
+        // サロン別に重複送信を防止（キー: JAN_サロン名）
+        const dedupeKey = `${janCode}_${currentClientName}`;
+        if (loggedUnknownJans.has(dedupeKey)) return;
+        loggedUnknownJans.add(dedupeKey);
+
+        // Fire-and-forget（失敗してもスキャン動作に影響しない）
+        fetch(CONFIG.API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            redirect: 'follow',
+            body: JSON.stringify({
+                action: 'log_unknown_jan',
+                janCode: janCode,
+                clientName: currentClientName
+            })
+        }).catch(err => console.warn('Unknown JAN log failed:', err));
     };
 
     // スキャナ起動

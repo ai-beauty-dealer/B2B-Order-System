@@ -11,7 +11,8 @@ const SHEET_NAMES = {
   CLIENT: 'ClientMaster',
   ORDERS: 'Orders',
   SETTINGS: 'Settings',
-  FAVORITES: 'Favorites'
+  FAVORITES: 'Favorites',
+  UNKNOWN_JAN: 'UnknownJAN'
 };
 const CLIENT_TYPE_DIRECT = '直送'; // D列に入力するフラグ
 
@@ -192,35 +193,40 @@ function doGet(e) {
 
 // 2. POST リクエスト処理
 function doPost(e) {
-    const lock = LockService.getScriptLock();
     try {
-        // 最大30秒間、他の処理が終わるのを待機
-        if (!lock.tryLock(30000)) {
-            throw new Error("サーバーが混み合っています。少し時間をおいてから再度お試しください。");
-        }
-
         if (!e.postData || !e.postData.contents) throw new Error("No POST data received.");
         const postData = JSON.parse(e.postData.contents);
         const action = postData.action;
 
-        if (action === 'login') return handleLogin(postData);
-        else if (action === 'order') return handleOrder(postData);
-        else if (action === 'update_order') return handleUpdateOrder(postData);
-        else if (action === 'cancel_order') return handleCancelOrder(postData);
-        else if (action === 'save_favorites') return handleSaveFavorites(postData);
-        else if (action === 'sync_all_history_to_favorites') {
-            const result = syncAllHistoryToFavorites(postData.extraData);
-            return ContentService.createTextOutput(JSON.stringify({ status: 'success', message: result }))
-              .setMimeType(ContentService.MimeType.JSON);
+        // ── ロック不要なアクション（先に処理） ──
+        if (action === 'log_unknown_jan') return handleLogUnknownJan(postData);
+
+        // ── ロックが必要なアクション ──
+        const lock = LockService.getScriptLock();
+        try {
+            if (!lock.tryLock(30000)) {
+                throw new Error("サーバーが混み合っています。少し時間をおいてから再度お試しください。");
+            }
+
+            if (action === 'login') return handleLogin(postData);
+            else if (action === 'order') return handleOrder(postData);
+            else if (action === 'update_order') return handleUpdateOrder(postData);
+            else if (action === 'cancel_order') return handleCancelOrder(postData);
+            else if (action === 'save_favorites') return handleSaveFavorites(postData);
+            else if (action === 'sync_all_history_to_favorites') {
+                const result = syncAllHistoryToFavorites(postData.extraData);
+                return ContentService.createTextOutput(JSON.stringify({ status: 'success', message: result }))
+                  .setMimeType(ContentService.MimeType.JSON);
+            }
+            else throw new Error("Invalid action parameter for POST.");
+
+        } finally {
+            lock.releaseLock();
         }
-        else throw new Error("Invalid action parameter for POST.");
 
     } catch (error) {
         return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: error.toString() }))
             .setMimeType(ContentService.MimeType.JSON);
-    } finally {
-        // 処理が終わったら必ずロックを解放
-        lock.releaseLock();
     }
 }
 
@@ -1013,5 +1019,61 @@ function syncAllHistoryToFavorites(introHistory = null) {
   favSheet.getRange("B:B").setNumberFormat("@");
 
   return `${writeData.length - 1} サロン分のお気に入りを同期完了（導入実績＋発注履歴）`;
+}
+
+// ------------------------------------------
+// 📝 未登録JANコードログ記録
+// ------------------------------------------
+
+/**
+ * バーコードスキャンでItemMasterに存在しないJANコードが検出された際にログを記録。
+ * 同一JANは1行のみ。サロン名はSet方式で追記（重複なし）。
+ * 新規JAN検出時のみDiscord/LINE通知を送信。
+ */
+function handleLogUnknownJan(data) {
+    const janCode = String(data.janCode || '').trim();
+    const clientName = String(data.clientName || '').trim();
+    if (!janCode) throw new Error("janCode is required.");
+
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    let sheet = ss.getSheetByName(SHEET_NAMES.UNKNOWN_JAN);
+
+    // シートがなければ作成
+    if (!sheet) {
+        sheet = ss.insertSheet(SHEET_NAMES.UNKNOWN_JAN);
+        sheet.appendRow(['最終スキャン日時', 'JANコード', 'スキャンしたサロン名', 'ステータス']);
+        sheet.getRange(1, 1, 1, 4).setFontWeight('bold').setBackground('#fce4ec');
+        sheet.setFrozenRows(1);
+    }
+
+    const values = sheet.getDataRange().getValues();
+    const now = new Date();
+    let found = false;
+
+    // 逆順走査（直近追加分にヒットしやすい）
+    for (let i = values.length - 1; i >= 1; i--) {
+        if (String(values[i][1]).trim() === janCode) {
+            // 既存行: サロン名をSet方式で追記（重複サロン名を防止）
+            const existingSalons = String(values[i][2] || '').split(',').map(s => s.trim()).filter(Boolean);
+            const salonSet = new Set(existingSalons);
+            if (clientName) salonSet.add(clientName);
+            sheet.getRange(i + 1, 1).setValue(now);  // A列: 最終スキャン日時を更新
+            sheet.getRange(i + 1, 3).setValue(Array.from(salonSet).join(', ')); // C列: サロン名
+            found = true;
+            break;
+        }
+    }
+
+    if (!found) {
+        // 新規行を追加
+        sheet.appendRow([now, janCode, clientName || '不明', '']);
+
+        // 初回のみ通知
+        const msg = `【AI秘書】未登録JANコード検出🔍\nJAN: ${janCode}\nサロン: ${clientName || '不明'}\n→ ItemMasterへの追加をご確認ください`;
+        sendNotification(msg);
+    }
+
+    return ContentService.createTextOutput(JSON.stringify({ status: 'success' }))
+        .setMimeType(ContentService.MimeType.JSON);
 }
 
