@@ -938,7 +938,20 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!currentCart[item.code]) {
                 cartOrder.push(String(item.code));
             }
-            currentCart[item.code] = { qty: parseInt(item.qty), name: item.name };
+            
+            // Extract assignedTo from item.clientName
+            let assignedTo = '業務';
+            const clientNameStr = item.clientName || '';
+            if (clientNameStr === currentClientName + ' 店販') {
+                assignedTo = '店販';
+            } else if (clientNameStr !== currentClientName && clientNameStr.startsWith(currentClientName + ' ') && clientNameStr.endsWith('様')) {
+                // e.g. "SalonA 山田様"
+                let namePart = clientNameStr.replace(currentClientName + ' ', '');
+                namePart = namePart.substring(0, namePart.length - 1); // remove "様"
+                assignedTo = 'staff_' + namePart;
+            }
+
+            currentCart[item.code] = { qty: parseInt(item.qty), name: item.name, assignedTo: assignedTo };
         });
 
         // Switch back to 'all' tab first so the items are rendered
@@ -1559,13 +1572,16 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    const executeMultiOrderActual = async (orderGroups) => {
+    const executeMultiOrderActual = async (orderGroups, updateOrderId = null) => {
         showLoading();
         try {
             const payload = {
                 action: 'multi_order',
                 orderGroups: orderGroups
             };
+            if (updateOrderId) {
+                payload.orderId = updateOrderId;
+            }
             const response = await fetch(CONFIG.API_URL, {
                 method: 'POST',
                 body: JSON.stringify(payload)
@@ -1627,24 +1643,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const savedStaffs = JSON.parse(localStorage.getItem('b2b_staff_names') || '[]');
                 const generateOptions = () => {
-                    let opts = `<option value="店舗">店舗用</option><option value="店販">店販用</option>`;
+                    let opts = `<option value="業務">業務</option><option value="店販">店販</option>`;
                     savedStaffs.forEach(staff => {
                         opts += `<option value="staff_${staff}">${staff}様用</option>`;
                     });
                     opts += `<option value="staff_new">＋ 新しいスタッフを追加</option>`;
                     return opts;
                 };
-                
-                const bulkContainer = document.querySelector('.bulk-assign-container');
-                if (bulkContainer) {
-                    if (isEditing) {
-                        bulkContainer.classList.add('hidden'); // Hide bulk assign in edit mode
-                    } else {
-                        bulkContainer.classList.remove('hidden');
-                        const bulkSelect = document.getElementById('bulk-assign-select');
-                        if (bulkSelect) bulkSelect.innerHTML = generateOptions();
-                    }
-                }
 
                 cartOrder.forEach(code => {
                     const data = currentCart[code];
@@ -1660,51 +1665,58 @@ document.addEventListener('DOMContentLoaded', () => {
                         row.className = 'confirm-item-row';
                         row.dataset.code = code;
                         
-                        let assignHtml = '';
-                        if (!isEditing) {
-                            assignHtml = `
+                        const assignedTo = data.assignedTo || '業務';
+
+                        let assignHtml = `
                             <div style="margin-top: 8px;">
                                 <select class="item-assign-select" style="width: 100%; padding: 6px; border-radius: 4px; border: 1px solid #cbd5e1; font-size: 0.85rem; margin-bottom: 4px;">
                                     ${generateOptions()}
                                 </select>
                                 <input type="text" class="item-staff-input hidden" placeholder="スタッフ名" style="width: 100%; padding: 6px; border-radius: 4px; border: 1px solid #cbd5e1; font-size: 0.85rem;">
                             </div>
-                            `;
-                        }
+                        `;
                         
                         row.innerHTML = `<div style="display: flex; justify-content: space-between;"><span class="confirm-item-name" style="font-weight: 600;">${data.name}</span><span class="confirm-item-qty">${data.qty}点</span></div>${assignHtml}`;
+                        
+                        // Set the default value
+                        const select = row.querySelector('.item-assign-select');
+                        if (select) {
+                            let optionExists = false;
+                            for(let i=0; i<select.options.length; i++) {
+                                if(select.options[i].value === assignedTo) {
+                                    optionExists = true; break;
+                                }
+                            }
+                            if (!optionExists && assignedTo.startsWith('staff_')) {
+                                const staffName = assignedTo.replace('staff_', '');
+                                const newOption = document.createElement('option');
+                                newOption.value = assignedTo;
+                                newOption.textContent = staffName + '様用';
+                                select.insertBefore(newOption, select.lastElementChild);
+                            }
+                            select.value = assignedTo;
+                        }
+
                         confirmItemList.appendChild(row);
                     }
                 });
 
                 // Attach events for per-item select
-                if (!isEditing) {
-                    document.querySelectorAll('.item-assign-select').forEach(select => {
-                        select.addEventListener('change', (e) => {
-                            const input = e.target.nextElementSibling;
-                            if (e.target.value === 'staff_new') {
-                                input.classList.remove('hidden');
-                                input.focus();
-                            } else {
-                                input.classList.add('hidden');
-                                input.style.borderColor = '#cbd5e1';
-                            }
-                        });
+                document.querySelectorAll('.item-assign-select').forEach(select => {
+                    select.addEventListener('change', (e) => {
+                        const input = e.target.nextElementSibling;
+                        if (e.target.value === 'staff_new') {
+                            input.classList.remove('hidden');
+                            input.focus();
+                        } else {
+                            input.classList.add('hidden');
+                            input.style.borderColor = '#cbd5e1';
+                        }
                     });
-                }
+                });
 
-                // Clear order remarks and personal purchase state
+                // Clear order remarks
                 if (orderRemarks) orderRemarks.value = '';
-                
-                const bulkStaffInputContainer = document.getElementById('bulk-staff-input-container');
-                const bulkStaffInput = document.getElementById('bulk-staff-input');
-                const bulkAssignSelect = document.getElementById('bulk-assign-select');
-                if (bulkStaffInputContainer) bulkStaffInputContainer.classList.add('hidden');
-                if (bulkStaffInput) {
-                    bulkStaffInput.value = '';
-                    bulkStaffInput.style.borderColor = '#cbd5e1';
-                }
-                if (bulkAssignSelect) bulkAssignSelect.value = '店舗';
 
                 // Show Confirmation Screen, Hide Order Screen
                 orderContainer.classList.add('hidden');
@@ -1748,66 +1760,8 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Bulk assign logic
-    const bulkAssignSelect = document.getElementById('bulk-assign-select');
-    const bulkStaffInputContainer = document.getElementById('bulk-staff-input-container');
-    const bulkStaffInput = document.getElementById('bulk-staff-input');
-    const bulkAssignBtn = document.getElementById('bulk-assign-btn');
-
-    if (bulkAssignSelect) {
-        bulkAssignSelect.addEventListener('change', (e) => {
-            if (e.target.value === 'staff_new') {
-                if (bulkStaffInputContainer) bulkStaffInputContainer.classList.remove('hidden');
-                if (bulkStaffInput) bulkStaffInput.focus();
-            } else {
-                if (bulkStaffInputContainer) bulkStaffInputContainer.classList.add('hidden');
-            }
-        });
-    }
-
-    if (bulkAssignBtn) {
-        bulkAssignBtn.addEventListener('click', () => {
-            const val = bulkAssignSelect.value;
-            const newName = bulkStaffInput ? bulkStaffInput.value.trim() : '';
-            if (val === 'staff_new' && !newName) {
-                alert('一括適用のためのスタッフ名を入力してください。');
-                if (bulkStaffInput) bulkStaffInput.focus();
-                return;
-            }
-            
-            document.querySelectorAll('.item-assign-select').forEach(select => {
-                select.value = val;
-                const input = select.nextElementSibling;
-                if (val === 'staff_new') {
-                    input.classList.remove('hidden');
-                    input.value = newName;
-                } else {
-                    input.classList.add('hidden');
-                }
-            });
-            alert('全ての商品に適用しました！');
-        });
-    }
-
-    // Actually Execute Order from Confirmation Screen
-    if (modalConfirmBtn) {
-        modalConfirmBtn.addEventListener('click', async () => {
             const isEditing = editingOrderId !== null;
             const remarks = orderRemarks ? orderRemarks.value.trim() : '';
-
-            if (isEditing) {
-                // Edit mode uses the original order logic
-                const orders = [];
-                Object.entries(currentCart).forEach(([code, data]) => {
-                    if (data.qty > 0) orders.push({ code: code, name: data.name, qty: data.qty });
-                });
-                if (confirmationContainer) {
-                    confirmationContainer.classList.add('hidden');
-                    orderContainer.classList.remove('hidden');
-                }
-                executeOrderActual(orders, true, remarks, '');
-                return;
-            }
 
             // Grouping logic for new multi_order
             const groupsMap = {}; // key -> { clientName, staffName, clientType, orders, remarks }
@@ -1829,7 +1783,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 if (select) {
                     const val = select.value;
-                    if (val === '店舗') {
+                    if (val === '業務') {
                         groupKey = 'shop';
                     } else if (val === '店販') {
                         groupKey = 'retail';
@@ -1887,10 +1841,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const orderGroups = Object.values(groupsMap);
             if (orderGroups.length === 1 && !orderGroups[0].staffName && orderGroups[0].clientName === currentClientName) {
-                // If everything is just a standard shop order, use legacy method
-                executeOrderActual(orderGroups[0].orders, false, remarks, '');
+                // If everything is just a standard shop order, use legacy method or multi order?
+                // For edit mode, we must use multi order because it clears the correct items and re-inserts.
+                if (isEditing) {
+                    executeMultiOrderActual(orderGroups, editingOrderId);
+                } else {
+                    executeOrderActual(orderGroups[0].orders, false, remarks, '');
+                }
             } else {
-                executeMultiOrderActual(orderGroups);
+                executeMultiOrderActual(orderGroups, isEditing ? editingOrderId : null);
             }
         });
     }

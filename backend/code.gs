@@ -126,7 +126,8 @@ function doGet(e) {
                               code: row[1],
                               qty: row[2],
                               name: row[3],
-                              status: row[5] || ''
+                              status: row[5] || '',
+                              clientName: String(row[4])
                           });
                       }
                       if (history.length >= MAX_HISTORY_ITEMS) break;
@@ -152,7 +153,8 @@ function doGet(e) {
                           code: row[1],
                           qty: row[2],
                           name: row[3],
-                          status: row[5] || ''
+                          status: row[5] || '',
+                          clientName: String(row[4])
                       });
                   }
                   if (history.length >= MAX_HISTORY_ITEMS) break;
@@ -405,12 +407,47 @@ function handleOrder(data) {
 // --- 一括複数発注処理 (Multi-Order) ---
 function handleMultiOrder(data) {
      const groups = data.orderGroups; // [ { clientName, staffName, clientType, orders, remarks }, ... ]
+     const orderId = data.orderId; // Optional, for edit mode
      if (!groups || !Array.isArray(groups) || groups.length === 0) {
          throw new Error("Invalid multi-order data format.");
      }
 
      const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-     const timestamp = new Date();
+     const timestamp = orderId ? new Date(parseInt(orderId)) : new Date();
+
+     // If editing, clear existing orders for this orderId and current client context
+     if (orderId) {
+         const clientTypeForDelete = groups[0].clientType || '';
+         const dateStr = getTargetDateStr(timestamp);
+         const targetSheetName = dateStr + clientTypeForDelete;
+         let sheetToClear = ss.getSheetByName(targetSheetName);
+         if (!sheetToClear) sheetToClear = ss.getSheetByName(SHEET_NAMES.ORDERS);
+         
+         if (sheetToClear) {
+             const values = sheetToClear.getDataRange().getValues();
+             const headers = values[0];
+             const newValuesBeforeSpecial = [headers];
+             // In edit mode, we delete all items matching orderId and the base clientName
+             // We assume the first group's clientName base is the original one
+             const baseClientName = String(groups[0].clientName).split(' ')[0]; // E.g., "SalonA"
+             
+             for (let i = 1; i < values.length; i++) {
+                 const row = values[i];
+                 const isTarget = ((String(row[4]) === baseClientName || String(row[4]).startsWith(baseClientName + ' ')) && new Date(row[0]).getTime() === parseInt(orderId));
+                 if (isTarget) {
+                     if (String(row[5] || '').trim() === '完了') {
+                         throw new Error("この発注はすでに確定しているため、内容の変更はできません。");
+                     }
+                 } else {
+                     newValuesBeforeSpecial.push(row);
+                 }
+             }
+             sheetToClear.clearContents();
+             if (newValuesBeforeSpecial.length > 0) {
+                 sheetToClear.getRange(1, 1, newValuesBeforeSpecial.length, newValuesBeforeSpecial[0].length).setValues(newValuesBeforeSpecial);
+             }
+         }
+     }
 
      // --- 1. ItemMasterから別注商品コードのセットを取得 ---
      const specialCodes = new Set();

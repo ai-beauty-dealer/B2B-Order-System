@@ -169,21 +169,7 @@
 
         <div class="confirm-items-wrapper">
             <p class="modal-desc" style="margin-bottom: 12px;">以下の内容で発注を確定しますか？</p>
-            
-            <div class="bulk-assign-container" style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 8px; margin-bottom: 16px;">
-                <label style="font-weight: 600; font-size: 0.875rem; color: var(--text-main); margin-bottom: 8px; display: block;">全ての商品を一括で仕分ける</label>
-                <select id="bulk-assign-select" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #cbd5e1; font-size: 0.95rem; margin-bottom: 8px;">
-                    <option value="店舗">店舗用</option>
-                    <option value="店販">店販用</option>
-                    <option value="staff_new">＋ 新しいスタッフを追加</option>
-                </select>
-                <div id="bulk-staff-input-container" class="hidden" style="margin-bottom: 8px;">
-                    <input type="text" id="bulk-staff-input" placeholder="スタッフ名（例：山田 太郎）" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #cbd5e1; font-size: 0.95rem;">
-                </div>
-                <button id="bulk-assign-btn" class="btn-secondary" style="width: 100%; padding: 8px; font-size: 0.875rem;">下の全ての商品に適用</button>
-            </div>
-            
-            <p style="font-size: 0.75rem; color: #64748b; margin-bottom: 12px;">※同じ商品を店舗用と個人用で分ける場合は、お手数ですが別々にご注文ください。</p>
+            <p style="font-size: 0.75rem; color: #64748b; margin-bottom: 12px;">※同じ商品を「業務」と「個人用」で分ける場合は、お手数ですが別々にご注文ください。</p>
 
             <div id="confirm-item-list" class="confirm-items">
                 <!-- Items injected by JS -->
@@ -215,8 +201,8 @@
     </div>
 
     <script src="lib/html5-qrcode.min.js"></script>
-    <script src="config.js?v=2.13.0"></script>
-    <script src="app.js?v=2.13.0"></script>
+    <script src="config.js?v=2.13.1"></script>
+    <script src="app.js?v=2.13.1"></script>
 
     <!-- Cart Sidebar -->
     <div id="cart-sidebar" class="cart-sidebar hidden">
