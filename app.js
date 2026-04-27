@@ -51,7 +51,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const customItemsList = document.getElementById('custom-items-list');
     const manufacturerChipsContainer = document.getElementById('manufacturer-chips-container');
     const cancelEditBtn = document.getElementById('cancel-edit-btn');
-    const saveDraftBtn = document.getElementById('save-draft-btn');
     const customItemsWrapper = document.getElementById('custom-items-wrapper');
     const clientNameDisplay = document.getElementById('client-name-display');
     const rememberMeCheckbox = document.getElementById('remember-me');
@@ -83,7 +82,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Helper: LocalStorage keys (include clientName for master account isolation)
     const getFavsKey = () => `b2b_favs_${currentUsername}_${currentClientName}`;
-    const getDraftKey = () => `b2b_draft_${currentUsername}_${currentClientName}`;
 
     // Master Account UI
     const masterLoginBtn = document.getElementById('master-login-btn');
@@ -343,27 +341,12 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // Sidebar Action Buttons (v2.10)
-    const cartSaveBtn = document.getElementById('cart-save-draft-btn');
-    const cartOrderBtn = document.getElementById('cart-order-submit-btn');
-
-    if (cartSaveBtn) {
-        cartSaveBtn.addEventListener('click', () => {
-            if (saveDraftBtn) saveDraftBtn.click();
-            closeCartSidebar();
-        });
-    }
     if (cartOrderBtn) {
         cartOrderBtn.addEventListener('click', () => {
             if (orderSubmitBtn) orderSubmitBtn.click();
             closeCartSidebar();
         });
     }
-
-
-    const saveDraft = () => {
-        localStorage.setItem(getDraftKey(), JSON.stringify(currentCart));
-        console.log('Draft saved');
-    };
 
     // --- Scroll Arrow Event Listeners ---
     const setupScrollArrows = (leftBtnId, rightBtnId, containerId, step = 240) => {
@@ -376,16 +359,6 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     setupScrollArrows('mfr-arrow-left', 'mfr-arrow-right', 'manufacturer-chips-container');
     setupScrollArrows('cat-arrow-left', 'cat-arrow-right', 'category-chips-container');
-
-    const loadDraft = () => {
-        const savedDraft = localStorage.getItem(getDraftKey());
-        if (!savedDraft) return;
-        console.log('Draft detected for user:', currentUsername);
-    };
-
-    if (saveDraftBtn) {
-        saveDraftBtn.addEventListener('click', saveDraft);
-    }
 
     // --- Sync History Favorites (v2.11) ---
     const fetchHistoryFavorites = async () => {
@@ -1213,7 +1186,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         renderCategoryChips();
                         renderItems(itemsData);
                         if (announcementBanner) announcementBanner.classList.remove('hidden');
-                        loadDraft();
                     }, 0);
                     return; // Exit early if cache is valid
                 } catch (e) {
@@ -1263,7 +1235,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (announcementBanner) {
                     announcementBanner.classList.remove('hidden');
                 }
-                loadDraft();
                 if (forceFetch) console.log('Manual refresh complete. Cache updated.');
             } else {
                 alert('商品データの取得に失敗しました: ' + result.message);
@@ -1556,7 +1527,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     saveFavoritesToCloud();
                     renderItems(itemsData);
                 }
-                localStorage.removeItem(getDraftKey());
                 if (customItemsList) customItemsList.innerHTML = '';
                 resetEditMode();
                 fetchHistory(true); // Force refresh history to include the new order
@@ -1608,7 +1578,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     saveFavoritesToCloud();
                     renderItems(itemsData);
                 }
-                localStorage.removeItem(getDraftKey());
                 if (customItemsList) customItemsList.innerHTML = '';
                 resetEditMode();
                 fetchHistory(true);
