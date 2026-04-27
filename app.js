@@ -1559,6 +1559,55 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    const executeMultiOrderActual = async (orderGroups) => {
+        showLoading();
+        try {
+            const payload = {
+                action: 'multi_order',
+                orderGroups: orderGroups
+            };
+            const response = await fetch(CONFIG.API_URL, {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            });
+            const result = await response.json();
+            if (result.status === 'success') {
+                alert('発注が完了しました！\\n引き続き発注いただけます。');
+                let favsUpdated = false;
+                orderGroups.forEach(group => {
+                    group.orders.forEach(order => {
+                        const strCode = String(order.code);
+                        if (!strCode.startsWith('CUSTOM_ITEM_') && !favoriteItems.includes(strCode)) {
+                            favoriteItems.push(strCode);
+                            favsUpdated = true;
+                        }
+                    });
+                });
+                if (favsUpdated) {
+                    localStorage.setItem(getFavsKey(), JSON.stringify(favoriteItems));
+                    saveFavoritesToCloud();
+                    renderItems(itemsData);
+                }
+                localStorage.removeItem(getDraftKey());
+                if (customItemsList) customItemsList.innerHTML = '';
+                resetEditMode();
+                fetchHistory(true);
+            } else {
+                const errorMsg = result.message || '不明なエラーが発生しました。';
+                if (errorMsg.includes('サーバーが混み合っています')) {
+                    alert('【混雑中】' + errorMsg + '\\n\\n注文が完了していない可能性があります。数分後に再度お試しください。');
+                } else {
+                    alert('エラー: ' + errorMsg);
+                }
+            }
+        } catch (error) {
+            console.error(error);
+            alert('通信エラーが発生しました。\\n（注文が完了していない可能性があります）');
+        } finally {
+            hideLoading();
+        }
+    };
+
     // --- Submit Order (API) ---
     if (orderSubmitBtn) {
         orderSubmitBtn.addEventListener('click', () => {
@@ -1570,9 +1619,32 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const orders = [];
 
+            const isEditing = editingOrderId !== null;
+
             // Check if Confirmation Screen elements exist safely
             if (confirmationContainer && confirmItemList) {
                 confirmItemList.innerHTML = ''; // Reset list
+
+                const savedStaffs = JSON.parse(localStorage.getItem('b2b_staff_names') || '[]');
+                const generateOptions = () => {
+                    let opts = `<option value="店舗">店舗用</option><option value="店販">店販用</option>`;
+                    savedStaffs.forEach(staff => {
+                        opts += `<option value="staff_${staff}">${staff}様用</option>`;
+                    });
+                    opts += `<option value="staff_new">＋ 新しいスタッフを追加</option>`;
+                    return opts;
+                };
+                
+                const bulkContainer = document.querySelector('.bulk-assign-container');
+                if (bulkContainer) {
+                    if (isEditing) {
+                        bulkContainer.classList.add('hidden'); // Hide bulk assign in edit mode
+                    } else {
+                        bulkContainer.classList.remove('hidden');
+                        const bulkSelect = document.getElementById('bulk-assign-select');
+                        if (bulkSelect) bulkSelect.innerHTML = generateOptions();
+                    }
+                }
 
                 cartOrder.forEach(code => {
                     const data = currentCart[code];
@@ -1586,18 +1658,53 @@ document.addEventListener('DOMContentLoaded', () => {
                         // Add to UI
                         const row = document.createElement('div');
                         row.className = 'confirm-item-row';
-                        row.innerHTML = `<span class="confirm-item-name">${data.name}</span><span class="confirm-item-qty">${data.qty}点</span>`;
+                        row.dataset.code = code;
+                        
+                        let assignHtml = '';
+                        if (!isEditing) {
+                            assignHtml = `
+                            <div style="margin-top: 8px;">
+                                <select class="item-assign-select" style="width: 100%; padding: 6px; border-radius: 4px; border: 1px solid #cbd5e1; font-size: 0.85rem; margin-bottom: 4px;">
+                                    ${generateOptions()}
+                                </select>
+                                <input type="text" class="item-staff-input hidden" placeholder="スタッフ名" style="width: 100%; padding: 6px; border-radius: 4px; border: 1px solid #cbd5e1; font-size: 0.85rem;">
+                            </div>
+                            `;
+                        }
+                        
+                        row.innerHTML = `<div style="display: flex; justify-content: space-between;"><span class="confirm-item-name" style="font-weight: 600;">${data.name}</span><span class="confirm-item-qty">${data.qty}点</span></div>${assignHtml}`;
                         confirmItemList.appendChild(row);
                     }
                 });
 
+                // Attach events for per-item select
+                if (!isEditing) {
+                    document.querySelectorAll('.item-assign-select').forEach(select => {
+                        select.addEventListener('change', (e) => {
+                            const input = e.target.nextElementSibling;
+                            if (e.target.value === 'staff_new') {
+                                input.classList.remove('hidden');
+                                input.focus();
+                            } else {
+                                input.classList.add('hidden');
+                                input.style.borderColor = '#cbd5e1';
+                            }
+                        });
+                    });
+                }
+
                 // Clear order remarks and personal purchase state
                 if (orderRemarks) orderRemarks.value = '';
-                if (personalPurchaseCheck) {
-                    personalPurchaseCheck.checked = false;
-                    if (staffNameContainer) staffNameContainer.classList.add('hidden');
-                    if (staffNameInput) staffNameInput.style.borderColor = '#cbd5e1';
+                
+                const bulkStaffInputContainer = document.getElementById('bulk-staff-input-container');
+                const bulkStaffInput = document.getElementById('bulk-staff-input');
+                const bulkAssignSelect = document.getElementById('bulk-assign-select');
+                if (bulkStaffInputContainer) bulkStaffInputContainer.classList.add('hidden');
+                if (bulkStaffInput) {
+                    bulkStaffInput.value = '';
+                    bulkStaffInput.style.borderColor = '#cbd5e1';
                 }
+                if (bulkAssignSelect) bulkAssignSelect.value = '店舗';
 
                 // Show Confirmation Screen, Hide Order Screen
                 orderContainer.classList.add('hidden');
@@ -1641,23 +1748,136 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Bulk assign logic
+    const bulkAssignSelect = document.getElementById('bulk-assign-select');
+    const bulkStaffInputContainer = document.getElementById('bulk-staff-input-container');
+    const bulkStaffInput = document.getElementById('bulk-staff-input');
+    const bulkAssignBtn = document.getElementById('bulk-assign-btn');
+
+    if (bulkAssignSelect) {
+        bulkAssignSelect.addEventListener('change', (e) => {
+            if (e.target.value === 'staff_new') {
+                if (bulkStaffInputContainer) bulkStaffInputContainer.classList.remove('hidden');
+                if (bulkStaffInput) bulkStaffInput.focus();
+            } else {
+                if (bulkStaffInputContainer) bulkStaffInputContainer.classList.add('hidden');
+            }
+        });
+    }
+
+    if (bulkAssignBtn) {
+        bulkAssignBtn.addEventListener('click', () => {
+            const val = bulkAssignSelect.value;
+            const newName = bulkStaffInput ? bulkStaffInput.value.trim() : '';
+            if (val === 'staff_new' && !newName) {
+                alert('一括適用のためのスタッフ名を入力してください。');
+                if (bulkStaffInput) bulkStaffInput.focus();
+                return;
+            }
+            
+            document.querySelectorAll('.item-assign-select').forEach(select => {
+                select.value = val;
+                const input = select.nextElementSibling;
+                if (val === 'staff_new') {
+                    input.classList.remove('hidden');
+                    input.value = newName;
+                } else {
+                    input.classList.add('hidden');
+                }
+            });
+            alert('全ての商品に適用しました！');
+        });
+    }
+
     // Actually Execute Order from Confirmation Screen
     if (modalConfirmBtn) {
         modalConfirmBtn.addEventListener('click', async () => {
-            let isPersonal = false;
-            let staffName = '';
-            
-            if (personalPurchaseCheck && personalPurchaseCheck.checked) {
-                staffName = staffNameInput ? staffNameInput.value.trim() : '';
-                if (!staffName) {
-                    if (staffNameInput) staffNameInput.style.borderColor = '#ef4444';
-                    alert('個人買いの場合、お名前（フルネーム）を入力してください。');
-                    if (staffNameInput) staffNameInput.focus();
-                    return; // Stop execution
+            const isEditing = editingOrderId !== null;
+            const remarks = orderRemarks ? orderRemarks.value.trim() : '';
+
+            if (isEditing) {
+                // Edit mode uses the original order logic
+                const orders = [];
+                Object.entries(currentCart).forEach(([code, data]) => {
+                    if (data.qty > 0) orders.push({ code: code, name: data.name, qty: data.qty });
+                });
+                if (confirmationContainer) {
+                    confirmationContainer.classList.add('hidden');
+                    orderContainer.classList.remove('hidden');
                 }
-                isPersonal = true;
-                if (staffNameInput) staffNameInput.style.borderColor = '#cbd5e1';
-                localStorage.setItem('b2b_personal_name', staffName);
+                executeOrderActual(orders, true, remarks, '');
+                return;
+            }
+
+            // Grouping logic for new multi_order
+            const groupsMap = {}; // key -> { clientName, staffName, clientType, orders, remarks }
+            let hasError = false;
+            let newStaffsToSave = [];
+
+            document.querySelectorAll('.confirm-item-row').forEach(row => {
+                if (hasError) return;
+                
+                const code = row.dataset.code;
+                const data = currentCart[code];
+                if (!data || data.qty <= 0) return;
+
+                const select = row.querySelector('.item-assign-select');
+                const input = row.querySelector('.item-staff-input');
+                let groupKey = '';
+                let gClientName = currentClientName;
+                let gStaffName = '';
+
+                if (select) {
+                    const val = select.value;
+                    if (val === '店舗') {
+                        groupKey = 'shop';
+                    } else if (val === '店販') {
+                        groupKey = 'retail';
+                        gClientName = currentClientName + ' 店販';
+                    } else if (val.startsWith('staff_')) {
+                        if (val === 'staff_new') {
+                            const sName = input.value.trim();
+                            if (!sName) {
+                                input.style.borderColor = '#ef4444';
+                                hasError = true;
+                                return;
+                            }
+                            gStaffName = sName;
+                            groupKey = 'staff_' + sName;
+                            if (!newStaffsToSave.includes(sName)) newStaffsToSave.push(sName);
+                        } else {
+                            gStaffName = val.replace('staff_', '');
+                            groupKey = val;
+                        }
+                    }
+                } else {
+                    groupKey = 'shop'; // Fallback
+                }
+
+                if (!groupsMap[groupKey]) {
+                    groupsMap[groupKey] = {
+                        clientName: gClientName,
+                        staffName: gStaffName,
+                        clientType: currentClientType,
+                        remarks: remarks,
+                        orders: []
+                    };
+                }
+                groupsMap[groupKey].orders.push({ code: code, name: data.name, qty: data.qty });
+            });
+
+            if (hasError) {
+                alert('個人買いのスタッフ名が未入力の項目があります。');
+                return;
+            }
+
+            // Save new staff names to local storage
+            if (newStaffsToSave.length > 0) {
+                let savedStaffs = JSON.parse(localStorage.getItem('b2b_staff_names') || '[]');
+                newStaffsToSave.forEach(name => {
+                    if (!savedStaffs.includes(name)) savedStaffs.push(name);
+                });
+                localStorage.setItem('b2b_staff_names', JSON.stringify(savedStaffs));
             }
 
             if (confirmationContainer) {
@@ -1665,21 +1885,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 orderContainer.classList.remove('hidden'); // Return immediately so loading overlay shows here
             }
 
-            const orders = [];
-            Object.entries(currentCart).forEach(([code, data]) => {
-                if (data.qty > 0) {
-                    orders.push({
-                        code: code,
-                        name: data.name,
-                        qty: data.qty
-                    });
-                }
-            });
-
-            const remarks = orderRemarks ? orderRemarks.value.trim() : '';
-
-            const isEditing = editingOrderId !== null;
-            executeOrderActual(orders, isEditing, remarks, staffName);
+            const orderGroups = Object.values(groupsMap);
+            if (orderGroups.length === 1 && !orderGroups[0].staffName && orderGroups[0].clientName === currentClientName) {
+                // If everything is just a standard shop order, use legacy method
+                executeOrderActual(orderGroups[0].orders, false, remarks, '');
+            } else {
+                executeMultiOrderActual(orderGroups);
+            }
         });
     }
 

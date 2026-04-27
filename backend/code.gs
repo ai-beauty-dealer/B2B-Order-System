@@ -210,6 +210,7 @@ function doPost(e) {
 
             if (action === 'login') return handleLogin(postData);
             else if (action === 'order') return handleOrder(postData);
+            else if (action === 'multi_order') return handleMultiOrder(postData);
             else if (action === 'update_order') return handleUpdateOrder(postData);
             else if (action === 'cancel_order') return handleCancelOrder(postData);
             else if (action === 'save_favorites') return handleSaveFavorites(postData);
@@ -398,6 +399,98 @@ function handleOrder(data) {
      sendNotification(orderSummaryForLINE);
 
      return ContentService.createTextOutput(JSON.stringify({ status: 'success', message: 'Order recorded successfully' }))
+       .setMimeType(ContentService.MimeType.JSON);
+}
+
+// --- 一括複数発注処理 (Multi-Order) ---
+function handleMultiOrder(data) {
+     const groups = data.orderGroups; // [ { clientName, staffName, clientType, orders, remarks }, ... ]
+     if (!groups || !Array.isArray(groups) || groups.length === 0) {
+         throw new Error("Invalid multi-order data format.");
+     }
+
+     const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+     const timestamp = new Date();
+
+     // --- 1. ItemMasterから別注商品コードのセットを取得 ---
+     const specialCodes = new Set();
+     try {
+         const masterSheet = ss.getSheetByName(SHEET_NAMES.MASTER);
+         if (masterSheet) {
+             const masterValues = masterSheet.getDataRange().getValues();
+             for (let i = 1; i < masterValues.length; i++) {
+                 const row = masterValues[i];
+                 if (row[0] && String(row[4] || '').trim() !== '') {
+                     specialCodes.add(String(row[0]));
+                 }
+             }
+         }
+     } catch(e) { console.warn('別注商品の取得に失敗:', e); }
+
+     let combinedLineSummary = "";
+
+     groups.forEach((group, index) => {
+         const clientName = group.clientName;
+         const staffName = group.staffName ? group.staffName.trim() : '';
+         const displayName = staffName ? `${clientName} ${staffName}様` : clientName;
+         const orders = group.orders;
+         const remarks = group.remarks || '';
+         const clientType = group.clientType || '';
+
+         if (!orders || orders.length === 0) return;
+
+         const dateStr = getTargetDateStr(timestamp);
+         const sheet = getOrCreateOrderSheet(ss, dateStr, clientType);
+
+         // シート内の「別注セクション」の開始位置（H列）を特定
+         const lastRow = sheet.getLastRow();
+         let firstSpecialRow = lastRow + 1;
+         if (lastRow > 1) {
+             const colHValues = sheet.getRange(1, 8, lastRow, 1).getValues();
+             for (let i = 1; i < colHValues.length; i++) {
+                 if (String(colHValues[i][0]).trim() === '別注') {
+                     firstSpecialRow = i + 1;
+                     break;
+                 }
+             }
+         }
+
+         const normalRows = [];
+         const specialRows = [];
+         let groupSummary = `${clientType === CLIENT_TYPE_DIRECT ? '【直送発注】' : '【新規発注】'}\nサロン名: ${displayName}\n\n`;
+
+         orders.forEach(order => {
+             if(order.qty > 0) {
+                 const isSpecial = specialCodes.has(String(order.code)) || String(order.code).startsWith('CUSTOM_ITEM_');
+                 const row = [timestamp, order.code, order.qty, order.name, displayName, '', remarks, isSpecial ? '別注' : ''];
+                 
+                 if (isSpecial) specialRows.push(row);
+                 else normalRows.push(row);
+
+                 groupSummary += `・${order.name}: ${order.qty}点\n`;
+             }
+         });
+
+         if (normalRows.length > 0) {
+             sheet.insertRowsBefore(firstSpecialRow, normalRows.length);
+             sheet.getRange(firstSpecialRow, 1, normalRows.length, normalRows[0].length).setValues(normalRows);
+         }
+         if (specialRows.length > 0) {
+             const bottomRow = sheet.getLastRow() + 1;
+             sheet.getRange(bottomRow, 1, specialRows.length, specialRows[0].length).setValues(specialRows);
+         }
+         
+         if (remarks) groupSummary += `\n【備考】\n${remarks}`;
+         
+         if (index > 0) combinedLineSummary += "\n----------------------\n";
+         combinedLineSummary += groupSummary;
+     });
+
+     if (combinedLineSummary) {
+         sendNotification(combinedLineSummary);
+     }
+
+     return ContentService.createTextOutput(JSON.stringify({ status: 'success', message: 'Multi-Order recorded successfully' }))
        .setMimeType(ContentService.MimeType.JSON);
 }
 
