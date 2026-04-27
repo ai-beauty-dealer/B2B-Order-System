@@ -257,6 +257,8 @@ function handleLogin(data) {
             const rawType = String(values[i][3] || '').trim().toUpperCase();
             if (rawType === 'マスター' || rawType === 'MASTER') {
                 clientType = 'MASTER';
+            } else if (rawType.startsWith('GROUP_')) {
+                clientType = rawType;
             } else if (rawType === CLIENT_TYPE_DIRECT) {
                 clientType = CLIENT_TYPE_DIRECT;
             } else {
@@ -275,6 +277,16 @@ function handleLogin(data) {
                      allClients.push({
                          name: values[j][2],
                          type: type === CLIENT_TYPE_DIRECT ? CLIENT_TYPE_DIRECT : ''
+                     });
+                 }
+             }
+         } else if (clientType.startsWith('GROUP_')) {
+             for(let j=1; j<values.length; j++) {
+                 const type = String(values[j][3] || '').trim().toUpperCase();
+                 if (type === clientType && String(values[j][2])) {
+                     allClients.push({
+                         name: values[j][2],
+                         type: '' // Group accounts act as normal accounts once logged in
                      });
                  }
              }
@@ -306,6 +318,7 @@ function handleLogin(data) {
              clientName: clientName,
              clientType: clientType,
              isMaster: (clientType === 'MASTER'),
+             isGroup: clientType.startsWith('GROUP_'),
              allClients: allClients,
              announcement: announcement,
              isMaintenance: isMaintenance,

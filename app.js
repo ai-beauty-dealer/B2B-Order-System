@@ -1393,10 +1393,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 currentUsername = username;
 
-                // --- Master Account Logic ---
-                if (result.isMaster) {
-                    currentClientType = 'MASTER'; // Set master type
-                    console.log('[DEBUG] Master Account detected');
+                // --- Master / Group Account Logic ---
+                if (result.isMaster || result.isGroup) {
+                    currentClientType = result.isMaster ? 'MASTER' : 'GROUP';
+                    console.log(`[DEBUG] ${result.isMaster ? 'Master' : 'Group'} Account detected`);
                     const masterAllClients = result.allClients || [];
                     const selectEl = document.getElementById('master-salon-select');
                     if (selectEl) {
@@ -1412,8 +1412,12 @@ document.addEventListener('DOMContentLoaded', () => {
                         document.getElementById('master-salon-selector').classList.remove('hidden');
                         
                         if (globalSyncBtn) {
-                            console.log('[DEBUG] Showing GlobalSyncBtn for Master');
-                            globalSyncBtn.classList.remove('hidden');
+                            if (result.isMaster) {
+                                console.log('[DEBUG] Showing GlobalSyncBtn for Master');
+                                globalSyncBtn.classList.remove('hidden');
+                            } else {
+                                globalSyncBtn.classList.add('hidden');
+                            }
                         }
 
                         // Save these temporarily to pass to the processLoginSuccess later
