@@ -341,6 +341,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // Sidebar Action Buttons (v2.10)
+    const cartOrderBtn = document.getElementById('cart-order-submit-btn');
     if (cartOrderBtn) {
         cartOrderBtn.addEventListener('click', () => {
             if (orderSubmitBtn) orderSubmitBtn.click();
