@@ -1990,7 +1990,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         scannerModal.classList.remove('hidden');
         scannerOverlay.classList.remove('hidden');
-        if (scannerStatus) scannerStatus.textContent = 'カメラ起動中...';
+        if (scannerStatus) scannerStatus.textContent = `カメラ起動中... (読込済JAN: ${janToItemMap.size}件)`;
 
         try {
             html5QrcodeScanner = new Html5Qrcode("reader", {
