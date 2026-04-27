@@ -1759,7 +1759,9 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
-
+    // Actually Execute Order from Confirmation Screen
+    if (modalConfirmBtn) {
+        modalConfirmBtn.addEventListener('click', async () => {
             const isEditing = editingOrderId !== null;
             const remarks = orderRemarks ? orderRemarks.value.trim() : '';
 
