@@ -201,8 +201,8 @@
     </div>
 
     <script src="lib/html5-qrcode.min.js"></script>
-    <script src="config.js?v=2.13.3"></script>
-    <script src="app.js?v=2.13.3"></script>
+    <script src="config.js?v=2.13.4"></script>
+    <script src="app.js?v=2.13.4"></script>
 
     <!-- Cart Sidebar -->
     <div id="cart-sidebar" class="cart-sidebar hidden">
@@ -233,6 +233,12 @@
         <div id="reader" style="width: 100%; border-radius: 12px; overflow: hidden;"></div>
         <div class="scanner-footer">
             <p id="scanner-status">カメラ起動待ち...</p>
+        </div>
+        <!-- Giant Scan Toast for Visual Feedback -->
+        <div id="giant-scan-toast" class="giant-scan-toast hidden">
+            <div id="giant-toast-icon" class="giant-toast-icon">✅</div>
+            <div id="giant-toast-name" class="giant-toast-name">商品名</div>
+            <div class="giant-toast-qty">カート: <span id="giant-toast-qty-val">1</span>点</div>
         </div>
     </div>
 

@@ -1944,6 +1944,30 @@ document.addEventListener('DOMContentLoaded', () => {
             playBeep(1000, 100);
             if (navigator.vibrate) navigator.vibrate(200);
 
+            // ジャイアントトースト（巨大通知）の表示
+            const giantToast = document.getElementById('giant-scan-toast');
+            if (giantToast) {
+                document.getElementById('giant-toast-name').textContent = matchedItem.name;
+                document.getElementById('giant-toast-qty-val').textContent = currentQty + 1;
+                
+                giantToast.classList.remove('hidden');
+                // わずかな遅延を入れてCSSトランジションを発火
+                setTimeout(() => giantToast.classList.add('show'), 10);
+                
+                // カメラ枠をフラッシュ
+                if (scannerModal) {
+                    scannerModal.classList.remove('scanner-flash');
+                    void scannerModal.offsetWidth; // リフロー強制
+                    scannerModal.classList.add('scanner-flash');
+                }
+
+                clearTimeout(giantToast._timer);
+                giantToast._timer = setTimeout(() => {
+                    giantToast.classList.remove('show');
+                    setTimeout(() => giantToast.classList.add('hidden'), 200); // フェードアウト後に非表示
+                }, 1200);
+            }
+
             showScanToast(`${matchedItem.name} を追加 (${currentQty + 1}個)`);
             if (scannerStatus) scannerStatus.textContent = `✅ ${matchedItem.name} を追加しました`;
         } else {
