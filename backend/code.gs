@@ -255,10 +255,12 @@ function handleLogin(data) {
             authSuccess = true;
             clientName = values[i][2]; // C列の得意先名
             const rawType = String(values[i][3] || '').trim().toUpperCase();
+            const rawGroup = String(values[i][5] || '').trim().toUpperCase(); // F列: グループ設定
+            
             if (rawType === 'マスター' || rawType === 'MASTER') {
                 clientType = 'MASTER';
-            } else if (rawType.startsWith('GROUP_')) {
-                clientType = rawType;
+            } else if (rawGroup.startsWith('GROUP_')) {
+                clientType = rawGroup;
             } else if (rawType === CLIENT_TYPE_DIRECT) {
                 clientType = CLIENT_TYPE_DIRECT;
             } else {
@@ -282,11 +284,12 @@ function handleLogin(data) {
              }
          } else if (clientType.startsWith('GROUP_')) {
              for(let j=1; j<values.length; j++) {
-                 const type = String(values[j][3] || '').trim().toUpperCase();
-                 if (type === clientType && String(values[j][2])) {
+                 const groupName = String(values[j][5] || '').trim().toUpperCase(); // F列
+                 const type = String(values[j][3] || '').trim(); // D列
+                 if (groupName === clientType && String(values[j][2])) {
                      allClients.push({
                          name: values[j][2],
-                         type: '' // Group accounts act as normal accounts once logged in
+                         type: type === CLIENT_TYPE_DIRECT ? CLIENT_TYPE_DIRECT : '' // 直送ステータスを保持
                      });
                  }
              }
