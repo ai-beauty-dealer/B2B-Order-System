@@ -118,7 +118,7 @@ function doGet(e) {
                   // 逆順（新しい順）にスキャン
                   for (let j = values.length - 1; j >= 1; j--) {
                       const row = values[j];
-                      if (row[4] === clientName) {
+                      if (String(row[4]) === clientName || String(row[4]).startsWith(clientName + ' ')) {
                           const orderDate = new Date(row[0]);
                           history.push({
                               orderId: orderDate.getTime(),
@@ -144,7 +144,7 @@ function doGet(e) {
               const values = ordersSheet.getDataRange().getValues();
               for (let j = values.length - 1; j >= 1; j--) {
                   const row = values[j];
-                  if (row[4] === clientName) {
+                  if (String(row[4]) === clientName || String(row[4]).startsWith(clientName + ' ')) {
                       const orderDate = new Date(row[0]);
                       history.push({
                           orderId: orderDate.getTime(),
@@ -322,6 +322,8 @@ function handleOrder(data) {
      const orders = data.orders;
      const remarks = data.remarks || '';
      const clientType = data.clientType || '';
+     const staffName = data.staffName ? data.staffName.trim() : '';
+     const displayName = staffName ? `${clientName} ${staffName}様` : clientName;
 
      if(!clientName || !orders || !Array.isArray(orders) || orders.length === 0) {
          throw new Error("Invalid order data format.");
@@ -362,13 +364,13 @@ function handleOrder(data) {
 
      const normalRows = [];
      const specialRows = [];
-     let orderSummaryForLINE = `${clientType === CLIENT_TYPE_DIRECT ? '【直送発注】' : '【新規発注】'}\nサロン名: ${clientName}\n\n`;
+     let orderSummaryForLINE = `${clientType === CLIENT_TYPE_DIRECT ? '【直送発注】' : '【新規発注】'}\nサロン名: ${displayName}\n\n`;
 
      orders.forEach(order => {
          if(order.qty > 0) {
              const isSpecial = specialCodes.has(String(order.code)) || String(order.code).startsWith('CUSTOM_ITEM_');
              // F:ステータス, G:備考, H:別注
-             const row = [timestamp, order.code, order.qty, order.name, clientName, '', remarks, isSpecial ? '別注' : ''];
+             const row = [timestamp, order.code, order.qty, order.name, displayName, '', remarks, isSpecial ? '別注' : ''];
              
              if (isSpecial) {
                  specialRows.push(row);
@@ -426,11 +428,12 @@ function handleCancelOrder(data) {
      const newValues = [headers];
      let deletedCount = 0;
      let canceledItems = [];
+     let actualDisplayName = clientName;
      
      // 配列上で処理（1行目はヘッダーなのでi=1から）
      for(let i = 1; i < values.length; i++) {
           const row = values[i];
-          const isTarget = (row[4] === clientName && new Date(row[0]).getTime() === parseInt(orderId));
+          const isTarget = ((String(row[4]) === clientName || String(row[4]).startsWith(clientName + ' ')) && new Date(row[0]).getTime() === parseInt(orderId));
           
           if(isTarget) {
                // ステータスチェック: すでに「完了」なら操作不可
@@ -438,6 +441,7 @@ function handleCancelOrder(data) {
                     throw new Error("この発注はすでに確定（発注済み）しているため、キャンセルできません。");
                }
                // row[3]=商品名, row[2]=数量
+               actualDisplayName = row[4];
                canceledItems.push(`・${row[3]} × ${row[2]}`);
                deletedCount++;
           } else {
@@ -450,7 +454,7 @@ function handleCancelOrder(data) {
           sheet.clearContents();
           sheet.getRange(1, 1, newValues.length, newValues[0].length).setValues(newValues);
           
-          let message = `【キャンセル通知】\nサロン名: ${clientName}\n内容:\n${canceledItems.join('\n')}\n（注文ID: ${orderId}）`;
+          let message = `【キャンセル通知】\nサロン名: ${actualDisplayName}\n内容:\n${canceledItems.join('\n')}\n（注文ID: ${orderId}）`;
           sendNotification(message);
      }
 
@@ -487,11 +491,12 @@ function handleUpdateOrder(data) {
      const values = sheet.getDataRange().getValues();
      const headers = values[0];
      const newValuesBeforeSpecial = [headers];
-     const statusMap = {}; // code -> status
-     
-     for(let i = 1; i < values.length; i++) {
-          const row = values[i];
-          const isTarget = (row[4] === clientName && new Date(row[0]).getTime() === parseInt(orderId));
+      const statusMap = {}; // code -> status
+      let actualDisplayName = clientName;
+      
+      for(let i = 1; i < values.length; i++) {
+           const row = values[i];
+           const isTarget = ((String(row[4]) === clientName || String(row[4]).startsWith(clientName + ' ')) && new Date(row[0]).getTime() === parseInt(orderId));
           
           if(isTarget) {
                // ステータスチェック: すでに「完了」なら操作不可
@@ -503,6 +508,7 @@ function handleUpdateOrder(data) {
                if (status) {
                    statusMap[code] = status || '';
                }
+               actualDisplayName = row[4];
                // Target rows are NOT added back to newValuesBeforeSpecial yet
           } else {
                newValuesBeforeSpecial.push(row);
@@ -545,14 +551,14 @@ function handleUpdateOrder(data) {
 
      const normalRowsUpd = [];
      const specialRowsUpd = [];
-     let orderSummaryForLINE = `${clientType === CLIENT_TYPE_DIRECT ? '【直送発注内容変更】' : '【発注内容変更】'}\nサロン名: ${clientName}\n\n`;
+     let orderSummaryForLINE = `${clientType === CLIENT_TYPE_DIRECT ? '【直送発注内容変更】' : '【発注内容変更】'}\nサロン名: ${actualDisplayName}\n\n`;
 
      orders.forEach(order => {
          if(order.qty > 0) {
              const strCode = String(order.code);
              const isSpecial = specialCodesUpd.has(strCode) || strCode.startsWith('CUSTOM_ITEM_');
              const existingStatus = typeof statusMap[strCode] === 'string' ? statusMap[strCode] : '';
-             const row = [originalTimestamp, order.code, order.qty, order.name, clientName, existingStatus, remarks, isSpecial ? '別注' : ''];
+             const row = [originalTimestamp, order.code, order.qty, order.name, actualDisplayName, existingStatus, remarks, isSpecial ? '別注' : ''];
              if (isSpecial) {
                  specialRowsUpd.push(row);
              } else {

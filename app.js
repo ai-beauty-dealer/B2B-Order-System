@@ -44,6 +44,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const announcementBanner = document.getElementById('announcement-banner');
     const categoryChipsContainer = document.getElementById('category-chips-container');
     const orderRemarks = document.getElementById('order-remarks');
+    const personalPurchaseCheck = document.getElementById('personal-purchase-check');
+    const staffNameContainer = document.getElementById('staff-name-container');
+    const staffNameInput = document.getElementById('staff-name-input');
     const addCustomItemBtn = document.getElementById('add-custom-item-btn');
     const customItemsList = document.getElementById('custom-items-list');
     const manufacturerChipsContainer = document.getElementById('manufacturer-chips-container');
@@ -57,6 +60,26 @@ document.addEventListener('DOMContentLoaded', () => {
     const syncHistoryFavsBtn = document.getElementById('sync-history-favs-btn');
     const globalSyncBtn = document.getElementById('global-sync-btn');
     const syncMsgArea = document.getElementById('sync-msg');
+
+    // Personal Purchase Logic
+    if (personalPurchaseCheck) {
+        personalPurchaseCheck.addEventListener('change', (e) => {
+            if (e.target.checked) {
+                if (staffNameContainer) staffNameContainer.classList.remove('hidden');
+                if (staffNameInput) {
+                    staffNameInput.focus();
+                    const savedName = localStorage.getItem('b2b_personal_name') || '';
+                    if (savedName && !staffNameInput.value) {
+                        staffNameInput.value = savedName;
+                    }
+                }
+            } else {
+                if (staffNameContainer) staffNameContainer.classList.add('hidden');
+                if (staffNameInput) staffNameInput.style.borderColor = '#cbd5e1';
+            }
+        });
+    }
+
 
     // Helper: LocalStorage keys (include clientName for master account isolation)
     const getFavsKey = () => `b2b_favs_${currentUsername}_${currentClientName}`;
@@ -1474,7 +1497,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // --- Execute Order Helper ---
-    const executeOrderActual = async (orders, isEditing, remarks) => {
+    const executeOrderActual = async (orders, isEditing, remarks, staffName = '') => {
         showLoading();
         try {
             const action = isEditing ? 'update_order' : 'order';
@@ -1483,7 +1506,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 clientName: currentClientName,
                 clientType: currentClientType, // '直送' or ''
                 orders: orders,
-                remarks: remarks
+                remarks: remarks,
+                staffName: staffName
             };
 
             const requestBody = isEditing ? { ...payload, orderId: String(editingOrderId) } : payload;
@@ -1567,8 +1591,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 });
 
-                // Clear order remarks
+                // Clear order remarks and personal purchase state
                 if (orderRemarks) orderRemarks.value = '';
+                if (personalPurchaseCheck) {
+                    personalPurchaseCheck.checked = false;
+                    if (staffNameContainer) staffNameContainer.classList.add('hidden');
+                    if (staffNameInput) staffNameInput.style.borderColor = '#cbd5e1';
+                }
 
                 // Show Confirmation Screen, Hide Order Screen
                 orderContainer.classList.add('hidden');
@@ -1604,12 +1633,33 @@ document.addEventListener('DOMContentLoaded', () => {
                 confirmationContainer.classList.add('hidden');
                 orderContainer.classList.remove('hidden');
             }
+            if (personalPurchaseCheck) {
+                personalPurchaseCheck.checked = false;
+                if (staffNameContainer) staffNameContainer.classList.add('hidden');
+                if (staffNameInput) staffNameInput.style.borderColor = '#cbd5e1';
+            }
         });
     }
 
     // Actually Execute Order from Confirmation Screen
     if (modalConfirmBtn) {
         modalConfirmBtn.addEventListener('click', async () => {
+            let isPersonal = false;
+            let staffName = '';
+            
+            if (personalPurchaseCheck && personalPurchaseCheck.checked) {
+                staffName = staffNameInput ? staffNameInput.value.trim() : '';
+                if (!staffName) {
+                    if (staffNameInput) staffNameInput.style.borderColor = '#ef4444';
+                    alert('個人買いの場合、お名前（フルネーム）を入力してください。');
+                    if (staffNameInput) staffNameInput.focus();
+                    return; // Stop execution
+                }
+                isPersonal = true;
+                if (staffNameInput) staffNameInput.style.borderColor = '#cbd5e1';
+                localStorage.setItem('b2b_personal_name', staffName);
+            }
+
             if (confirmationContainer) {
                 confirmationContainer.classList.add('hidden');
                 orderContainer.classList.remove('hidden'); // Return immediately so loading overlay shows here
@@ -1627,8 +1677,9 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             const remarks = orderRemarks ? orderRemarks.value.trim() : '';
+
             const isEditing = editingOrderId !== null;
-            executeOrderActual(orders, isEditing, remarks);
+            executeOrderActual(orders, isEditing, remarks, staffName);
         });
     }
 
