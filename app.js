@@ -901,6 +901,15 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    const addCustomItemBtnTop = document.getElementById('add-custom-item-btn-top');
+    if (addCustomItemBtnTop) {
+        addCustomItemBtnTop.addEventListener('click', () => {
+            addCustomItemUI();
+            const wrapper = document.getElementById('custom-items-wrapper');
+            if (wrapper) wrapper.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        });
+    }
+
     // --- Start Editing Order ---
     const startEditingOrder = (orderId, items) => {
         editingOrderId = orderId;
@@ -1007,12 +1016,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
         document.getElementById(tabId).classList.add('active');
 
+        const customBtnTop = document.getElementById('add-custom-item-btn-top');
+
         if (tabId === 'tab-history') {
             itemListContainer.classList.add('hidden');
             searchWrapper.classList.add('hidden');
             cartSummary.classList.add('hidden');
             if (syncFavsWrapper) syncFavsWrapper.classList.add('hidden');
             if (customItemsWrapper) customItemsWrapper.classList.add('hidden');
+            if (customBtnTop) customBtnTop.classList.add('hidden');
             historyListContainer.classList.remove('hidden');
             fetchHistory(false); // Try cache first
         } else {
@@ -1030,6 +1042,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             if (customItemsWrapper) customItemsWrapper.classList.remove('hidden');
+            if (customBtnTop) customBtnTop.classList.remove('hidden');
             historyListContainer.classList.add('hidden');
 
             // Re-render items based on all/favs
