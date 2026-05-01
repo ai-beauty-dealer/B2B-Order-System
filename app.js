@@ -1961,9 +1961,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         scanQtyInput.addEventListener('change', () => setActiveScanQty(getScanQty(), true));
     }
-    document.querySelectorAll('.scan-quick-qty[data-qty]').forEach(btn => {
-        btn.addEventListener('click', () => setActiveScanQty(btn.dataset.qty, true));
-    });
     if (scanQtyClear) {
         scanQtyClear.addEventListener('click', () => setActiveScanQty(0, true));
     }

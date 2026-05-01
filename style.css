@@ -1202,9 +1202,8 @@ input[type=number]::-webkit-outer-spin-button {
 }
 
 .scan-quick-actions {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 8px;
+    display: flex;
+    justify-content: flex-end;
     margin-top: 10px;
 }
 
@@ -1219,6 +1218,7 @@ input[type=number]::-webkit-outer-spin-button {
 }
 
 .scan-clear-qty {
+    min-width: 96px;
     color: var(--danger);
     border-color: #fecaca;
 }
