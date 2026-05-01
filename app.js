@@ -1857,11 +1857,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const scanToast = document.getElementById('scan-toast');
     const scanToastIcon = document.getElementById('scan-toast-icon');
     const scanToastMessage = document.getElementById('scan-toast-message');
+    const scanResultPanel = document.getElementById('scan-result-panel');
+    const scanResultCode = document.getElementById('scan-result-code');
+    const scanResultName = document.getElementById('scan-result-name');
+    const scanQtyInput = document.getElementById('scan-qty-input');
+    const scanQtyMinus = document.getElementById('scan-qty-minus');
+    const scanQtyPlus = document.getElementById('scan-qty-plus');
+    const scanQtyClear = document.getElementById('scan-qty-clear');
 
     let html5QrcodeScanner = null;
     let lastScannedCode = '';
-    let lastScanTime = 0;
-    const SCAN_COOLDOWN_MS = 1500; // 1.5秒クールダウン（2秒→短縮）
+    let activeScannedItem = null;
 
     // ビープ音生成（Web Audio API - iOS Safari対応）
     let audioCtx = null;
@@ -1904,14 +1910,70 @@ document.addEventListener('DOMContentLoaded', () => {
         scanToast._timer = setTimeout(() => scanToast.classList.add('hidden'), 2500);
     };
 
+    const getScanQty = () => {
+        const val = parseInt(scanQtyInput?.value, 10);
+        return Number.isFinite(val) && val > 0 ? val : 0;
+    };
+
+    const setActiveScanQty = (newQty, showToast = false) => {
+        if (!activeScannedItem || !scanQtyInput) return;
+
+        const qty = Math.max(0, parseInt(newQty, 10) || 0);
+        const code = String(activeScannedItem.code);
+
+        updateFromCart(code, activeScannedItem.name, qty);
+        scanQtyInput.value = qty;
+
+        if (scannerStatus) {
+            scannerStatus.textContent = qty > 0
+                ? `✅ ${activeScannedItem.name} は ${qty}個でカートに入っています`
+                : `🗑️ ${activeScannedItem.name} をカートから削除しました`;
+        }
+        if (showToast) {
+            showScanToast(qty > 0
+                ? `${activeScannedItem.name} を ${qty}個に変更`
+                : `${activeScannedItem.name} を削除`);
+        }
+    };
+
+    const showScanResultPanel = (item) => {
+        if (!scanResultPanel || !scanQtyInput) return;
+
+        activeScannedItem = item;
+        const code = String(item.code);
+        const currentQty = currentCart[code] ? currentCart[code].qty : 0;
+
+        if (scanResultCode) scanResultCode.textContent = code.replace(/^'/, '');
+        if (scanResultName) scanResultName.textContent = item.name;
+        scanQtyInput.value = currentQty;
+        scanResultPanel.classList.remove('hidden');
+    };
+
+    if (scanQtyMinus) {
+        scanQtyMinus.addEventListener('click', () => setActiveScanQty(getScanQty() - 1, true));
+    }
+    if (scanQtyPlus) {
+        scanQtyPlus.addEventListener('click', () => setActiveScanQty(getScanQty() + 1, true));
+    }
+    if (scanQtyInput) {
+        scanQtyInput.addEventListener('input', () => {
+            if (scanQtyInput.value !== '') setActiveScanQty(getScanQty());
+        });
+        scanQtyInput.addEventListener('change', () => setActiveScanQty(getScanQty(), true));
+    }
+    document.querySelectorAll('.scan-quick-qty[data-qty]').forEach(btn => {
+        btn.addEventListener('click', () => setActiveScanQty(btn.dataset.qty, true));
+    });
+    if (scanQtyClear) {
+        scanQtyClear.addEventListener('click', () => setActiveScanQty(0, true));
+    }
+
     // スキャン成功時の処理
     const onScanSuccess = (decodedText) => {
-        const now = Date.now();
-        if (decodedText === lastScannedCode && (now - lastScanTime) < SCAN_COOLDOWN_MS) {
+        if (decodedText === lastScannedCode) {
             return;
         }
         lastScannedCode = decodedText;
-        lastScanTime = now;
 
         const normalizedJan = String(decodedText).trim();
         const matchedItem = janToItemMap.get(normalizedJan);
@@ -1919,16 +1981,16 @@ document.addEventListener('DOMContentLoaded', () => {
         if (matchedItem) {
             const code = String(matchedItem.code);
             const currentQty = currentCart[code] ? currentCart[code].qty : 0;
-            updateFromCart(code, matchedItem.name, currentQty + 1);
-            renderCartSidebar();
-            syncCardQty(code, currentQty + 1);
+            const nextQty = currentQty + 1;
+            updateFromCart(code, matchedItem.name, nextQty);
+            showScanResultPanel(matchedItem);
 
             // フィードバック: ビープ音 + 振動
             playBeep(1000, 100);
             if (navigator.vibrate) navigator.vibrate(200);
 
-            showScanToast(`${matchedItem.name} を追加 (${currentQty + 1}個)`);
-            if (scannerStatus) scannerStatus.textContent = `✅ ${matchedItem.name} を追加しました`;
+            showScanToast(`${matchedItem.name} を追加 (${nextQty}個)`);
+            if (scannerStatus) scannerStatus.textContent = `✅ ${matchedItem.name} は ${nextQty}個でカートに入っています`;
         } else {
             // エラー: 低音ビープ + 振動パターン
             playBeep(400, 200);
@@ -1965,6 +2027,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const startScanner = async () => {
         if (!scannerModal || !scannerOverlay) return;
         if (janToItemMap.size === 0) buildJanMap();
+        activeScannedItem = null;
+        if (scanResultPanel) scanResultPanel.classList.add('hidden');
 
         // iOS Safari: AudioContextのロック解除（ユーザージェスチャー内で初期化）
         if (!audioCtx) {
@@ -2019,6 +2083,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (scannerModal) scannerModal.classList.add('hidden');
         if (scannerOverlay) scannerOverlay.classList.add('hidden');
+        if (scanResultPanel) scanResultPanel.classList.add('hidden');
+        activeScannedItem = null;
         lastScannedCode = '';
     };
 

@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="robots" content="noindex">
     <title>AI Beauty Dealer - B2B Order System</title>
-    <link rel="stylesheet" href="style.css?v=2.13.0">
+    <link rel="stylesheet" href="style.css?v=2.13.8">
 
 </head>
 
@@ -205,8 +205,8 @@
     </div>
 
     <script src="lib/html5-qrcode.min.js"></script>
-    <script src="config.js?v=2.13.7"></script>
-    <script src="app.js?v=2.13.7"></script>
+    <script src="config.js?v=2.13.8"></script>
+    <script src="app.js?v=2.13.8"></script>
 
     <!-- Cart Sidebar -->
     <div id="cart-sidebar" class="cart-sidebar hidden">
@@ -234,6 +234,23 @@
             <button id="scanner-close-btn" class="scanner-close-btn">&times;</button>
         </div>
         <div id="reader" style="width: 100%; border-radius: 12px; overflow: hidden;"></div>
+        <div id="scan-result-panel" class="scan-result-panel hidden">
+            <div class="scan-result-info">
+                <span id="scan-result-code" class="scan-result-code"></span>
+                <span id="scan-result-name" class="scan-result-name"></span>
+            </div>
+            <div class="scan-result-controls">
+                <button type="button" id="scan-qty-minus" class="scan-qty-btn">-</button>
+                <input type="number" id="scan-qty-input" class="scan-qty-input" value="0" min="0" inputmode="numeric">
+                <button type="button" id="scan-qty-plus" class="scan-qty-btn">+</button>
+            </div>
+            <div class="scan-quick-actions">
+                <button type="button" class="scan-quick-qty" data-qty="5">5</button>
+                <button type="button" class="scan-quick-qty" data-qty="10">10</button>
+                <button type="button" class="scan-quick-qty" data-qty="20">20</button>
+                <button type="button" id="scan-qty-clear" class="scan-quick-qty scan-clear-qty">削除</button>
+            </div>
+        </div>
         <div class="scanner-footer">
             <p id="scanner-status">カメラ起動待ち...</p>
         </div>
