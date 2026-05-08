@@ -1,11 +1,13 @@
 // ==========================================
-// 🛠️ B2B Order System - Master Updater (v3.0)
+// 🛠️ B2B Order System - Master Updater (v4.1)
 // ==========================================
 
 /**
  * 【マスタ一括更新・登録】
  * シート「TmpNewItems」から「ItemMaster」へデータを同期します。
- * 新しいコードは追記、既存のコードは情報を更新します。
+ * 未登録（新規）のコードのみを抽出し、シートの一番下（末尾）に追記します。
+ * 既存の行は上書きせず、並び順も保持されます。
+ * 新規追加されたアイテムには、G列に「追加日」を記録します。
  */
 function syncMasterItems() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -16,7 +18,7 @@ function syncMasterItems() {
     throw new Error('「ItemMaster」または「TmpNewItems」シートが見つかりません。');
   }
 
-  // 1. TmpNewItemsデータの読み込み (A:コード, B:名, C:カテゴリ, D:メーカー, E:JAN)
+  // 1. TmpNewItemsデータの読み込み (A:コード, B:名, C:カテゴリ, D:メーカー, E:別注, F:JAN)
   const tmpValues = tmpSheet.getDataRange().getValues();
   const incomingItems = [];
   for (let i = 1; i < tmpValues.length; i++) {
@@ -27,7 +29,8 @@ function syncMasterItems() {
         name: String(tmpValues[i][1] || '').trim(),
         category: String(tmpValues[i][2] || '').trim(),
         manufacturer: String(tmpValues[i][3] || '').trim(),
-        jan: String(tmpValues[i][4] || '').trim()
+        special: String(tmpValues[i][4] || '').trim(), // E:別注
+        jan: String(tmpValues[i][5] || '').trim()      // F:JAN
       });
     }
   }
@@ -37,48 +40,78 @@ function syncMasterItems() {
     return;
   }
 
-  // 2. ItemMasterデータの読み込み
+  // 2. ItemMasterデータの読み込み（既存コードの確認用）
   const masterRange = masterSheet.getDataRange();
   const masterValues = masterRange.getValues();
   const masterHeaders = masterValues[0];
   
-  // マップ作成 (商品コード -> masterValuesのインデックス)
+  // マップ作成 (商品コード -> 存在確認用)
   const masterMap = new Map();
   for (let i = 1; i < masterValues.length; i++) {
     const code = String(masterValues[i][0]).trim();
-    if (code) masterMap.set(code, i);
+    if (code) masterMap.set(code, true);
   }
 
-  // 3. 同期処理
-  let addedCount = 0;
-  let updatedCount = 0;
+  // 3. 同期処理（未登録のデータのみ抽出）
+  const newRows = [];
+  const todayStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy/MM/dd");
 
   incomingItems.forEach(item => {
-    if (masterMap.has(item.code)) {
-      // 既存更新
-      const rowIndex = masterMap.get(item.code);
-      masterValues[rowIndex][1] = item.name;         // B: 商品名
-      masterValues[rowIndex][2] = item.category;     // C: カテゴリ
-      masterValues[rowIndex][3] = item.manufacturer; // D: メーカー
-      masterValues[rowIndex][5] = item.jan;          // F: JAN
-      updatedCount++;
-    } else {
-      // 新規追加 (A-F列を埋める)
-      // A:Code, B:Name, C:Cat, D:Manu, E:Special(空), F:JAN
-      masterValues.push([item.code, item.name, item.category, item.manufacturer, '', item.jan]);
-      addedCount++;
+    if (!masterMap.has(item.code)) {
+      // 新規追加データのみ配列にストック (A-G列)
+      // A:Code, B:Name, C:Cat, D:Manu, E:Special, F:JAN, G:追加日
+      newRows.push([item.code, item.name, item.category, item.manufacturer, item.special, item.jan, todayStr]);
+      masterMap.set(item.code, true); // 重複追加防止
     }
   });
 
-  // 4. マスタへの書き出し (バッチ処理)
-  // ヘッダーが短い場合はF列まで拡張
-  if (masterHeaders.length < 6) {
-    masterSheet.getRange(1, 1, 1, 6).setValues([['商品コード', '商品名', 'カテゴリ', 'メーカー', '別注/特注等', 'JANコード']]);
-  } else {
-    masterSheet.getRange(1, 6).setValue('JANコード').setFontWeight('bold');
+  if (newRows.length === 0) {
+    SpreadsheetApp.getUi().alert('追加する新しいデータ（未登録の商品）はありませんでした。');
+    return;
   }
 
-  masterSheet.getRange(1, 1, masterValues.length, 6).setValues(masterValues.map(row => row.slice(0, 6)));
+  // 4. マスタへの書き出し（一番下へ追記）
+  // ヘッダーが短い場合はG列のタイトルを追加
+  if (masterHeaders.length < 7) {
+    masterSheet.getRange(1, 7).setValue('追加日').setFontWeight('bold');
+  }
 
-  SpreadsheetApp.getUi().alert(`同期完了！\n新規追加: ${addedCount}件\n情報更新: ${updatedCount}件`);
+  // 既存の最終行の下から、新しいデータを一括で書き込む
+  const lastRow = masterSheet.getLastRow();
+  masterSheet.getRange(lastRow + 1, 1, newRows.length, 7).setValues(newRows);
+
+  // 追加された行を目立たせる（背景色を薄い黄色にするなどの工夫・任意）
+  // masterSheet.getRange(lastRow + 1, 1, newRows.length, 7).setBackground('#fff2cc');
+
+  // 5. グローバルキャッシュ強制更新のためのバージョン記録
+  forceGlobalCacheRefresh(newRows.length);
+}
+
+/**
+ * 【キャッシュ強制更新のトリガー】
+ * マスタを手動で直接編集した際など、得意先全員の端末キャッシュを強制的に破棄・再取得させたい場合に
+ * この関数を単独で実行してください。
+ */
+function forceGlobalCacheRefresh(addedCount = 0) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const now = new Date();
+  const timestampStr = now.getTime().toString();
+  const displayDateStr = Utilities.formatDate(now, Session.getScriptTimeZone(), "yyyy/MM/dd HH:mm");
+  
+  // システム内部（PropertiesService）にタイムスタンプを保存
+  PropertiesService.getScriptProperties().setProperty('ITEMS_VERSION', timestampStr);
+  
+  // 管理者目視用にSettingsシートにも書き出す
+  const settingsSheet = ss.getSheetByName('Settings');
+  if (settingsSheet) {
+    settingsSheet.getRange('E1').setValue('マスタ最終同期日時');
+    settingsSheet.getRange('E1').setFontWeight('bold').setBackground('#f3f3f3');
+    settingsSheet.getRange('F1').setValue(displayDateStr);
+  }
+
+  const msg = addedCount > 0 
+    ? `同期完了！\n未登録の新規データ ${addedCount} 件を追加しました。\n（システムバージョンも ${displayDateStr} に更新されました）`
+    : `システムバージョンを ${displayDateStr} に更新しました！\n得意先が次回アクセスした際、自動的に最新データが読み込まれます。`;
+
+  SpreadsheetApp.getUi().alert(msg);
 }

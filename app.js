@@ -1179,36 +1179,64 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // --- Fetch Items from API ---
-    const fetchItems = async (forceFetch = false) => {
+    const fetchItems = async (forceFetch = false, customLoadingMsg = null) => {
         if (!currentUsername) return;
 
-        // Check cache first
-        if (!forceFetch) {
-            const cachedData = localStorage.getItem('b2b_items_cache');
-            const cachedTs = localStorage.getItem('b2b_items_ts');
-            const now = Date.now();
+        let needsFetch = forceFetch;
+        let loadingMsg = forceFetch ? '最新データを取得中...' : 'サーバーに接続中...';
+        if (customLoadingMsg) loadingMsg = customLoadingMsg;
 
+        const cachedData = localStorage.getItem('b2b_items_cache');
+        const cachedTs = localStorage.getItem('b2b_items_ts');
+        const now = Date.now();
+
+        if (!needsFetch) {
             if (cachedData && cachedTs && (now - parseInt(cachedTs) < CACHE_DURATION)) {
-                console.log('Using cached item data (valid for 24h)');
-                try {
-                    // Use setTimeout to avoid blocking main thread for large JSON parse
-                    itemsData = JSON.parse(cachedData);
-                    
-                    // Delay low-priority rendering to prioritize UI responsiveness
-                    setTimeout(() => {
-                        renderManufacturerChips();
-                        renderCategoryChips();
-                        renderItems(itemsData);
-                        if (announcementBanner) announcementBanner.classList.remove('hidden');
-                    }, 0);
-                    return; // Exit early if cache is valid
-                } catch (e) {
-                    console.error('Failed to parse cache:', e);
+                // --- 1時間スロットリング付きバージョンチェック ---
+                const lastVersionCheck = parseInt(localStorage.getItem('b2b_last_version_check') || '0');
+                if (now - lastVersionCheck > 60 * 60 * 1000) { // 1時間以上経過
+                    try {
+                        console.log('[Version Check] Throttled check running...');
+                        const versionRes = await fetch(`${CONFIG.API_URL}?action=version`);
+                        const versionData = await versionRes.json();
+                        localStorage.setItem('b2b_last_version_check', now.toString());
+                        
+                        if (versionData.status === 'success' && versionData.dataVersion) {
+                            const localVersion = localStorage.getItem('b2b_data_version');
+                            if (localVersion !== versionData.dataVersion) {
+                                console.log(`[Version Check] Data version changed: ${localVersion} -> ${versionData.dataVersion}. Forcing refresh.`);
+                                // ここではキャッシュを消さず、fetch終了後に上書きする（ホワイトアウト対策）
+                                needsFetch = true;
+                                loadingMsg = '最新の商品マスタに更新しています...';
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('Version check failed, ignoring:', e);
+                    }
                 }
+
+                if (!needsFetch) {
+                    console.log('Using cached item data (valid for 24h)');
+                    try {
+                        itemsData = JSON.parse(cachedData);
+                        setTimeout(() => {
+                            renderManufacturerChips();
+                            renderCategoryChips();
+                            renderItems(itemsData);
+                            if (announcementBanner) announcementBanner.classList.remove('hidden');
+                        }, 0);
+                        return;
+                    } catch (e) {
+                        console.error('Failed to parse cache:', e);
+                        needsFetch = true;
+                    }
+                }
+            } else {
+                needsFetch = true;
             }
         }
 
-        showLoading(forceFetch ? '最新データを取得中...' : 'サーバーに接続中...');
+        showLoading(loadingMsg);
         try {
             const url = `${CONFIG.API_URL}?action=items`;
             const response = await fetch(url);
@@ -1233,9 +1261,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     };
                 });
 
-                // Save to cache
+                // Save to cache (Atomic Update)
                 localStorage.setItem('b2b_items_cache', JSON.stringify(itemsData));
                 localStorage.setItem('b2b_items_ts', Date.now().toString());
+                if (result.dataVersion) {
+                    localStorage.setItem('b2b_data_version', result.dataVersion);
+                    localStorage.setItem('b2b_last_version_check', Date.now().toString());
+                }
 
                 renderManufacturerChips();
                 renderCategoryChips();
@@ -1266,7 +1298,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- Login Helper ---
-    const processLoginSuccess = async (announcement, isMaintenance, maintenanceMessage) => {
+    const processLoginSuccess = async (announcement, isMaintenance, maintenanceMessage, dataVersion = null) => {
         loggedUnknownJans.clear(); // サロン切替時に未登録JANの送信済みSetをリセット
         if (clientNameDisplay) {
             const typeLabel = currentClientType === '直送' ? ' [直送]' : '';
@@ -1332,10 +1364,22 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
+        // Version Check Logic
+        let forceFetchVersion = false;
+        if (dataVersion) {
+            const currentLocalVersion = localStorage.getItem('b2b_data_version');
+            if (currentLocalVersion && currentLocalVersion !== dataVersion) {
+                console.log(`[Version Check] Master version updated (${currentLocalVersion} -> ${dataVersion}). Forcing cache clear.`);
+                forceFetchVersion = true;
+            }
+            // バージョン保存は fetchItems 側で成功時にアトミックに行うか、ここで先行して行うか
+            // 今回はfetchItemsで確実に行うので、とりあえずフラグだけ立てる
+        }
+
         // --- ANTI-FREEZE: Delay fetchItems slightly ---
         console.log(`[DEBUG] Login successful for ${currentClientName}, starting data fetch...`);
         setTimeout(() => {
-            fetchItems();
+            fetchItems(forceFetchVersion, forceFetchVersion ? '最新の商品マスタに更新しています...' : null);
             switchTab('tab-all'); // Explicitly set initial tab state
         }, 300);
         hideLoading();
@@ -1409,6 +1453,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         selectEl.dataset.announcement = result.announcement || '';
                         selectEl.dataset.isMaintenance = result.isMaintenance || false;
                         selectEl.dataset.maintenanceMessage = result.maintenanceMessage || '';
+                        selectEl.dataset.dataVersion = result.dataVersion || '';
                     }
                     hideLoading();
                     return;
@@ -1417,7 +1462,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 currentClientName = (result.clientName || '').trim();
                 currentClientType = result.clientType || ''; // '直送' or ''
 
-                await processLoginSuccess(result.announcement, result.isMaintenance, result.maintenanceMessage);
+                await processLoginSuccess(result.announcement, result.isMaintenance, result.maintenanceMessage, result.dataVersion);
             } else {
                 console.error('[DEBUG] Login Failed result:', result);
                 alert('ログインに失敗しました: ' + result.message);
@@ -1450,7 +1495,8 @@ document.addEventListener('DOMContentLoaded', () => {
             await processLoginSuccess(
                 masterSalonSelect.dataset.announcement || '',
                 masterSalonSelect.dataset.isMaintenance === 'true',
-                masterSalonSelect.dataset.maintenanceMessage || ''
+                masterSalonSelect.dataset.maintenanceMessage || '',
+                masterSalonSelect.dataset.dataVersion || null
             );
         });
     }

@@ -65,7 +65,11 @@ function doGet(e) {
     const action = e.parameter.action || 'items';
     const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
     
-    if (action === 'items') {
+    if (action === 'version') {
+      const dataVersion = PropertiesService.getScriptProperties().getProperty('ITEMS_VERSION') || '0';
+      return ContentService.createTextOutput(JSON.stringify({ status: 'success', dataVersion: dataVersion }))
+        .setMimeType(ContentService.MimeType.JSON);
+    } else if (action === 'items') {
       const sheet = ss.getSheetByName(SHEET_NAMES.MASTER);
       if (!sheet) throw new Error(`Sheet '${SHEET_NAMES.MASTER}' not found.`);
       
@@ -87,7 +91,8 @@ function doGet(e) {
               });
           }
       }
-      return ContentService.createTextOutput(JSON.stringify({ status: 'success', data: items }))
+      const dataVersion = PropertiesService.getScriptProperties().getProperty('ITEMS_VERSION') || '0';
+      return ContentService.createTextOutput(JSON.stringify({ status: 'success', data: items, dataVersion: dataVersion }))
         .setMimeType(ContentService.MimeType.JSON);
     } else if (action === 'history') {
       const clientName = e.parameter.clientName;
@@ -315,6 +320,8 @@ function handleLogin(data) {
              }
          } catch(e) { console.warn("Settings fetch failed:", e); }
 
+         const dataVersion = PropertiesService.getScriptProperties().getProperty('ITEMS_VERSION') || '0';
+
          return ContentService.createTextOutput(JSON.stringify({ 
              status: 'success', 
              message: 'Login successful', 
@@ -325,7 +332,8 @@ function handleLogin(data) {
              allClients: allClients,
              announcement: announcement,
              isMaintenance: isMaintenance,
-             maintenanceMessage: maintenanceMessage
+             maintenanceMessage: maintenanceMessage,
+             dataVersion: dataVersion
          })).setMimeType(ContentService.MimeType.JSON);
     } else {
          return ContentService.createTextOutput(JSON.stringify({ 

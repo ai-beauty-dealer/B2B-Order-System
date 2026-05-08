@@ -12,19 +12,21 @@ function importJANCodes() {
     throw new Error('「ItemMaster」または「TmpJAN」シートが見つかりません。');
   }
 
-  // 1. TmpJANデータの読み込み
+  // 1. TmpJANデータの読み込み (A:コード, B:名, C:カテゴリ, D:メーカー, E:別注, F:JAN)
   const tmpValues = tmpSheet.getDataRange().getValues();
   const janMap = new Map();
   for (let i = 1; i < tmpValues.length; i++) {
     const code = String(tmpValues[i][0] || '').trim();
-    const janVal = tmpValues[i][1];
+    // 6列目（F列）が存在すればそれをJANとして扱う、なければ従来のB列（1）を見る
+    const janVal = (tmpValues[i].length > 5 && tmpValues[i][5] !== '') ? tmpValues[i][5] : tmpValues[i][1];
     
     // 指数表記(4.9E+12)等の崩れを防ぐため、数値の場合はフォーマット指定して文字列化
     const jan = (typeof janVal === 'number') ? 
                 Utilities.formatString('%.0f', janVal) : String(janVal || '').trim();
     
     // コードがあり、かつJANコードが空でない場合のみマップに登録
-    if (code && jan && jan !== '0') {
+    // ※名前などが誤って入らないよう、数字が含まれるか簡易チェック
+    if (code && jan && jan !== '0' && jan.match(/\d/)) {
       janMap.set(code, jan);
     }
   }
