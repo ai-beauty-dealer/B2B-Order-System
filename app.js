@@ -1,8 +1,8 @@
-// v2.14.3 (SCAN-CONFIRMATION-GUARD)
+// v2.14.4 (STANDARD-BARCODE-DECODER)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.14.3 (SCAN-CONFIRMATION-GUARD) Loaded ---');
+    console.log('--- B2B Order System v2.14.4 (STANDARD-BARCODE-DECODER) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -2168,11 +2168,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 { 
                     fps: 15,
                     qrbox: { width: 300, height: 120 },
-                    disableFlip: true,
-                    // ブラウザのネイティブBarcode Detection APIを優先使用（GPU高速化）
-                    experimentalFeatures: {
-                        useBarCodeDetectorIfSupported: true
-                    }
+                    disableFlip: true
                 },
                 onScanSuccess,
                 () => {}
