@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="robots" content="noindex">
     <title>AI Beauty Dealer - B2B Order System</title>
-    <link rel="stylesheet" href="style.css?v=2.13.8">
+    <link rel="stylesheet" href="style.css?v=2.15.3">
 
 </head>
 
@@ -205,8 +205,8 @@
     </div>
 
     <script src="lib/html5-qrcode.min.js"></script>
-    <script src="config.js?v=2.15.2"></script>
-    <script src="app.js?v=2.15.2"></script>
+    <script src="config.js?v=2.15.3"></script>
+    <script src="app.js?v=2.15.3"></script>
 
     <!-- Cart Sidebar -->
     <div id="cart-sidebar" class="cart-sidebar hidden">
@@ -234,6 +234,14 @@
             <button id="scanner-close-btn" class="scanner-close-btn">&times;</button>
         </div>
         <div id="reader" style="width: 100%; border-radius: 12px; overflow: hidden;"></div>
+        <div class="jan-tail-search">
+            <div class="jan-tail-row">
+                <input type="text" id="jan-tail-input" class="jan-tail-input" placeholder="JAN下4桁" inputmode="numeric"
+                    maxlength="4" autocomplete="off">
+                <button type="button" id="jan-tail-search-btn" class="jan-tail-search-btn">検索</button>
+            </div>
+            <div id="jan-tail-results" class="jan-tail-results hidden"></div>
+        </div>
         <div id="scan-result-panel" class="scan-result-panel hidden">
             <div class="scan-result-info">
                 <span id="scan-result-code" class="scan-result-code"></span>

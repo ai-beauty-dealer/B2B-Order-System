@@ -1,8 +1,8 @@
-// v2.15.2 (SCAN-CONFIRMATION-GUARD)
+// v2.15.3 (JAN-TAIL-SEARCH)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.15.2 (SCAN-CONFIRMATION-GUARD) Loaded ---');
+    console.log('--- B2B Order System v2.15.3 (JAN-TAIL-SEARCH) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -1951,6 +1951,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const scanQtyMinus = document.getElementById('scan-qty-minus');
     const scanQtyPlus = document.getElementById('scan-qty-plus');
     const scanQtyClear = document.getElementById('scan-qty-clear');
+    const janTailInput = document.getElementById('jan-tail-input');
+    const janTailSearchBtn = document.getElementById('jan-tail-search-btn');
+    const janTailResults = document.getElementById('jan-tail-results');
 
     let html5QrcodeScanner = null;
     let lastScannedCode = '';
@@ -2043,6 +2046,93 @@ document.addEventListener('DOMContentLoaded', () => {
         scanResultPanel.classList.remove('hidden');
     };
 
+    const addScannedItemToCart = (item, source = 'scan') => {
+        const code = String(item.code);
+        const currentQty = currentCart[code] ? currentCart[code].qty : 0;
+        const nextQty = currentQty + 1;
+        updateFromCart(code, item.name, nextQty);
+        showScanResultPanel(item);
+
+        playBeep(1000, 100);
+        if (navigator.vibrate) navigator.vibrate(200);
+
+        showScanToast(`${item.name} を追加 (${nextQty}個)`);
+        if (scannerStatus) {
+            scannerStatus.textContent = source === 'jan-tail'
+                ? `✅ ${item.name} をJAN下4桁検索から追加しました`
+                : `✅ ${item.name} は ${nextQty}個でカートに入っています`;
+        }
+    };
+
+    const clearJanTailResults = () => {
+        if (!janTailResults) return;
+        janTailResults.innerHTML = '';
+        janTailResults.classList.add('hidden');
+    };
+
+    const renderJanTailResults = (matches, tail) => {
+        if (!janTailResults) return;
+        janTailResults.innerHTML = '';
+
+        if (matches.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'jan-tail-empty';
+            empty.textContent = `${tail} に一致するJANはありません`;
+            janTailResults.appendChild(empty);
+            janTailResults.classList.remove('hidden');
+            return;
+        }
+
+        matches.slice(0, 10).forEach(item => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'jan-tail-result-btn';
+
+            const name = document.createElement('span');
+            name.className = 'jan-tail-result-name';
+            name.textContent = item.name;
+
+            const meta = document.createElement('span');
+            meta.className = 'jan-tail-result-meta';
+            meta.textContent = `コード: ${String(item.code).replace(/^'/, '')} / JAN: ${String(item.jan || '').trim()}`;
+
+            btn.appendChild(name);
+            btn.appendChild(meta);
+            btn.addEventListener('click', () => {
+                addScannedItemToCart(item, 'jan-tail');
+                clearJanTailResults();
+                if (janTailInput) janTailInput.value = '';
+            });
+            janTailResults.appendChild(btn);
+        });
+
+        if (matches.length > 10) {
+            const more = document.createElement('div');
+            more.className = 'jan-tail-empty';
+            more.textContent = '候補が多いため先頭10件を表示しています';
+            janTailResults.appendChild(more);
+        }
+
+        janTailResults.classList.remove('hidden');
+    };
+
+    const searchByJanTail = () => {
+        const tail = String(janTailInput?.value || '').replace(/\D/g, '').slice(0, 4);
+        if (janTailInput) janTailInput.value = tail;
+        if (tail.length < 4) {
+            clearJanTailResults();
+            if (scannerStatus) scannerStatus.textContent = 'JAN下4桁を入力してください';
+            return;
+        }
+
+        const matches = (itemsData || []).filter(item => {
+            const jan = String(item.jan || '').trim();
+            return jan.length >= 4 && jan.endsWith(tail);
+        });
+        renderJanTailResults(matches, tail);
+        if (scannerStatus) scannerStatus.textContent = `${tail} の候補: ${matches.length}件`;
+    };
+
     const confirmScanCode = (janCode) => {
         const now = Date.now();
         if (janCode === pendingScanCode && (now - pendingScanTs) <= SCAN_CONFIRM_WINDOW_MS) {
@@ -2081,6 +2171,25 @@ document.addEventListener('DOMContentLoaded', () => {
     if (scanQtyClear) {
         scanQtyClear.addEventListener('click', () => setActiveScanQty(0, true));
     }
+    if (janTailSearchBtn) {
+        janTailSearchBtn.addEventListener('click', searchByJanTail);
+    }
+    if (janTailInput) {
+        janTailInput.addEventListener('input', () => {
+            janTailInput.value = janTailInput.value.replace(/\D/g, '').slice(0, 4);
+            if (janTailInput.value.length === 4) {
+                searchByJanTail();
+            } else {
+                clearJanTailResults();
+            }
+        });
+        janTailInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                searchByJanTail();
+            }
+        });
+    }
 
     // スキャン成功時の処理
     const onScanSuccess = (decodedText) => {
@@ -2097,18 +2206,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const matchedItem = janToItemMap.get(normalizedJan);
 
         if (matchedItem) {
-            const code = String(matchedItem.code);
-            const currentQty = currentCart[code] ? currentCart[code].qty : 0;
-            const nextQty = currentQty + 1;
-            updateFromCart(code, matchedItem.name, nextQty);
-            showScanResultPanel(matchedItem);
-
-            // フィードバック: ビープ音 + 振動
-            playBeep(1000, 100);
-            if (navigator.vibrate) navigator.vibrate(200);
-
-            showScanToast(`${matchedItem.name} を追加 (${nextQty}個)`);
-            if (scannerStatus) scannerStatus.textContent = `✅ ${matchedItem.name} は ${nextQty}個でカートに入っています`;
+            addScannedItemToCart(matchedItem);
         } else {
             // エラー: 低音ビープ + 振動パターン
             playBeep(400, 200);
@@ -2155,6 +2253,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         scannerModal.classList.remove('hidden');
         scannerOverlay.classList.remove('hidden');
+        clearJanTailResults();
+        if (janTailInput) janTailInput.value = '';
         if (scannerStatus) scannerStatus.textContent = `カメラ起動中... (読込済JAN: ${janToItemMap.size}件)`;
 
         try {
@@ -2202,6 +2302,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (scannerModal) scannerModal.classList.add('hidden');
         if (scannerOverlay) scannerOverlay.classList.add('hidden');
         if (scanResultPanel) scanResultPanel.classList.add('hidden');
+        clearJanTailResults();
+        if (janTailInput) janTailInput.value = '';
         activeScannedItem = null;
         lastScannedCode = '';
         pendingScanCode = '';
