@@ -1,8 +1,8 @@
-// v2.14.8 (OPTIONAL-SCAN-ZOOM)
+// v2.14.9 (OPTIONAL-SCAN-ZOOM)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.14.8 (OPTIONAL-SCAN-ZOOM) Loaded ---');
+    console.log('--- B2B Order System v2.14.9 (OPTIONAL-SCAN-ZOOM) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -1962,7 +1962,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const SCAN_CONFIRM_WINDOW_MS = 1200;
     const SCAN_CONFIRM_MIN_GAP_MS = 450;
     const SCAN_REQUIRED_MATCHES = 2;
-    const SCAN_ZOOM_TARGET = 1.4;
+    const SCAN_ZOOM_TARGET = 1.8;
 
     // ビープ音生成（Web Audio API - iOS Safari対応）
     let audioCtx = null;
