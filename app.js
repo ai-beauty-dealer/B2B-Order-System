@@ -1,8 +1,8 @@
-// v2.14.0 (SCAN-CONFIRMATION-GUARD)
+// v2.14.1 (SCAN-CONFIRMATION-GUARD)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.14.0 (SCAN-CONFIRMATION-GUARD) Loaded ---');
+    console.log('--- B2B Order System v2.14.1 (SCAN-CONFIRMATION-GUARD) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -1958,7 +1958,9 @@ document.addEventListener('DOMContentLoaded', () => {
     let pendingScanCode = '';
     let pendingScanCount = 0;
     let pendingScanTs = 0;
+    let pendingScanFirstTs = 0;
     const SCAN_CONFIRM_WINDOW_MS = 1200;
+    const SCAN_CONFIRM_MIN_GAP_MS = 450;
     const SCAN_REQUIRED_MATCHES = 2;
 
     // ビープ音生成（Web Audio API - iOS Safari対応）
@@ -2048,10 +2050,11 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             pendingScanCode = janCode;
             pendingScanCount = 1;
+            pendingScanFirstTs = now;
         }
         pendingScanTs = now;
 
-        if (pendingScanCount < SCAN_REQUIRED_MATCHES) {
+        if (pendingScanCount < SCAN_REQUIRED_MATCHES || (now - pendingScanFirstTs) < SCAN_CONFIRM_MIN_GAP_MS) {
             if (scannerStatus) scannerStatus.textContent = `読み取り確認中... ${janCode}`;
             return false;
         }
@@ -2059,6 +2062,7 @@ document.addEventListener('DOMContentLoaded', () => {
         pendingScanCode = '';
         pendingScanCount = 0;
         pendingScanTs = 0;
+        pendingScanFirstTs = 0;
         return true;
     };
 
@@ -2203,6 +2207,7 @@ document.addEventListener('DOMContentLoaded', () => {
         pendingScanCode = '';
         pendingScanCount = 0;
         pendingScanTs = 0;
+        pendingScanFirstTs = 0;
     };
 
     // イベントリスナー
