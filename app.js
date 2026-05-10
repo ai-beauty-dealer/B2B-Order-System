@@ -1,8 +1,8 @@
-// v2.13.9 (SUBMIT-GUARD-HISTORY-FIX)
+// v2.14.0 (SCAN-CONFIRMATION-GUARD)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.13.9 (SUBMIT-GUARD-HISTORY-FIX) Loaded ---');
+    console.log('--- B2B Order System v2.14.0 (SCAN-CONFIRMATION-GUARD) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -1955,6 +1955,11 @@ document.addEventListener('DOMContentLoaded', () => {
     let html5QrcodeScanner = null;
     let lastScannedCode = '';
     let activeScannedItem = null;
+    let pendingScanCode = '';
+    let pendingScanCount = 0;
+    let pendingScanTs = 0;
+    const SCAN_CONFIRM_WINDOW_MS = 1200;
+    const SCAN_REQUIRED_MATCHES = 2;
 
     // ビープ音生成（Web Audio API - iOS Safari対応）
     let audioCtx = null;
@@ -2036,6 +2041,42 @@ document.addEventListener('DOMContentLoaded', () => {
         scanResultPanel.classList.remove('hidden');
     };
 
+    const isValidJanCode = (rawCode) => {
+        const code = String(rawCode || '').trim();
+        if (!/^\d{8}$|^\d{13}$/.test(code)) return false;
+
+        const digits = code.split('').map(Number);
+        const checkDigit = digits.pop();
+        const sum = digits.reduce((total, digit, index) => {
+            const weight = code.length === 13
+                ? (index % 2 === 0 ? 1 : 3)
+                : (index % 2 === 0 ? 3 : 1);
+            return total + digit * weight;
+        }, 0);
+        return (10 - (sum % 10)) % 10 === checkDigit;
+    };
+
+    const confirmScanCode = (janCode) => {
+        const now = Date.now();
+        if (janCode === pendingScanCode && (now - pendingScanTs) <= SCAN_CONFIRM_WINDOW_MS) {
+            pendingScanCount += 1;
+        } else {
+            pendingScanCode = janCode;
+            pendingScanCount = 1;
+        }
+        pendingScanTs = now;
+
+        if (pendingScanCount < SCAN_REQUIRED_MATCHES) {
+            if (scannerStatus) scannerStatus.textContent = `読み取り確認中... ${janCode}`;
+            return false;
+        }
+
+        pendingScanCode = '';
+        pendingScanCount = 0;
+        pendingScanTs = 0;
+        return true;
+    };
+
     if (scanQtyMinus) {
         scanQtyMinus.addEventListener('click', () => setActiveScanQty(getScanQty() - 1, true));
     }
@@ -2057,9 +2098,18 @@ document.addEventListener('DOMContentLoaded', () => {
         if (decodedText === lastScannedCode) {
             return;
         }
-        lastScannedCode = decodedText;
 
         const normalizedJan = String(decodedText).trim();
+        if (!isValidJanCode(normalizedJan)) {
+            if (scannerStatus) scannerStatus.textContent = `読み取り候補を確認中...`;
+            return;
+        }
+
+        if (!confirmScanCode(normalizedJan)) {
+            return;
+        }
+
+        lastScannedCode = normalizedJan;
         const matchedItem = janToItemMap.get(normalizedJan);
 
         if (matchedItem) {
@@ -2170,6 +2220,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (scanResultPanel) scanResultPanel.classList.add('hidden');
         activeScannedItem = null;
         lastScannedCode = '';
+        pendingScanCode = '';
+        pendingScanCount = 0;
+        pendingScanTs = 0;
     };
 
     // イベントリスナー
