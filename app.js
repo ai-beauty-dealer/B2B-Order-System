@@ -1,8 +1,8 @@
-// v2.15.1 (CAMERA-SWITCHER)
+// v2.15.0 (SCAN-CONFIRMATION-GUARD)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.15.1 (CAMERA-SWITCHER) Loaded ---');
+    console.log('--- B2B Order System v2.15.0 (SCAN-CONFIRMATION-GUARD) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -1940,9 +1940,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const scannerModal = document.getElementById('scanner-modal');
     const scannerOverlay = document.getElementById('scanner-overlay');
     const scannerCloseBtn = document.getElementById('scanner-close-btn');
-    const cameraSwitchBtn = document.getElementById('camera-switch-btn');
-    const cameraSelectPanel = document.getElementById('camera-select-panel');
-    const cameraSelect = document.getElementById('camera-select');
     const scannerStatus = document.getElementById('scanner-status');
     const scanToast = document.getElementById('scan-toast');
     const scanToastIcon = document.getElementById('scan-toast-icon');
@@ -1958,8 +1955,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let html5QrcodeScanner = null;
     let lastScannedCode = '';
     let activeScannedItem = null;
-    let selectedCameraId = '';
-    let isSwitchingCamera = false;
     let pendingScanCode = '';
     let pendingScanCount = 0;
     let pendingScanTs = 0;
@@ -2146,70 +2141,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }).catch(err => console.warn('Unknown JAN log failed:', err));
     };
 
-    const resetPendingScan = () => {
-        lastScannedCode = '';
-        pendingScanCode = '';
-        pendingScanCount = 0;
-        pendingScanTs = 0;
-        pendingScanFirstTs = 0;
-    };
-
-    const stopRunningScanner = async () => {
-        if (!html5QrcodeScanner) return;
-        try {
-            await html5QrcodeScanner.stop();
-            html5QrcodeScanner.clear();
-        } catch (e) {
-            console.warn('Scanner stop error:', e);
-        }
-        html5QrcodeScanner = null;
-    };
-
-    const getCameraLabel = (camera, index) => {
-        const label = String(camera.label || '').trim();
-        return label || `カメラ ${index + 1}`;
-    };
-
-    const loadCameraOptions = async () => {
-        if (!cameraSelect || !cameraSelectPanel) return;
-        try {
-            const cameras = await Html5Qrcode.getCameras();
-            cameraSelect.innerHTML = '';
-
-            if (!cameras || cameras.length === 0) {
-                if (scannerStatus) scannerStatus.textContent = '切替できるカメラが見つかりませんでした';
-                return;
-            }
-
-            const placeholder = document.createElement('option');
-            placeholder.value = '';
-            placeholder.textContent = 'カメラを選択';
-            cameraSelect.appendChild(placeholder);
-
-            cameras.forEach((camera, index) => {
-                const option = document.createElement('option');
-                option.value = camera.id;
-                option.textContent = getCameraLabel(camera, index);
-                cameraSelect.appendChild(option);
-            });
-
-            if (selectedCameraId && [...cameraSelect.options].some(option => option.value === selectedCameraId)) {
-                cameraSelect.value = selectedCameraId;
-            }
-            cameraSelectPanel.classList.remove('hidden');
-        } catch (err) {
-            console.warn('Camera list error:', err);
-            if (scannerStatus) scannerStatus.textContent = 'カメラ一覧を取得できませんでした';
-        }
-    };
-
     // スキャナ起動
-    const startScanner = async (cameraId = '', allowFallback = true) => {
+    const startScanner = async () => {
         if (!scannerModal || !scannerOverlay) return;
         if (janToItemMap.size === 0) buildJanMap();
         activeScannedItem = null;
         if (scanResultPanel) scanResultPanel.classList.add('hidden');
-        resetPendingScan();
 
         // iOS Safari: AudioContextのロック解除（ユーザージェスチャー内で初期化）
         if (!audioCtx) {
@@ -2221,14 +2158,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (scannerStatus) scannerStatus.textContent = `カメラ起動中... (読込済JAN: ${janToItemMap.size}件)`;
 
         try {
-            await stopRunningScanner();
             html5QrcodeScanner = new Html5Qrcode("reader", {
                 // EAN-13（JANコード）に絞り込み → 解析速度2〜3倍向上
                 formatsToSupport: [ Html5QrcodeSupportedFormats.EAN_13 ],
                 verbose: false
             });
             await html5QrcodeScanner.start(
-                cameraId || { facingMode: "environment" },
+                { facingMode: "environment" },
                 { 
                     fps: 15,
                     qrbox: { width: 300, height: 120 },
@@ -2241,17 +2177,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 onScanSuccess,
                 () => {}
             );
-            if (cameraId) selectedCameraId = cameraId;
             if (scannerStatus) scannerStatus.textContent = 'バーコードを枠内に収めてください';
         } catch (err) {
             console.error("Camera error:", err);
-            if (cameraId && allowFallback) {
-                selectedCameraId = '';
-                if (cameraSelect) cameraSelect.value = '';
-                if (scannerStatus) scannerStatus.textContent = '選択したカメラを起動できませんでした。通常カメラに戻します...';
-                await startScanner('', false);
-                return;
-            }
             if (scannerStatus) {
                 scannerStatus.innerHTML = `
                     <span style="color: #dc2626;">⚠️ カメラを起動できませんでした</span><br>
@@ -2264,41 +2192,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // スキャナ停止
     const stopScanner = async () => {
-        await stopRunningScanner();
+        if (html5QrcodeScanner) {
+            try {
+                await html5QrcodeScanner.stop();
+                html5QrcodeScanner.clear();
+            } catch (e) { console.warn('Scanner stop error:', e); }
+            html5QrcodeScanner = null;
+        }
         if (scannerModal) scannerModal.classList.add('hidden');
         if (scannerOverlay) scannerOverlay.classList.add('hidden');
         if (scanResultPanel) scanResultPanel.classList.add('hidden');
-        if (cameraSelectPanel) cameraSelectPanel.classList.add('hidden');
         activeScannedItem = null;
-        selectedCameraId = '';
-        resetPendingScan();
+        lastScannedCode = '';
+        pendingScanCode = '';
+        pendingScanCount = 0;
+        pendingScanTs = 0;
+        pendingScanFirstTs = 0;
     };
 
     // イベントリスナー
-    if (scanBtn) scanBtn.addEventListener('click', () => startScanner());
+    if (scanBtn) scanBtn.addEventListener('click', startScanner);
     if (scannerCloseBtn) scannerCloseBtn.addEventListener('click', stopScanner);
     if (scannerOverlay) scannerOverlay.addEventListener('click', stopScanner);
-    if (cameraSwitchBtn) {
-        cameraSwitchBtn.addEventListener('click', async () => {
-            if (cameraSelectPanel && !cameraSelectPanel.classList.contains('hidden')) {
-                cameraSelectPanel.classList.add('hidden');
-                return;
-            }
-            await loadCameraOptions();
-        });
-    }
-    if (cameraSelect) {
-        cameraSelect.addEventListener('change', async () => {
-            const cameraId = cameraSelect.value;
-            if (!cameraId || isSwitchingCamera) return;
-            isSwitchingCamera = true;
-            if (scannerStatus) scannerStatus.textContent = 'カメラを切り替えています...';
-            try {
-                await startScanner(cameraId, true);
-            } finally {
-                isSwitchingCamera = false;
-            }
-        });
-    }
 
 });
