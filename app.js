@@ -1,8 +1,8 @@
-// v2.12.6 (GLOBAL-SYNC-MASTER)
+// v2.13.9 (SUBMIT-GUARD-HISTORY-FIX)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.12.7 (DIAGNOSTIC-MODE) Loaded ---');
+    console.log('--- B2B Order System v2.13.9 (SUBMIT-GUARD-HISTORY-FIX) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -41,6 +41,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const confirmItemList = document.getElementById('confirm-item-list');
     const modalCancelBtn = document.getElementById('modal-cancel-btn');
     const modalConfirmBtn = document.getElementById('modal-confirm-btn');
+    const confirmationTitle = confirmationContainer ? confirmationContainer.querySelector('h2') : null;
+    const confirmationDesc = confirmationContainer ? confirmationContainer.querySelector('.modal-desc') : null;
     const announcementBanner = document.getElementById('announcement-banner');
     const categoryChipsContainer = document.getElementById('category-chips-container');
     const orderRemarks = document.getElementById('order-remarks');
@@ -118,6 +120,32 @@ document.addEventListener('DOMContentLoaded', () => {
     let editingOrderId = null;
     let currentCart = {};
     let cartOrder = []; // Track the order in which items are added to the cart
+    let isSubmitting = false;
+
+    const setSubmittingState = (submitting, isEditing = false) => {
+        isSubmitting = submitting;
+        if (modalConfirmBtn) {
+            modalConfirmBtn.disabled = submitting;
+            modalConfirmBtn.textContent = submitting
+                ? (isEditing ? '変更を保存中...' : '送信中...')
+                : (isEditing ? '変更を保存する' : '注文を確定する');
+        }
+        if (orderSubmitBtn) orderSubmitBtn.disabled = submitting;
+    };
+
+    const updateConfirmationCopy = (isEditing) => {
+        if (confirmationTitle) {
+            confirmationTitle.textContent = isEditing ? '発注内容の変更確認' : '発注内容の最終確認';
+        }
+        if (confirmationDesc) {
+            confirmationDesc.textContent = isEditing
+                ? '以下の内容で発注内容を変更しますか？'
+                : '以下の内容で発注を確定しますか？';
+        }
+        if (modalConfirmBtn) {
+            modalConfirmBtn.textContent = isEditing ? '変更を保存する' : '注文を確定する';
+        }
+    };
     let searchTimeout = null; // For debouncing
     let loggedUnknownJans = new Set(); // 未登録JAN重複送信防止（キー: jan_サロン名）
 
@@ -344,6 +372,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const cartOrderBtn = document.getElementById('cart-order-submit-btn');
     if (cartOrderBtn) {
         cartOrderBtn.addEventListener('click', () => {
+            if (isSubmitting) return;
             if (orderSubmitBtn) orderSubmitBtn.click();
             closeCartSidebar();
         });
@@ -688,17 +717,18 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Group history by date string
-        const groupedHistory = {};
+        // Group history by orderId so multiple orders in the same minute stay separate.
+        const groupedHistory = new Map();
         historyData.forEach(hist => {
-            if (!groupedHistory[hist.date]) {
-                groupedHistory[hist.date] = [];
+            const groupKey = String(hist.orderId || hist.date);
+            if (!groupedHistory.has(groupKey)) {
+                groupedHistory.set(groupKey, []);
             }
-            groupedHistory[hist.date].push(hist);
+            groupedHistory.get(groupKey).push(hist);
         });
 
-        Object.keys(groupedHistory).forEach(date => {
-            const items = groupedHistory[date];
+        groupedHistory.forEach((items, orderId) => {
+            const date = items[0]?.date || '';
             let totalItems = 0;
             let detailsHtml = '';
 
@@ -724,8 +754,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="history-body hidden">
                     ${detailsHtml}
                     <div class="history-actions">
-                        <button class="btn-secondary edit-order-btn ${isCompleted ? 'hidden' : ''}" data-order-id="${items[0].orderId}">変更</button>
-                        <button class="btn-danger cancel-order-btn ${isCompleted ? 'hidden' : ''}" data-order-id="${items[0].orderId}">キャンセル</button>
+                        <button class="btn-secondary edit-order-btn ${isCompleted ? 'hidden' : ''}" data-order-id="${orderId}">変更</button>
+                        <button class="btn-danger cancel-order-btn ${isCompleted ? 'hidden' : ''}" data-order-id="${orderId}">キャンセル</button>
                     </div>
                 </div>
             `;
@@ -1546,6 +1576,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Execute Order Helper ---
     const executeOrderActual = async (orders, isEditing, remarks, staffName = '') => {
+        if (isSubmitting) return;
+        setSubmittingState(true, isEditing);
         showLoading();
         try {
             const action = isEditing ? 'update_order' : 'order';
@@ -1603,10 +1635,14 @@ document.addEventListener('DOMContentLoaded', () => {
             alert('通信エラーが発生しました。\nネットワークの状態を確認するか、数分後に再度お試しください。\n（注文が完了していない可能性があります）');
         } finally {
             hideLoading();
+            setSubmittingState(false, editingOrderId !== null);
         }
     };
 
     const executeMultiOrderActual = async (orderGroups, updateOrderId = null) => {
+        const isEditing = updateOrderId !== null;
+        if (isSubmitting) return;
+        setSubmittingState(true, isEditing);
         showLoading();
         try {
             const payload = {
@@ -1622,7 +1658,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             const result = await response.json();
             if (result.status === 'success') {
-                alert('発注が完了しました！\\n引き続き発注いただけます。');
+                alert(isEditing ? '発注内容を変更しました。' : '発注が完了しました！\n引き続き発注いただけます。');
                 let favsUpdated = false;
                 orderGroups.forEach(group => {
                     group.orders.forEach(order => {
@@ -1644,22 +1680,24 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 const errorMsg = result.message || '不明なエラーが発生しました。';
                 if (errorMsg.includes('サーバーが混み合っています')) {
-                    alert('【混雑中】' + errorMsg + '\\n\\n注文が完了していない可能性があります。数分後に再度お試しください。');
+                    alert('【混雑中】' + errorMsg + '\n\n注文が完了していない可能性があります。数分後に再度お試しください。');
                 } else {
                     alert('エラー: ' + errorMsg);
                 }
             }
         } catch (error) {
             console.error(error);
-            alert('通信エラーが発生しました。\\n（注文が完了していない可能性があります）');
+            alert('通信エラーが発生しました。\n（注文が完了していない可能性があります）');
         } finally {
             hideLoading();
+            setSubmittingState(false, editingOrderId !== null);
         }
     };
 
     // --- Submit Order (API) ---
     if (orderSubmitBtn) {
         orderSubmitBtn.addEventListener('click', () => {
+            if (isSubmitting) return;
             const total = parseInt(totalQtySpan.textContent);
             if (total === 0) {
                 alert('商品を1点以上選択してください。');
@@ -1669,6 +1707,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const orders = [];
 
             const isEditing = editingOrderId !== null;
+            updateConfirmationCopy(isEditing);
 
             // Check if Confirmation Screen elements exist safely
             if (confirmationContainer && confirmItemList) {
@@ -1781,6 +1820,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Close Confirmation Screen
     if (modalCancelBtn) {
         modalCancelBtn.addEventListener('click', () => {
+            if (isSubmitting) return;
             if (confirmationContainer) {
                 confirmationContainer.classList.add('hidden');
                 orderContainer.classList.remove('hidden');
@@ -1795,6 +1835,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Actually Execute Order from Confirmation Screen
     if (modalConfirmBtn) {
         modalConfirmBtn.addEventListener('click', async () => {
+            if (isSubmitting) return;
             const isEditing = editingOrderId !== null;
             const remarks = orderRemarks ? orderRemarks.value.trim() : '';
 
