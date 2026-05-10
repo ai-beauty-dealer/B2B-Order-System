@@ -1,8 +1,8 @@
-// v2.15.0 (SCAN-CONFIRMATION-GUARD)
+// v2.15.2 (SCAN-CONFIRMATION-GUARD)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.15.0 (SCAN-CONFIRMATION-GUARD) Loaded ---');
+    console.log('--- B2B Order System v2.15.2 (SCAN-CONFIRMATION-GUARD) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
