@@ -15,6 +15,7 @@ const SHEET_NAMES = {
   UNKNOWN_JAN: 'UnknownJAN'
 };
 const CLIENT_TYPE_DIRECT = '直送'; // D列に入力するフラグ
+const DUPLICATE_ORDER_WINDOW_MS = 10 * 1000;
 
 // --- サブ関数: 締め時間に基づいた保存先の日付文字列を生成 ---
 function getTargetDateStr(date) {
@@ -56,6 +57,47 @@ function getOrCreateOrderSheet(ss, dateStr, clientType) {
     sheet.setFrozenRows(1);
   }
   return sheet;
+}
+
+function buildOrderSignature(orders) {
+  return orders
+    .filter(order => Number(order.qty) > 0)
+    .map(order => `${String(order.code)}:${Number(order.qty)}`)
+    .sort()
+    .join('|');
+}
+
+function isRecentDuplicateOrder(sheet, displayName, orders, timestamp) {
+  if (!sheet || sheet.getLastRow() <= 1) return false;
+
+  const targetSignature = buildOrderSignature(orders);
+  if (!targetSignature) return false;
+
+  const values = sheet.getDataRange().getValues();
+  const groupedByTimestamp = {};
+
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i];
+    const rowTimestamp = new Date(row[0]);
+    const rowTime = rowTimestamp.getTime();
+    if (!rowTime || Math.abs(timestamp.getTime() - rowTime) > DUPLICATE_ORDER_WINDOW_MS) {
+      continue;
+    }
+    if (String(row[4]) !== String(displayName)) {
+      continue;
+    }
+
+    const key = String(rowTime);
+    if (!groupedByTimestamp[key]) groupedByTimestamp[key] = [];
+    groupedByTimestamp[key].push({
+      code: row[1],
+      qty: row[2]
+    });
+  }
+
+  return Object.keys(groupedByTimestamp).some(key => {
+    return buildOrderSignature(groupedByTimestamp[key]) === targetSignature;
+  });
 }
 
 // 1. GET リクエスト処理 (商品マスタ または 発注履歴 の取得)
@@ -360,6 +402,10 @@ function handleOrder(data) {
      const dateStr = getTargetDateStr(timestamp);
      const sheet = getOrCreateOrderSheet(ss, dateStr, clientType);
 
+     if (isRecentDuplicateOrder(sheet, displayName, orders, timestamp)) {
+         throw new Error("同じ内容の発注が直前に送信されています。二重発注防止のため、この送信は処理しませんでした。履歴をご確認ください。");
+     }
+
      // --- 1. ItemMasterから別注商品コードのセットを取得 ---
      const specialCodes = new Set();
      try {
@@ -501,6 +547,10 @@ function handleMultiOrder(data) {
 
          const dateStr = getTargetDateStr(timestamp);
          const sheet = getOrCreateOrderSheet(ss, dateStr, clientType);
+
+         if (!orderId && isRecentDuplicateOrder(sheet, displayName, orders, timestamp)) {
+             throw new Error("同じ内容の発注が直前に送信されています。二重発注防止のため、この送信は処理しませんでした。履歴をご確認ください。");
+         }
 
          // シート内の「別注セクション」の開始位置（H列）を特定
          const lastRow = sheet.getLastRow();
