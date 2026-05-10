@@ -1,8 +1,8 @@
-// v2.14.1 (SCAN-SENSITIVITY-TUNE)
+// v2.14.0 (SCAN-CONFIRMATION-GUARD)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.14.1 (SCAN-SENSITIVITY-TUNE) Loaded ---');
+    console.log('--- B2B Order System v2.14.0 (SCAN-CONFIRMATION-GUARD) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -2077,14 +2077,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return true;
     };
 
-    const getScannerQrbox = () => {
-        const readerEl = document.getElementById('reader');
-        const availableWidth = readerEl ? readerEl.clientWidth : window.innerWidth;
-        const width = Math.max(300, Math.min(Math.floor(availableWidth * 0.9), 520));
-        const height = Math.max(130, Math.min(Math.floor(width * 0.42), 170));
-        return { width, height };
-    };
-
     if (scanQtyMinus) {
         scanQtyMinus.addEventListener('click', () => setActiveScanQty(getScanQty() - 1, true));
     }
@@ -2188,15 +2180,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 verbose: false
             });
             await html5QrcodeScanner.start(
-                {
-                    facingMode: { ideal: "environment" },
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 }
-                },
+                { facingMode: "environment" },
                 { 
                     fps: 15,
-                    qrbox: getScannerQrbox(),
-                    aspectRatio: 1.7777778,
+                    qrbox: { width: 300, height: 120 },
                     disableFlip: true,
                     // ブラウザのネイティブBarcode Detection APIを優先使用（GPU高速化）
                     experimentalFeatures: {
