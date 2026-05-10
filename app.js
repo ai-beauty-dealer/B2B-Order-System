@@ -1,8 +1,8 @@
-// v2.14.9 (OPTIONAL-SCAN-ZOOM)
+// v2.15.0 (SCAN-CONFIRMATION-GUARD)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.14.9 (OPTIONAL-SCAN-ZOOM) Loaded ---');
+    console.log('--- B2B Order System v2.15.0 (SCAN-CONFIRMATION-GUARD) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -1962,7 +1962,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const SCAN_CONFIRM_WINDOW_MS = 1200;
     const SCAN_CONFIRM_MIN_GAP_MS = 450;
     const SCAN_REQUIRED_MATCHES = 2;
-    const SCAN_ZOOM_TARGET = 1.8;
 
     // ビープ音生成（Web Audio API - iOS Safari対応）
     let audioCtx = null;
@@ -2142,26 +2141,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }).catch(err => console.warn('Unknown JAN log failed:', err));
     };
 
-    const applySupportedScanZoom = async () => {
-        try {
-            if (!html5QrcodeScanner?.getRunningTrackCameraCapabilities) return;
-
-            const capabilities = html5QrcodeScanner.getRunningTrackCameraCapabilities();
-            const zoomFeature = capabilities?.zoomFeature?.();
-            if (!zoomFeature?.isSupported?.()) return;
-
-            const minZoom = Number(zoomFeature.min?.() ?? 1);
-            const maxZoom = Number(zoomFeature.max?.() ?? SCAN_ZOOM_TARGET);
-            const targetZoom = Math.min(maxZoom, Math.max(minZoom, SCAN_ZOOM_TARGET));
-            if (!Number.isFinite(targetZoom)) return;
-
-            await zoomFeature.apply(targetZoom);
-            console.log(`[Scanner] Applied camera zoom: ${targetZoom}`);
-        } catch (err) {
-            console.warn('[Scanner] Camera zoom not applied:', err);
-        }
-    };
-
     // スキャナ起動
     const startScanner = async () => {
         if (!scannerModal || !scannerOverlay) return;
@@ -2198,7 +2177,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 onScanSuccess,
                 () => {}
             );
-            await applySupportedScanZoom();
             if (scannerStatus) scannerStatus.textContent = 'バーコードを枠内に収めてください';
         } catch (err) {
             console.error("Camera error:", err);
