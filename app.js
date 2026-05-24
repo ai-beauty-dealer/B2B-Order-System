@@ -313,7 +313,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const banner = document.createElement('div');
         banner.id = 'cart-restore-banner';
         banner.className = 'cart-restore-banner';
-        banner.innerHTML = `<span>……前回のカートが残ってたから復元したよ（${itemCount}点）。続きから発注できる。</span><button class="cart-restore-close" aria-label="閉じる">&times;</button>`;
+        banner.innerHTML = `<span>前回の発注を復元しました（${itemCount}点）</span><button class="cart-restore-close" aria-label="閉じる">&times;</button>`;
         banner.querySelector('.cart-restore-close').addEventListener('click', () => banner.remove());
         document.body.appendChild(banner);
         setTimeout(() => { if (banner.parentNode) banner.remove(); }, 6000);
@@ -1470,9 +1470,14 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log(`[DEBUG] Login successful for ${currentClientName}, starting data fetch...`);
         const restoredCount = restoreCartFromStorage();
         setTimeout(() => {
-            fetchItems(forceFetchVersion, forceFetchVersion ? '最新の商品マスタに更新しています...' : null);
-            switchTab('tab-all'); // Explicitly set initial tab state
-            if (restoredCount > 0) showCartRestoredBanner(restoredCount);
+            fetchItems(forceFetchVersion, forceFetchVersion ? '最新の商品マスタに更新しています...' : null)
+                .then(() => {
+                    // Sync restored cart quantities to product list inputs after render
+                    Object.entries(currentCart).forEach(([code, data]) => syncCardQty(code, data.qty));
+                    calculateTotal();
+                    if (restoredCount > 0) showCartRestoredBanner(restoredCount);
+                });
+            switchTab('tab-all');
         }, 300);
         hideLoading();
     };
