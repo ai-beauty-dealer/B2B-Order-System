@@ -1320,3 +1320,33 @@ input[type=number]::-webkit-outer-spin-button {
     from { transform: translateX(-50%) translateY(-20px); opacity: 0; }
     to { transform: translateX(-50%) translateY(0); opacity: 1; }
 }
+
+/* Cart restore banner */
+.cart-restore-banner {
+    position: fixed;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1e3a5f;
+    color: #fff;
+    padding: 12px 20px;
+    border-radius: 10px;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+    z-index: 9999;
+    animation: toastIn 0.3s ease-out;
+    max-width: 90vw;
+}
+.cart-restore-close {
+    background: none;
+    border: none;
+    color: #aac4e8;
+    font-size: 1.2rem;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0 2px;
+}
+.cart-restore-close:hover { color: #fff; }

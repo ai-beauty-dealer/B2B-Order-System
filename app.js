@@ -245,6 +245,7 @@ document.addEventListener('DOMContentLoaded', () => {
         for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
             if (key.startsWith('b2b_favs_') ||
+                key.startsWith('b2b_cart_') ||
                 key === 'b2b_saved_username' ||
                 key === 'b2b_remember_me') {
                 keysToKeep.push({ key, value: localStorage.getItem(key) });
@@ -263,6 +264,60 @@ document.addEventListener('DOMContentLoaded', () => {
         location.reload();
     };
 
+
+    // --- Cart Persistence (localStorage) ---
+    const getCartKey = () => `b2b_cart_${currentUsername}_${currentClientName}`;
+
+    const saveCartToStorage = () => {
+        if (!currentUsername || !currentClientName || editingOrderId !== null) return;
+        const cartToSave = {};
+        const orderToSave = [];
+        cartOrder.forEach(code => {
+            if (!String(code).startsWith('CUSTOM_ITEM_') && currentCart[code]) {
+                orderToSave.push(code);
+                cartToSave[code] = currentCart[code];
+            }
+        });
+        localStorage.setItem(getCartKey(), JSON.stringify({
+            cart: cartToSave, order: orderToSave, savedAt: Date.now()
+        }));
+    };
+
+    const clearCartFromStorage = () => {
+        if (!currentUsername || !currentClientName) return;
+        localStorage.removeItem(getCartKey());
+    };
+
+    // Returns the number of restored items (0 = nothing restored)
+    const restoreCartFromStorage = () => {
+        const saved = localStorage.getItem(getCartKey());
+        if (!saved) return 0;
+        try {
+            const parsed = JSON.parse(saved);
+            if (parsed.savedAt && Date.now() - parsed.savedAt > 7 * 24 * 60 * 60 * 1000) {
+                localStorage.removeItem(getCartKey());
+                return 0;
+            }
+            currentCart = parsed.cart || {};
+            cartOrder = parsed.order || [];
+            return Object.values(currentCart).filter(v => v.qty > 0).length;
+        } catch (e) {
+            console.warn('[Cart] Failed to restore cart from storage:', e);
+            return 0;
+        }
+    };
+
+    const showCartRestoredBanner = (itemCount) => {
+        const existing = document.getElementById('cart-restore-banner');
+        if (existing) existing.remove();
+        const banner = document.createElement('div');
+        banner.id = 'cart-restore-banner';
+        banner.className = 'cart-restore-banner';
+        banner.innerHTML = `<span>……前回のカートが残ってたから復元したよ（${itemCount}点）。続きから発注できる。</span><button class="cart-restore-close" aria-label="閉じる">&times;</button>`;
+        banner.querySelector('.cart-restore-close').addEventListener('click', () => banner.remove());
+        document.body.appendChild(banner);
+        setTimeout(() => { if (banner.parentNode) banner.remove(); }, 6000);
+    };
 
     // --- Cart Sidebar Renderer ---
     // Sync helper: update the item card's qty input (if visible on screen)
@@ -284,6 +339,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         syncCardQty(code, newQty);
         calculateTotal();
+        saveCartToStorage();
     };
 
     const renderCartSidebar = () => {
@@ -692,17 +748,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
         card.querySelector('.minus').addEventListener('click', () => {
             let val = parseInt(input.value) || 0;
-            if (val > 0) { val -= 1; input.value = val; updateCart(val); calculateTotal(); }
+            if (val > 0) { val -= 1; input.value = val; updateCart(val); calculateTotal(); saveCartToStorage(); }
         });
         card.querySelector('.plus').addEventListener('click', () => {
             let val = parseInt(input.value) || 0;
-            val += 1; input.value = val; updateCart(val); calculateTotal();
+            val += 1; input.value = val; updateCart(val); calculateTotal(); saveCartToStorage();
         });
         input.addEventListener('change', () => {
             let val = parseInt(input.value) || 0;
             if (val < 0) { val = 0; input.value = 0; }
             updateCart(val);
             calculateTotal();
+            saveCartToStorage();
         });
 
         return card;
@@ -885,7 +942,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         minusBtn.addEventListener('click', () => {
             let val = parseInt(qtyInput.value) || 0;
-            if (val > 0) { val -= 1; qtyInput.value = val; updateCart(val); calculateTotal(); }
+            if (val > 0) { val -= 1; qtyInput.value = val; updateCart(val); calculateTotal(); saveCartToStorage(); }
         });
 
         plusBtn.addEventListener('click', () => {
@@ -894,7 +951,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
             let val = parseInt(qtyInput.value) || 0;
-            val += 1; qtyInput.value = val; updateCart(val); calculateTotal();
+            val += 1; qtyInput.value = val; updateCart(val); calculateTotal(); saveCartToStorage();
         });
 
         qtyInput.addEventListener('change', () => {
@@ -907,6 +964,7 @@ document.addEventListener('DOMContentLoaded', () => {
             qtyInput.value = val;
             updateCart(val);
             calculateTotal();
+            saveCartToStorage();
         });
 
         removeBtn.addEventListener('click', () => {
@@ -915,6 +973,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 cartOrder = cartOrder.filter(c => c !== itemCode);
                 card.remove();
                 calculateTotal();
+                saveCartToStorage();
             }
         });
 
@@ -987,14 +1046,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const resetEditMode = () => {
         editingOrderId = null;
-        currentCart = {}; // Clear cart
-        cartOrder = []; // Clear cart order
+        currentCart = {};
+        cartOrder = [];
+        restoreCartFromStorage(); // Restore draft cart (no-op if cleared by successful submit)
         if (orderSubmitBtn) orderSubmitBtn.textContent = '発注する';
         if (cancelEditBtn) cancelEditBtn.classList.add('hidden');
         if (customItemsList) customItemsList.innerHTML = '';
         calculateTotal();
         if (searchInput) searchInput.value = '';
-        renderItems(itemsData); // Clear search filters
+        renderItems(itemsData);
     };
 
 
@@ -1408,9 +1468,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // --- ANTI-FREEZE: Delay fetchItems slightly ---
         console.log(`[DEBUG] Login successful for ${currentClientName}, starting data fetch...`);
+        const restoredCount = restoreCartFromStorage();
         setTimeout(() => {
             fetchItems(forceFetchVersion, forceFetchVersion ? '最新の商品マスタに更新しています...' : null);
             switchTab('tab-all'); // Explicitly set initial tab state
+            if (restoredCount > 0) showCartRestoredBanner(restoredCount);
         }, 300);
         hideLoading();
     };
@@ -1511,10 +1573,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const clientData = JSON.parse(selectedVal);
             
             // 重要: 前のサロン（またはマスター自身の）データが混ざらないよう完全クリア
+            clearCartFromStorage(); // Must be called before currentClientName changes
             favoriteItems = [];
             currentCart = {};
             cartOrder = [];
-            
+
             currentClientName = (clientData.name || '').trim();
             currentClientType = clientData.type;
 
@@ -1536,6 +1599,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('master-salon-selector').classList.add('hidden');
             if (globalSyncBtn) globalSyncBtn.classList.add('hidden');
             loginForm.classList.remove('hidden');
+            clearCartFromStorage(); // Must be called before currentUsername is cleared
             currentUsername = '';
             // 切替キャンセル時もクリアしておく
             favoriteItems = [];
@@ -1546,6 +1610,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Logout ---
     logoutBtn.addEventListener('click', () => {
+        clearCartFromStorage(); // Must be called before clearing currentUsername/currentClientName
         currentUsername = '';
         currentClientName = '';
         currentClientType = '';
@@ -1620,6 +1685,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     renderItems(itemsData);
                 }
                 if (customItemsList) customItemsList.innerHTML = '';
+                clearCartFromStorage(); // Order submitted — discard persisted draft
                 resetEditMode();
                 fetchHistory(true); // Force refresh history to include the new order
             } else {
@@ -1675,6 +1741,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     renderItems(itemsData);
                 }
                 if (customItemsList) customItemsList.innerHTML = '';
+                clearCartFromStorage(); // Order submitted — discard persisted draft
                 resetEditMode();
                 fetchHistory(true);
             } else {

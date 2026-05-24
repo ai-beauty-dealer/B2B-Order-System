@@ -16,6 +16,7 @@ const SHEET_NAMES = {
 };
 const CLIENT_TYPE_DIRECT = '直送'; // D列に入力するフラグ
 const DUPLICATE_ORDER_WINDOW_MS = 10 * 1000;
+const ORDER_HEADERS = ['タイムスタンプ', '商品コード', '個数', '商品名', '得意先名', 'ステータス', '備考', '別注'];
 
 // --- サブ関数: 締め時間に基づいた保存先の日付文字列を生成 ---
 function getTargetDateStr(date) {
@@ -50,13 +51,33 @@ function getOrCreateOrderSheet(ss, dateStr, clientType) {
   if (!sheet) {
     sheet = ss.insertSheet(sheetName);
     // ヘッダーを追加（A:タイムスタンプ B:商品コード C:個数 D:商品名 E:得意先名 F:ステータス G:備考 H:別注）
-    sheet.appendRow(['タイムスタンプ', '商品コード', '個数', '商品名', '得意先名', 'ステータス', '備考', '別注']);
-    sheet.getRange(1, 1, 1, 8).setFontWeight('bold').setBackground(
+    sheet.appendRow(ORDER_HEADERS);
+    sheet.getRange(1, 1, 1, ORDER_HEADERS.length).setFontWeight('bold').setBackground(
       clientType === CLIENT_TYPE_DIRECT ? '#fff2cc' : '#f3f3f3'
     );
     sheet.setFrozenRows(1);
+  } else {
+    ensureOrderSheetColumns(sheet);
   }
   return sheet;
+}
+
+function ensureOrderSheetColumns(sheet) {
+  const lastCol = Math.max(sheet.getLastColumn(), ORDER_HEADERS.length);
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  let changed = false;
+
+  ORDER_HEADERS.forEach((header, index) => {
+    if (headers[index] !== header) {
+      headers[index] = header;
+      changed = true;
+    }
+  });
+
+  if (changed || sheet.getLastColumn() < ORDER_HEADERS.length) {
+    sheet.getRange(1, 1, 1, ORDER_HEADERS.length).setValues([ORDER_HEADERS]);
+    sheet.getRange(1, 1, 1, ORDER_HEADERS.length).setFontWeight('bold');
+  }
 }
 
 function buildOrderSignature(orders) {
@@ -98,6 +119,19 @@ function isRecentDuplicateOrder(sheet, displayName, orders, timestamp) {
   return Object.keys(groupedByTimestamp).some(key => {
     return buildOrderSignature(groupedByTimestamp[key]) === targetSignature;
   });
+}
+
+function createOrderRow(timestamp, code, qty, name, displayName, status, remarks, isSpecial) {
+  return [
+    timestamp,
+    code,
+    qty,
+    name,
+    displayName,
+    status || '',
+    remarks || '',
+    isSpecial ? '別注' : ''
+  ];
 }
 
 // 1. GET リクエスト処理 (商品マスタ または 発注履歴 の取得)
@@ -442,7 +476,7 @@ function handleOrder(data) {
          if(order.qty > 0) {
              const isSpecial = specialCodes.has(String(order.code)) || String(order.code).startsWith('CUSTOM_ITEM_');
              // F:ステータス, G:備考, H:別注
-             const row = [timestamp, order.code, order.qty, order.name, displayName, '', remarks, isSpecial ? '別注' : ''];
+             const row = createOrderRow(timestamp, order.code, order.qty, order.name, displayName, '', remarks, isSpecial);
              
              if (isSpecial) {
                  specialRows.push(row);
@@ -572,7 +606,7 @@ function handleMultiOrder(data) {
          orders.forEach(order => {
              if(order.qty > 0) {
                  const isSpecial = specialCodes.has(String(order.code)) || String(order.code).startsWith('CUSTOM_ITEM_');
-                 const row = [timestamp, order.code, order.qty, order.name, displayName, '', remarks, isSpecial ? '別注' : ''];
+                 const row = createOrderRow(timestamp, order.code, order.qty, order.name, displayName, '', remarks, isSpecial);
                  
                  if (isSpecial) specialRows.push(row);
                  else normalRows.push(row);
@@ -761,7 +795,7 @@ function handleUpdateOrder(data) {
              const strCode = String(order.code);
              const isSpecial = specialCodesUpd.has(strCode) || strCode.startsWith('CUSTOM_ITEM_');
              const existingStatus = typeof statusMap[strCode] === 'string' ? statusMap[strCode] : '';
-             const row = [originalTimestamp, order.code, order.qty, order.name, actualDisplayName, existingStatus, remarks, isSpecial ? '別注' : ''];
+             const row = createOrderRow(originalTimestamp, order.code, order.qty, order.name, actualDisplayName, existingStatus, remarks, isSpecial);
              if (isSpecial) {
                  specialRowsUpd.push(row);
              } else {
