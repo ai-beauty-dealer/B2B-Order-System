@@ -11,7 +11,7 @@
 //
 // キャッシュ名にバージョンを持たせ、更新時に古いキャッシュを消す。
 
-const CACHE_VERSION = 'v2.18.0';
+const CACHE_VERSION = 'v2.18.1';
 const CACHE_NAME = 'b2b-order-' + CACHE_VERSION;
 
 // 起動に必要な最小資産（オフライン時のフォールバック用）

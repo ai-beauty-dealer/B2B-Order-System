@@ -98,9 +98,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (rememberMeCheckbox) rememberMeCheckbox.checked = true;
     }
 
-    // --- PWA: ワンタップ再開「◯◯サロンとして続ける」 ---
-    // 完全自動ログインは共用端末で危ないため、確認1タップを挟む。
-    // セッションは通常ログイン成功時（remember me ON）にのみ保存する。
+    // --- PWA: 自動ログイン（アイコン起動で即発注画面）---
+    // セッションは通常ログイン成功時に保存し、次回以降は自動で入る。
+    // 別のサロンに切り替えるときはログアウトすればよい（下記でclearする）。
+    // 認証失敗時はセッションを消して手動ログイン画面に戻す（無限ループ防止）。
+    let autoLoginInProgress = false;
     const saveResumeSession = (u, p, name) => {
         try {
             localStorage.setItem('b2b_resume', JSON.stringify({ u, p, name }));
@@ -109,41 +111,48 @@ document.addEventListener('DOMContentLoaded', () => {
     const clearResumeSession = () => {
         try { localStorage.removeItem('b2b_resume'); } catch (e) {}
     };
-    const renderResumePanel = () => {
+    const attemptAutoLogin = () => {
         let session = null;
         try { session = JSON.parse(localStorage.getItem('b2b_resume') || 'null'); }
         catch (e) { session = null; }
         if (!session || !session.u || !session.p) return;
 
-        const panel = document.createElement('div');
-        panel.id = 'resume-panel';
-        panel.style.cssText = 'background:#f3f7fb;border:1px solid #d6e4f0;border-radius:10px;padding:16px;margin-bottom:16px;text-align:center;';
-        panel.innerHTML =
-            '<div style="font-size:0.85rem;color:#5b7089;margin-bottom:8px;">前回のログイン</div>' +
-            '<button type="button" id="resume-continue-btn" class="btn-primary" style="width:100%;padding:14px;font-size:1.05rem;">' +
-            (session.name ? session.name + ' として続ける' : 'ログインを続ける') + '</button>' +
-            '<button type="button" id="resume-other-btn" style="margin-top:10px;background:none;border:none;color:#5b7089;text-decoration:underline;font-size:0.9rem;cursor:pointer;">別のサロンでログイン</button>';
-
+        // 自動ログイン中の表示＋「別のサロン」への脱出口
+        const banner = document.createElement('div');
+        banner.id = 'auto-login-banner';
+        banner.style.cssText = 'background:#f3f7fb;border:1px solid #d6e4f0;border-radius:10px;padding:16px;margin-bottom:16px;text-align:center;';
+        banner.innerHTML =
+            '<div style="color:#1e3a5f;font-weight:600;margin-bottom:8px;">' +
+            (session.name ? session.name + ' として自動ログイン中…' : 'ログイン中…') + '</div>' +
+            '<button type="button" id="auto-login-cancel" style="background:none;border:none;color:#5b7089;text-decoration:underline;font-size:0.9rem;cursor:pointer;">別のサロンでログインする</button>';
         loginForm.style.display = 'none';
-        loginContainer.insertBefore(panel, loginForm);
+        loginContainer.insertBefore(banner, loginForm);
 
-        document.getElementById('resume-continue-btn').addEventListener('click', () => {
+        let cancelled = false;
+        document.getElementById('auto-login-cancel').addEventListener('click', () => {
+            cancelled = true;
+            autoLoginInProgress = false;
+            banner.remove();
+            loginForm.style.display = '';
+        });
+
+        // 「別のサロン」を押す猶予を少しだけ置いてから自動送信
+        setTimeout(() => {
+            if (cancelled) return;
+            autoLoginInProgress = true;
             if (usernameInput) usernameInput.value = session.u;
             const pwEl = document.getElementById('password');
             if (pwEl) pwEl.value = session.p;
-            panel.remove();
+            const b = document.getElementById('auto-login-banner');
+            if (b) b.remove();
             loginForm.style.display = '';
             // 既存のログイン処理をそのまま流用（新しい経路を作らない）
             loginForm.requestSubmit
                 ? loginForm.requestSubmit()
                 : loginForm.dispatchEvent(new Event('submit', { cancelable: true }));
-        });
-        document.getElementById('resume-other-btn').addEventListener('click', () => {
-            panel.remove();
-            loginForm.style.display = '';
-        });
+        }, 600);
     };
-    renderResumePanel();
+    window.addEventListener('load', attemptAutoLogin);
 
     // --- PWA: ホーム画面追加の案内（iOS/Android）---
     const isStandalone = window.matchMedia('(display-mode: standalone)').matches
@@ -1767,20 +1776,25 @@ document.addEventListener('DOMContentLoaded', () => {
                 currentClientName = (result.clientName || '').trim();
                 currentClientType = result.clientType || ''; // '直送' or ''
 
-                // PWA: remember me ONのとき、次回「続ける」用にセッション保存
-                if (rememberMeCheckbox && rememberMeCheckbox.checked) {
-                    saveResumeSession(username, password, currentClientName);
-                } else {
-                    clearResumeSession();
-                }
+                // PWA: 次回の自動ログイン用にセッション保存
+                autoLoginInProgress = false;
+                saveResumeSession(username, password, currentClientName);
 
                 await processLoginSuccess(result.announcement, result.isMaintenance, result.maintenanceMessage, result.dataVersion);
             } else {
                 console.error('[DEBUG] Login Failed result:', result);
+                // 自動ログインが認証エラーで失敗したら、
+                // 記憶を消して手動ログインへ（無限ループ防止）
+                if (autoLoginInProgress) {
+                    clearResumeSession();
+                    autoLoginInProgress = false;
+                }
                 alert('ログインに失敗しました: ' + result.message);
             }
         } catch (error) {
             console.error(error);
+            // 通信エラーは一時的なので記憶は消さない（次回また自動で試す）
+            autoLoginInProgress = false;
             alert('通信に失敗しました。');
             hideLoading();
         }
