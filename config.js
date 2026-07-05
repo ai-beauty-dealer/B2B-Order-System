@@ -23,14 +23,35 @@ const DEALER_API_URLS = {
 };
 
 const CONFIG = (() => {
+    // dealer解決の優先順位（PWA対応・R-1）:
+    //   ① URLの ?dealer=（あれば最優先。記憶も更新する）
+    //   ② 前回記憶したdealer（localStorage）
+    //      ← PWAはホーム画面起動で ?dealer= が消えるため、
+    //        これが無いと default に誤接続して他担当のシートに
+    //        注文が混ざる事故になる。ここが最重要ガード。
+    //   ③ どちらも無ければ default
     let dealer = 'default';
 
     try {
         const params = new URLSearchParams(
             window.location.search
         );
-        dealer = (params.get('dealer') || 'default')
+        const urlDealer = (params.get('dealer') || '')
             .trim().toLowerCase();
+
+        if (urlDealer) {
+            dealer = urlDealer;
+            try {
+                localStorage.setItem('b2b_dealer', urlDealer);
+            } catch (e) { /* localStorage不可でも続行 */ }
+        } else {
+            let saved = '';
+            try {
+                saved = (localStorage.getItem('b2b_dealer') || '')
+                    .trim().toLowerCase();
+            } catch (e) { saved = ''; }
+            dealer = saved || 'default';
+        }
     } catch (e) {
         dealer = 'default';
     }

@@ -8,6 +8,13 @@
     <title>AI Beauty Dealer - B2B Order System</title>
     <link rel="stylesheet" href="style.css?v=2.15.3">
 
+    <!-- PWA -->
+    <link rel="manifest" href="manifest.json?v=2.18.0">
+    <meta name="theme-color" content="#1e3a5f">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="発注">
 </head>
 
 <body>
@@ -205,8 +212,20 @@
     </div>
 
     <script src="lib/html5-qrcode.min.js"></script>
-    <script src="config.js?v=2.16.0"></script>
-    <script src="app.js?v=2.17.0"></script>
+    <script src="config.js?v=2.18.0"></script>
+    <script src="app.js?v=2.18.0"></script>
+
+    <!-- Service Worker 登録（PWA） -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function () {
+                navigator.serviceWorker.register('sw.js?v=2.18.0')
+                    .catch(function (err) {
+                        console.warn('SW登録に失敗（通常サイトとして続行）:', err);
+                    });
+            });
+        }
+    </script>
 
     <!-- Cart Sidebar -->
     <div id="cart-sidebar" class="cart-sidebar hidden">

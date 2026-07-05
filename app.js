@@ -98,6 +98,75 @@ document.addEventListener('DOMContentLoaded', () => {
         if (rememberMeCheckbox) rememberMeCheckbox.checked = true;
     }
 
+    // --- PWA: ワンタップ再開「◯◯サロンとして続ける」 ---
+    // 完全自動ログインは共用端末で危ないため、確認1タップを挟む。
+    // セッションは通常ログイン成功時（remember me ON）にのみ保存する。
+    const saveResumeSession = (u, p, name) => {
+        try {
+            localStorage.setItem('b2b_resume', JSON.stringify({ u, p, name }));
+        } catch (e) { /* 保存不可でも通常動作 */ }
+    };
+    const clearResumeSession = () => {
+        try { localStorage.removeItem('b2b_resume'); } catch (e) {}
+    };
+    const renderResumePanel = () => {
+        let session = null;
+        try { session = JSON.parse(localStorage.getItem('b2b_resume') || 'null'); }
+        catch (e) { session = null; }
+        if (!session || !session.u || !session.p) return;
+
+        const panel = document.createElement('div');
+        panel.id = 'resume-panel';
+        panel.style.cssText = 'background:#f3f7fb;border:1px solid #d6e4f0;border-radius:10px;padding:16px;margin-bottom:16px;text-align:center;';
+        panel.innerHTML =
+            '<div style="font-size:0.85rem;color:#5b7089;margin-bottom:8px;">前回のログイン</div>' +
+            '<button type="button" id="resume-continue-btn" class="btn-primary" style="width:100%;padding:14px;font-size:1.05rem;">' +
+            (session.name ? session.name + ' として続ける' : 'ログインを続ける') + '</button>' +
+            '<button type="button" id="resume-other-btn" style="margin-top:10px;background:none;border:none;color:#5b7089;text-decoration:underline;font-size:0.9rem;cursor:pointer;">別のサロンでログイン</button>';
+
+        loginForm.style.display = 'none';
+        loginContainer.insertBefore(panel, loginForm);
+
+        document.getElementById('resume-continue-btn').addEventListener('click', () => {
+            if (usernameInput) usernameInput.value = session.u;
+            const pwEl = document.getElementById('password');
+            if (pwEl) pwEl.value = session.p;
+            panel.remove();
+            loginForm.style.display = '';
+            // 既存のログイン処理をそのまま流用（新しい経路を作らない）
+            loginForm.requestSubmit
+                ? loginForm.requestSubmit()
+                : loginForm.dispatchEvent(new Event('submit', { cancelable: true }));
+        });
+        document.getElementById('resume-other-btn').addEventListener('click', () => {
+            panel.remove();
+            loginForm.style.display = '';
+        });
+    };
+    renderResumePanel();
+
+    // --- PWA: ホーム画面追加の案内（iOS/Android）---
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches
+        || window.navigator.standalone === true;
+    if (!isStandalone && localStorage.getItem('b2b_install_dismissed') !== '1') {
+        const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+        const hint = document.createElement('div');
+        hint.id = 'install-hint';
+        hint.style.cssText = 'position:fixed;left:0;right:0;bottom:0;background:#1e3a5f;color:#fff;padding:12px 16px;font-size:0.85rem;z-index:998;display:flex;align-items:center;gap:10px;';
+        const msg = isIOS
+            ? '📲 共有ボタン → 「ホーム画面に追加」でアプリのように使えます'
+            : '📲 メニュー → 「ホーム画面に追加」でアプリのように使えます';
+        hint.innerHTML = '<span style="flex:1;">' + msg + '</span>' +
+            '<button type="button" id="install-hint-close" style="background:rgba(255,255,255,0.2);border:none;color:#fff;border-radius:6px;padding:6px 10px;cursor:pointer;">閉じる</button>';
+        window.addEventListener('load', () => {
+            document.body.appendChild(hint);
+            document.getElementById('install-hint-close').addEventListener('click', () => {
+                hint.remove();
+                try { localStorage.setItem('b2b_install_dismissed', '1'); } catch (e) {}
+            });
+        });
+    }
+
     // Cart Sidebar Elements
     const cartSidebarEl = document.getElementById('cart-sidebar');
     const cartSidebarList = document.getElementById('cart-sidebar-list');
@@ -1525,6 +1594,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Login Helper ---
     const processLoginSuccess = async (announcement, isMaintenance, maintenanceMessage, dataVersion = null) => {
         loggedUnknownJans.clear(); // サロン切替時に未登録JANの送信済みSetをリセット
+        // PWA: インストール案内バナーはログイン画面だけに出す
+        // （注文画面のカートボタンに重ならないよう、ログイン後は消す）
+        const _installHint = document.getElementById('install-hint');
+        if (_installHint) _installHint.remove();
         if (clientNameDisplay) {
             const typeLabel = currentClientType === '直送' ? ' [直送]' : '';
             clientNameDisplay.textContent = currentClientName + ' 様' + typeLabel;
@@ -1694,6 +1767,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 currentClientName = (result.clientName || '').trim();
                 currentClientType = result.clientType || ''; // '直送' or ''
 
+                // PWA: remember me ONのとき、次回「続ける」用にセッション保存
+                if (rememberMeCheckbox && rememberMeCheckbox.checked) {
+                    saveResumeSession(username, password, currentClientName);
+                } else {
+                    clearResumeSession();
+                }
+
                 await processLoginSuccess(result.announcement, result.isMaintenance, result.maintenanceMessage, result.dataVersion);
             } else {
                 console.error('[DEBUG] Login Failed result:', result);
@@ -1750,6 +1830,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Logout ---
     logoutBtn.addEventListener('click', () => {
+        clearResumeSession(); // 明示ログアウト＝別の人に切り替える意図なので再開情報を消す
         clearCartFromStorage(); // Must be called before clearing currentUsername/currentClientName
         currentUsername = '';
         currentClientName = '';
