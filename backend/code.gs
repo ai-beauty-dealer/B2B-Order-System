@@ -264,6 +264,8 @@ function doGet(e) {
       }
       return ContentService.createTextOutput(JSON.stringify({ status: 'success', data: favs }))
         .setMimeType(ContentService.MimeType.JSON);
+    } else if (action === 'history_archive') {
+      return handleArchiveHistory(e);
     } else {
         throw new Error("Invalid action parameter for GET.");
     }
@@ -864,55 +866,242 @@ function handleSaveFavorites(data) {
 // 通知処理（LINE & Discord）
 // ------------------------------------------
 
+const LINE_FALLBACK_THRESHOLD_DEFAULT = 20;
+
 /**
- * 汎用通知関数: LINEへの送信を試み、エラーがあればDiscordへ、または両方に送る
+ * 汎用通知関数: LINEは残数に応じてA/Bを切り替え、Discordは常時送信する
  */
 function sendNotification(message) {
-    // 1. LINE通知 (現在制限中のためエラーになる可能性が高い)
+    // 1. LINE通知（A残数が少ない場合はBへ切替。Aが上限エラーならBへフォールバック）
     const lineSuccess = sendLineNotification(message);
+    if (!lineSuccess) {
+        console.error("LINE Notification failed on all configured accounts.");
+    }
 
-    // 2. Discord通知 (バックアップまたは常時送信用)
+    // 2. Discord通知（常時送信用）
     sendDiscordNotification(message);
 }
 
 function sendLineNotification(message) {
     try {
-        const token = PropertiesService.getScriptProperties().getProperty('LINE_CHANNEL_ACCESS_TOKEN');
-        const groupId = PropertiesService.getScriptProperties().getProperty('GROUP_ID');
+        const props = PropertiesService.getScriptProperties();
+        const primary = getLineAccountConfig(props, '');
+        const secondary = getLineAccountConfig(props, '_B');
 
-        if (!token || !groupId) {
-            console.log("LINE Notification skipped: Credentials not found.");
+        if (!primary && !secondary) {
+            console.log("LINE Notification skipped: LINE credentials not found.");
             return false;
         }
 
-        const url = 'https://api.line.me/v2/bot/message/push';
-        const payload = {
-            to: groupId,
-            messages: [{ type: 'text', text: message }]
-        };
+        const threshold = getLineFallbackThreshold(props);
+        const primaryQuota = primary ? getLineQuotaStatus(primary.token) : null;
+        const secondaryQuota = secondary ? getLineQuotaStatus(secondary.token) : null;
+        const primaryRemaining = primaryQuota ? primaryQuota.remaining : null;
+        const secondaryRemaining = secondaryQuota ? secondaryQuota.remaining : null;
+        const shouldUseSecondaryFirst = primary && secondary && primaryRemaining !== null && primaryRemaining <= threshold && (secondaryRemaining === null || secondaryRemaining > threshold);
+        const shouldReturnToPrimary = primary && secondary && primaryRemaining !== null && primaryRemaining <= threshold && secondaryRemaining !== null && secondaryRemaining <= threshold;
 
-        const options = {
-            method: 'post',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + token
-            },
-            payload: JSON.stringify(payload),
-            muteHttpExceptions: true // 429エラーなどをログに残すために追加
-        };
+        if (shouldUseSecondaryFirst) {
+            console.log(`LINE primary remaining quota is ${primaryRemaining}. Switching to secondary LINE account.`);
+            const secondaryResult = pushLineMessage(secondary, message);
+            if (secondaryResult.success) return true;
 
-        const response = UrlFetchApp.fetch(url, options);
-        const responseCode = response.getResponseCode();
-        
-        if (responseCode !== 200) {
-            console.error(`LINE API Error: ${responseCode} - ${response.getContentText()}`);
+            console.error(`Secondary LINE API Error: ${secondaryResult.code} - ${secondaryResult.body}`);
+            if (primary) {
+                console.log("Secondary LINE account failed. Trying primary LINE account as final fallback.");
+                const primaryResult = pushLineMessage(primary, message);
+                if (primaryResult.success) return true;
+
+                console.error(`Primary LINE API Error: ${primaryResult.code} - ${primaryResult.body}`);
+            }
             return false;
         }
-        
-        return true;
+
+        if (shouldReturnToPrimary) {
+            console.log(`Both LINE accounts are near threshold. Returning to primary LINE account. primary=${primaryRemaining}, secondary=${secondaryRemaining}`);
+        }
+
+        if (primary) {
+            const primaryResult = pushLineMessage(primary, message);
+            if (primaryResult.success) return true;
+
+            console.error(`Primary LINE API Error: ${primaryResult.code} - ${primaryResult.body}`);
+
+            if (secondary && isLineQuotaError(primaryResult.code, primaryResult.body)) {
+                console.log("Primary LINE account reached its limit. Falling back to secondary LINE account.");
+                const secondaryResult = pushLineMessage(secondary, message);
+                if (secondaryResult.success) return true;
+
+                console.error(`Secondary LINE API Error: ${secondaryResult.code} - ${secondaryResult.body}`);
+            }
+        }
+
+        if (!primary && secondary) {
+            const secondaryResult = pushLineMessage(secondary, message);
+            if (secondaryResult.success) return true;
+
+            console.error(`Secondary LINE API Error: ${secondaryResult.code} - ${secondaryResult.body}`);
+        }
+
+        return false;
     } catch (error) {
         console.error("Failed to send LINE Notification: " + error.toString());
         return false;
+    }
+}
+
+function getLineAccountConfig(props, suffix) {
+    const tokenKey = 'LINE_CHANNEL_ACCESS_TOKEN' + suffix;
+    const groupKey = 'GROUP_ID' + suffix;
+    const token = props.getProperty(tokenKey);
+    const groupId = props.getProperty(groupKey) || (suffix ? props.getProperty('GROUP_ID') : '');
+
+    if (!token || !groupId) return null;
+
+    return {
+        token: token,
+        groupId: groupId,
+        label: suffix ? 'secondary' : 'primary'
+    };
+}
+
+function getLineFallbackThreshold(props) {
+    const rawValue = props.getProperty('LINE_FALLBACK_THRESHOLD');
+    const threshold = Number(rawValue);
+    return Number.isFinite(threshold) && threshold >= 0 ? threshold : LINE_FALLBACK_THRESHOLD_DEFAULT;
+}
+
+function getLineQuotaStatus(token) {
+    try {
+        const quotaResponse = fetchLineApi('https://api.line.me/v2/bot/message/quota', token);
+        const usageResponse = fetchLineApi('https://api.line.me/v2/bot/message/quota/consumption', token);
+
+        if (quotaResponse.code !== 200 || usageResponse.code !== 200) {
+            console.error(`LINE quota check failed: quota=${quotaResponse.code}, usage=${usageResponse.code}`);
+            return null;
+        }
+
+        const quota = JSON.parse(quotaResponse.body);
+        const usage = JSON.parse(usageResponse.body);
+
+        if (quota.type === 'unlimited') {
+            return {
+                limit: null,
+                totalUsage: Number(usage.totalUsage || 0),
+                remaining: null
+            };
+        }
+
+        const limit = Number(quota.value);
+        const totalUsage = Number(usage.totalUsage || 0);
+        if (!Number.isFinite(limit)) return null;
+
+        return {
+            limit: limit,
+            totalUsage: totalUsage,
+            remaining: Math.max(limit - totalUsage, 0)
+        };
+    } catch (error) {
+        console.error("Failed to check LINE quota: " + error.toString());
+        return null;
+    }
+}
+
+function fetchLineApi(url, token) {
+    const response = UrlFetchApp.fetch(url, {
+        method: 'get',
+        headers: {
+            'Authorization': 'Bearer ' + token
+        },
+        muteHttpExceptions: true
+    });
+
+    return {
+        code: response.getResponseCode(),
+        body: response.getContentText()
+    };
+}
+
+function pushLineMessage(account, message) {
+    const url = 'https://api.line.me/v2/bot/message/push';
+    const payload = {
+        to: account.groupId,
+        messages: [{ type: 'text', text: message }]
+    };
+
+    const response = UrlFetchApp.fetch(url, {
+        method: 'post',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + account.token
+        },
+        payload: JSON.stringify(payload),
+        muteHttpExceptions: true
+    });
+
+    const code = response.getResponseCode();
+    return {
+        success: code === 200,
+        code: code,
+        body: response.getContentText()
+    };
+}
+
+function isLineQuotaError(code, body) {
+    const text = String(body || '').toLowerCase();
+    return code === 429 || text.includes('quota') || text.includes('limit');
+}
+
+function testSecondaryLineNotification() {
+    const props = PropertiesService.getScriptProperties();
+    const secondary = getLineAccountConfig(props, '_B');
+
+    if (!secondary) {
+        throw new Error("LINE B credentials not found. Set LINE_CHANNEL_ACCESS_TOKEN_B and GROUP_ID_B in Script Properties.");
+    }
+
+    const result = pushLineMessage(secondary, '【B2B発注アラート】LINE B通知テスト\nこのメッセージが届けば、Bへの個人宛て通知は成功。');
+    if (!result.success) {
+        throw new Error(`LINE B test failed: ${result.code} - ${result.body}`);
+    }
+
+    console.log("LINE B test notification sent successfully.");
+}
+
+function testLineFallbackSwitchNotification() {
+    const props = PropertiesService.getScriptProperties();
+    const primary = getLineAccountConfig(props, '');
+    const secondary = getLineAccountConfig(props, '_B');
+
+    if (!primary) {
+        throw new Error("LINE A credentials not found. Set LINE_CHANNEL_ACCESS_TOKEN and GROUP_ID in Script Properties.");
+    }
+    if (!secondary) {
+        throw new Error("LINE B credentials not found. Set LINE_CHANNEL_ACCESS_TOKEN_B and GROUP_ID_B in Script Properties.");
+    }
+
+    const primaryQuota = getLineQuotaStatus(primary.token);
+    if (!primaryQuota || primaryQuota.remaining === null) {
+        throw new Error("Could not read LINE A remaining quota. Fallback switch test was stopped.");
+    }
+
+    const previousThreshold = props.getProperty('LINE_FALLBACK_THRESHOLD');
+    const temporaryThreshold = primaryQuota.remaining + 1;
+
+    try {
+        props.setProperty('LINE_FALLBACK_THRESHOLD', String(temporaryThreshold));
+        const message = `【B2B発注アラート】A残数しきい値切替テスト\nA残数: ${primaryQuota.remaining}\n一時しきい値: ${temporaryThreshold}\nこの通知がBから届けば、A残数20以下時の自動切替ロジックは成功。`;
+        const success = sendLineNotification(message);
+        if (!success) {
+            throw new Error("Fallback switch test failed. LINE notification was not sent.");
+        }
+        console.log(`Fallback switch test sent. A remaining=${primaryQuota.remaining}, temporaryThreshold=${temporaryThreshold}`);
+    } finally {
+        if (previousThreshold === null) {
+            props.deleteProperty('LINE_FALLBACK_THRESHOLD');
+        } else {
+            props.setProperty('LINE_FALLBACK_THRESHOLD', previousThreshold);
+        }
     }
 }
 
@@ -1318,4 +1507,113 @@ function handleLogUnknownJan(data) {
 
     return ContentService.createTextOutput(JSON.stringify({ status: 'success' }))
         .setMimeType(ContentService.MimeType.JSON);
+}
+
+// ------------------------------------------
+// 📜 アーカイブ履歴（1ヶ月以上前の発注履歴）
+// ------------------------------------------
+
+/**
+ * 発注アーカイブ（別スプレッドシート）から古い履歴を検索する。
+ * サロンが「もっと古い履歴を見る」を押したときだけ呼ばれる（オンデマンド）。
+ *
+ * 事前設定: スクリプトプロパティ ARCHIVE_SPREADSHEET_ID に
+ * アーカイブ用スプレッドシートのIDを入れておく。未設定なら空を返す。
+ *
+ * パラメータ:
+ *   clientName: 必須
+ *   before: 'YYYY-MM-DD'（省略可。この日付より前だけを検索＝ページング用）
+ *
+ * 返り値: { status, data:[履歴], hasMore, nextBefore }
+ * ※日付単位で区切る（同じ日の通常/直送シートをまたいで切らない）
+ */
+function handleArchiveHistory(e) {
+    const clientName = e.parameter.clientName;
+    if (!clientName) throw new Error("clientName parameter is required.");
+
+    const archiveId = PropertiesService.getScriptProperties()
+        .getProperty('ARCHIVE_SPREADSHEET_ID');
+
+    const before = String(e.parameter.before || '').trim();
+    const MAX_ITEMS = 50;   // これを超えたら日付の区切りで停止
+    const MAX_DATES = 30;   // 1回の呼び出しで遡る最大日数
+
+    // 検索の上限日：通常履歴（直近31日走査）との継ぎ目。
+    // わずかに重なる方向に倒す（隙間で見えない日を作らない）
+    let cutoff = before;
+    if (!cutoff) {
+        const boundary = new Date();
+        boundary.setDate(boundary.getDate() - 28);
+        cutoff = Utilities.formatDate(
+            boundary, Session.getScriptTimeZone(), "yyyy-MM-dd");
+    }
+
+    const dateSheetRegex = /^(20\d{2}-\d{2}-\d{2})\s*(直送)?$/;
+    const sheetsByDate = {};
+
+    // 検索対象＝発注シート本体の古い日付（32〜60日前が居る）
+    // ＋発注アーカイブ（60日より前。未設定なら本体だけ）
+    const collectDateSheets = function(spreadsheet) {
+        spreadsheet.getSheets().forEach(function(sheet) {
+            const match = sheet.getName().match(dateSheetRegex);
+            if (!match) return;
+            const dateKey = match[1];
+            if (dateKey >= cutoff) return;
+            if (!sheetsByDate[dateKey]) sheetsByDate[dateKey] = [];
+            sheetsByDate[dateKey].push(sheet);
+        });
+    };
+
+    collectDateSheets(SpreadsheetApp.openById(SPREADSHEET_ID));
+
+    if (archiveId) {
+        try {
+            collectDateSheets(SpreadsheetApp.openById(archiveId));
+        } catch (err) {
+            console.warn('アーカイブを開けない: ' + err);
+        }
+    }
+
+    const dateKeys = Object.keys(sheetsByDate).sort().reverse(); // 新しい順
+    const history = [];
+    let scannedDates = 0;
+    let lastDate = null;
+
+    for (const dateKey of dateKeys) {
+        if (history.length >= MAX_ITEMS || scannedDates >= MAX_DATES) break;
+        scannedDates++;
+        lastDate = dateKey;
+
+        sheetsByDate[dateKey].forEach(function(sheet) {
+            const values = sheet.getDataRange().getValues();
+            for (let j = values.length - 1; j >= 1; j--) {
+                const row = values[j];
+                if (String(row[4]) === clientName || String(row[4]).startsWith(clientName + ' ')) {
+                    const orderDate = new Date(row[0]);
+                    const validDate = !isNaN(orderDate.getTime());
+                    history.push({
+                        orderId: validDate ? orderDate.getTime() : 0,
+                        date: validDate
+                            ? Utilities.formatDate(orderDate, Session.getScriptTimeZone(), "yyyy/MM/dd HH:mm")
+                            : dateKey,
+                        code: row[1],
+                        qty: row[2],
+                        name: row[3],
+                        status: row[5] || '',
+                        clientName: String(row[4]),
+                        archived: true
+                    });
+                }
+            }
+        });
+    }
+
+    const hasMore = scannedDates < dateKeys.length;
+
+    return ContentService.createTextOutput(JSON.stringify({
+        status: 'success',
+        data: history,
+        hasMore: hasMore,
+        nextBefore: hasMore ? lastDate : null
+    })).setMimeType(ContentService.MimeType.JSON);
 }

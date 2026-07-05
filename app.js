@@ -771,6 +771,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (historyData.length === 0) {
             historyListContainer.innerHTML = '<p>発注履歴がありません。</p>';
+            appendArchiveSection();
             return;
         }
 
@@ -850,6 +851,140 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             historyListContainer.appendChild(card);
+        });
+
+        appendArchiveSection();
+    };
+
+    // --- Archive History (1ヶ月以上前の履歴。押したときだけ読む) ---
+    let archiveNextBefore = null;
+    let archiveLoading = false;
+
+    const appendArchiveSection = () => {
+        archiveNextBefore = null;
+
+        const section = document.createElement('div');
+        section.id = 'archive-history-section';
+
+        const divider = document.createElement('div');
+        divider.textContent = '── これより古い履歴はアーカイブから ──';
+        divider.style.cssText = 'text-align:center;color:#94a3b8;font-size:0.8rem;margin:16px 0 8px;';
+
+        const container = document.createElement('div');
+
+        const button = document.createElement('button');
+        button.className = 'btn-secondary';
+        button.style.cssText = 'width:100%;margin-top:6px;';
+        button.textContent = '📜 もっと古い履歴を見る（1ヶ月以上前）';
+        button.addEventListener('click', () => fetchArchiveHistory(button, container));
+
+        section.appendChild(divider);
+        section.appendChild(container);
+        section.appendChild(button);
+        historyListContainer.appendChild(section);
+    };
+
+    const fetchArchiveHistory = async (button, container) => {
+        if (archiveLoading) return;
+        archiveLoading = true;
+
+        const originalLabel = button.textContent;
+        button.textContent = '読み込み中...';
+        button.disabled = true;
+
+        try {
+            let url = `${CONFIG.API_URL}?action=history_archive&clientName=${encodeURIComponent(currentClientName)}`;
+            if (archiveNextBefore) {
+                url += `&before=${encodeURIComponent(archiveNextBefore)}`;
+            }
+
+            const response = await fetch(url);
+            const result = await response.json();
+
+            if (result.status !== 'success') {
+                alert('アーカイブの取得に失敗しました: ' + (result.message || ''));
+                button.textContent = originalLabel;
+                button.disabled = false;
+                return;
+            }
+
+            if (result.note === 'no_archive') {
+                button.textContent = 'アーカイブはまだありません';
+                return;
+            }
+
+            if ((result.data || []).length > 0) {
+                renderArchiveCards(result.data, container);
+            } else if (!container.hasChildNodes()) {
+                const empty = document.createElement('p');
+                empty.textContent = 'アーカイブに履歴はありませんでした。';
+                empty.style.cssText = 'color:#94a3b8;text-align:center;';
+                container.appendChild(empty);
+            }
+
+            archiveNextBefore = result.nextBefore || null;
+
+            if (result.hasMore && archiveNextBefore) {
+                button.textContent = '📜 さらに古い履歴を見る';
+                button.disabled = false;
+            } else {
+                button.textContent = 'これより古い履歴はありません';
+            }
+        } catch (error) {
+            console.error(error);
+            alert('通信エラーが発生しました。');
+            button.textContent = originalLabel;
+            button.disabled = false;
+        } finally {
+            archiveLoading = false;
+        }
+    };
+
+    const renderArchiveCards = (items, container) => {
+        // 通常履歴と同じカード表示。ただし過去分なので変更/キャンセルは無し
+        const grouped = new Map();
+        items.forEach(hist => {
+            const groupKey = String(hist.orderId || hist.date);
+            if (!grouped.has(groupKey)) grouped.set(groupKey, []);
+            grouped.get(groupKey).push(hist);
+        });
+
+        grouped.forEach((groupItems) => {
+            const date = groupItems[0]?.date || '';
+            let totalItems = 0;
+            let detailsHtml = '';
+
+            groupItems.forEach(item => {
+                totalItems += parseInt(item.qty) || 0;
+                detailsHtml += `<div class="history-item"><span>${item.name}</span><span>${item.qty}点</span></div>`;
+            });
+
+            const card = document.createElement('div');
+            card.className = 'history-group-card';
+            card.innerHTML = `
+                <div class="history-header">
+                    <div style="width: 100%;">
+                        <div class="history-date">${date}</div>
+                        <div class="history-summary">計 ${totalItems}点</div>
+                    </div>
+                    <div class="history-toggle">▼</div>
+                </div>
+                <div class="history-body hidden">
+                    ${detailsHtml}
+                </div>
+            `;
+
+            const header = card.querySelector('.history-header');
+            const body = card.querySelector('.history-body');
+            const toggleIcon = card.querySelector('.history-toggle');
+
+            header.addEventListener('click', () => {
+                const isHidden = body.classList.contains('hidden');
+                body.classList.toggle('hidden');
+                toggleIcon.textContent = isHidden ? '▲' : '▼';
+            });
+
+            container.appendChild(card);
         });
     };
 
