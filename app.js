@@ -195,6 +195,9 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentFilter = 'all';
     let currentManufacturerFilter = 'all';
     let currentCategoryFilter = 'all';
+    let orderFrequency = {}; // よく頼む順: 商品コード → このサロンの発注回数
+    let lastOrderDate = {};  // 最終発注日順: 商品コード → 最後に頼んだ時刻(epoch)
+    let currentSort = 'frequency'; // 並べ替え: frequency / lastdate / aiueo
     let editingOrderId = null;
     let currentCart = {};
     let cartOrder = []; // Track the order in which items are added to the cart
@@ -748,6 +751,25 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        // --- 並べ替え（favoritesタブは上で専用の並びにして return 済み。
+        //     ここは絞り込み後の一覧・検索結果に適用。安定ソート）---
+        const codeOf = (it) => String(it.code).replace(/^'/, '');
+        if (currentSort === 'aiueo') {
+            displayItems = displayItems.slice().sort((a, b) =>
+                String(a.name || '').localeCompare(String(b.name || ''), 'ja')
+            );
+        } else if (currentSort === 'lastdate') {
+            displayItems = displayItems.slice().sort((a, b) =>
+                (lastOrderDate[codeOf(b)] || 0) - (lastOrderDate[codeOf(a)] || 0)
+            );
+        } else { // frequency（よく頼む順・既定）
+            if (Object.keys(orderFrequency).length > 0) {
+                displayItems = displayItems.slice().sort((a, b) =>
+                    (orderFrequency[codeOf(b)] || 0) - (orderFrequency[codeOf(a)] || 0)
+                );
+            }
+        }
+
         // --- Standard List Rendering (All Tab) ---
         // Optimization: Use DocumentFragment for batch appending
         const fragment = document.createDocumentFragment();
@@ -767,11 +789,16 @@ document.addEventListener('DOMContentLoaded', () => {
         card.className = 'item-row';
         card.dataset.code = strCode;
         const currentQty = currentCart[item.code] ? currentCart[item.code].qty : 0;
+        // よく頼む商品にはバッジ（このサロンの発注履歴にある品）
+        const freq = orderFrequency[strCode.replace(/^'/, '')] || 0;
+        const freqBadge = freq > 0
+            ? '<span class="freq-badge" style="font-size:0.65rem;background:#fef3c7;color:#92400e;border:1px solid #fde68a;border-radius:8px;padding:1px 6px;margin-left:6px;white-space:nowrap;">🕒よく頼む</span>'
+            : '';
         card.innerHTML = `
             <button type="button" class="btn-fav ${isFav ? 'active' : ''}" data-code="${strCode}">${isFav ? '★' : '☆'}</button>
             <div class="item-row-info">
                 <span class="item-code">${strCode.replace(/^'/, '')}</span>
-                <span class="item-row-name">${item.name}</span>
+                <span class="item-row-name">${item.name}${freqBadge}</span>
             </div>
             <div class="order-controls">
                 <button type="button" class="btn-qty minus">-</button>
@@ -1310,6 +1337,59 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    // --- 並べ替え用: 発注履歴から頻度と最終発注日のマップを作る ---
+    const buildOrderFrequency = (historyData) => {
+        const freq = {};
+        const last = {};
+        (historyData || []).forEach(h => {
+            const code = String(h.code || '').replace(/^'/, '').trim();
+            if (!code) return;
+            freq[code] = (freq[code] || 0) + 1;
+            const t = Number(h.orderId) || 0;
+            if (t > (last[code] || 0)) last[code] = t;
+        });
+        orderFrequency = freq;
+        lastOrderDate = last;
+    };
+
+    const loadOrderFrequency = async () => {
+        orderFrequency = {}; // サロン切替時に前のサロンの頻度を持ち越さない
+        if (!currentClientName) return;
+
+        const cacheKey = `b2b_history_${currentClientName}`;
+        // 履歴タブ用のキャッシュがあれば流用（10分・fetchHistoryと共通）
+        try {
+            const cached = localStorage.getItem(cacheKey);
+            if (cached) {
+                buildOrderFrequency(JSON.parse(cached));
+                if (itemsData.length) renderItems(itemsData);
+                return;
+            }
+        } catch (e) { /* パース失敗は無視 */ }
+
+        try {
+            const url = `${CONFIG.API_URL}?action=history&clientName=${encodeURIComponent(currentClientName)}`;
+            const res = await fetch(url);
+            const result = await res.json();
+            if (result.status === 'success') {
+                localStorage.setItem(cacheKey, JSON.stringify(result.data));
+                localStorage.setItem(cacheKey + '_ts', Date.now().toString());
+                buildOrderFrequency(result.data);
+                if (itemsData.length) renderItems(itemsData);
+            }
+        } catch (e) { /* 頻度が取れなくても通常動作 */ }
+    };
+
+    // --- 並べ替えセレクタの配線 ---
+    const sortSelect = document.getElementById('sort-select');
+    const sortWrapper = document.getElementById('sort-wrapper');
+    if (sortSelect) {
+        sortSelect.addEventListener('change', (e) => {
+            currentSort = e.target.value;
+            if (itemsData.length) renderItems(itemsData);
+        });
+    }
+
     // --- Tab Filtering ---
     const switchTab = (tabId) => {
         // Reset all
@@ -1328,12 +1408,18 @@ document.addEventListener('DOMContentLoaded', () => {
             if (syncFavsWrapper) syncFavsWrapper.classList.add('hidden');
             if (customItemsWrapper) customItemsWrapper.classList.add('hidden');
             if (customBtnTop) customBtnTop.classList.add('hidden');
+            if (sortWrapper) sortWrapper.classList.add('hidden');
             historyListContainer.classList.remove('hidden');
             fetchHistory(false); // Try cache first
         } else {
             itemListContainer.classList.remove('hidden');
             searchWrapper.classList.remove('hidden');
             cartSummary.classList.remove('hidden');
+            // 並べ替えは「すべて」タブのみ（お気に入りは専用の並びを維持）
+            if (sortWrapper) {
+                if (tabId === 'tab-favorites') sortWrapper.classList.add('hidden');
+                else sortWrapper.classList.remove('hidden');
+            }
 
             // Sync Favorite Button visibility
             if (syncFavsWrapper) {
@@ -1657,6 +1743,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const savedFavs = localStorage.getItem(getFavsKey());
             favoriteItems = savedFavs ? JSON.parse(savedFavs) : [];
         }
+
+        // よく頼む順: このサロンの発注頻度を裏で読み込む（非同期・非ブロッキング）
+        loadOrderFrequency();
 
         // Switch screen
         loginContainer.classList.add('hidden');

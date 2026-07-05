@@ -115,3 +115,62 @@ function forceGlobalCacheRefresh(addedCount = 0) {
 
   SpreadsheetApp.getUi().alert(msg);
 }
+
+// ==========================================
+// 📋 カテゴリのプルダウン設定（表記ゆれ防止）
+// ==========================================
+
+/**
+ * ItemMaster と TmpNewItems の「カテゴリ列(C列)」に
+ * プルダウン（データ入力規則）を設定する。
+ * 新商品を追加するとき、手打ちせず一覧から選べるようになる。
+ *
+ * カテゴリを増やしたいときは、下の CATEGORIES に1行足して、
+ * この関数をもう一度実行するだけ。
+ *
+ * 実行方法: Apps Scriptエディタで関数「setupCategoryDropdown」を選んで▷実行。
+ */
+function setupCategoryDropdown() {
+  // ▼ 選べるカテゴリ一覧（現状の分を採用。「カラー」は「カラー関連」に統一済み）
+  const CATEGORIES = [
+    'カラー関連',
+    'パーマ関連',
+    'パーマ液関連',
+    '2剤/ブリーチ',
+    'シャンプー',
+    'トリートメント',
+    'システムTR',
+    'スタイリング関連',
+    'スキャルプ関連',
+    'コスメ関連',
+    '業務用商品',
+    '在庫小物',
+    '小物関連',
+    'バイカルテ',
+    'モルティナ',
+    'その他'
+  ];
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const rule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(CATEGORIES, true) // true = ▼プルダウン表示
+    .setAllowInvalid(true)  // 既存データは壊さない（一覧外は警告マークだけ）
+    .setHelpText('カテゴリは▼から選んでください（新カテゴリを増やすなら setupCategoryDropdown のCATEGORIESに追記）')
+    .build();
+
+  let applied = [];
+  ['ItemMaster', 'TmpNewItems'].forEach(function(name) {
+    const sheet = ss.getSheetByName(name);
+    if (!sheet) return;
+    const lastRow = Math.max(sheet.getMaxRows() - 1, 1);
+    // C列（カテゴリ）の2行目以降に適用
+    sheet.getRange(2, 3, lastRow, 1).setDataValidation(rule);
+    applied.push(name);
+  });
+
+  SpreadsheetApp.getUi().alert(
+    '✅ カテゴリのプルダウンを設定しました。\n\n' +
+    '対象: ' + applied.join(' / ') + ' のC列（カテゴリ）\n' +
+    '新商品を追加するとき、▼から選べます。'
+  );
+}

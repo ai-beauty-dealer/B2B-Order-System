@@ -144,6 +144,17 @@
             ＋ 一覧に無い商品を追加する（特注・その他）
         </button>
 
+        <!-- 並べ替え -->
+        <div id="sort-wrapper" style="display: flex; align-items: center; gap: 8px; margin: 4px 0 10px;">
+            <label for="sort-select" style="font-size: 0.8rem; color: #64748b; white-space: nowrap;">並び替え</label>
+            <select id="sort-select"
+                style="flex: 1; padding: 8px 10px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 0.9rem; background: white;">
+                <option value="frequency">🕒 よく頼む順</option>
+                <option value="lastdate">📅 最終発注日順</option>
+                <option value="aiueo">🔤 あいうえお順</option>
+            </select>
+        </div>
+
         <div id="item-list">
             <!-- Items will be loaded here dynamically -->
         </div>
@@ -213,13 +224,13 @@
 
     <script src="lib/html5-qrcode.min.js"></script>
     <script src="config.js?v=2.18.0"></script>
-    <script src="app.js?v=2.18.1"></script>
+    <script src="app.js?v=2.19.1"></script>
 
     <!-- Service Worker 登録（PWA） -->
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function () {
-                navigator.serviceWorker.register('sw.js?v=2.18.1')
+                navigator.serviceWorker.register('sw.js?v=2.19.1')
                     .catch(function (err) {
                         console.warn('SW登録に失敗（通常サイトとして続行）:', err);
                     });
