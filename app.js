@@ -686,21 +686,12 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        // お気に入りタブ: カラー/パーマのグループ分けは残しつつ、
+        // 各グループ内を並び替えセレクタ(currentSort)で並べる
         if (currentFilter === 'favorites') {
-            // Feature 4: Sort all by Brand -> Level -> Tone first
-            displayItems.sort((a, b) => {
-                const infoA = extractInfo(a.name);
-                const infoB = extractInfo(b.name);
-                if (infoA.brand !== infoB.brand) return infoA.brand.localeCompare(infoB.brand);
-                if (infoA.level !== infoB.level) {
-                    if (infoA.level === null) return 1;
-                    if (infoB.level === null) return -1;
-                    return infoA.level - infoB.level;
-                }
-                return infoA.tone.localeCompare(infoB.tone);
-            });
+            displayItems = sortByCurrent(displayItems);
 
-            // Feature 1: Grouping by Category (Color vs Perm)
+            // Grouping by Category (Color vs Perm)
             const colorGroup = [];
             const permGroup = [];
             const otherItems = [];
@@ -751,24 +742,8 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // --- 並べ替え（favoritesタブは上で専用の並びにして return 済み。
-        //     ここは絞り込み後の一覧・検索結果に適用。安定ソート）---
-        const codeOf = (it) => String(it.code).replace(/^'/, '');
-        if (currentSort === 'aiueo') {
-            displayItems = displayItems.slice().sort((a, b) =>
-                String(a.name || '').localeCompare(String(b.name || ''), 'ja')
-            );
-        } else if (currentSort === 'lastdate') {
-            displayItems = displayItems.slice().sort((a, b) =>
-                (lastOrderDate[codeOf(b)] || 0) - (lastOrderDate[codeOf(a)] || 0)
-            );
-        } else { // frequency（よく頼む順・既定）
-            if (Object.keys(orderFrequency).length > 0) {
-                displayItems = displayItems.slice().sort((a, b) =>
-                    (orderFrequency[codeOf(b)] || 0) - (orderFrequency[codeOf(a)] || 0)
-                );
-            }
-        }
+        // --- 並べ替え（すべてタブ・検索結果に適用。安定ソート）---
+        displayItems = sortByCurrent(displayItems);
 
         // --- Standard List Rendering (All Tab) ---
         // Optimization: Use DocumentFragment for batch appending
@@ -1380,6 +1355,25 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) { /* 頻度が取れなくても通常動作 */ }
     };
 
+    // --- 現在の選択(currentSort)で商品配列を並べ替える共通関数 ---
+    const sortByCurrent = (items) => {
+        const codeOf = (it) => String(it.code).replace(/^'/, '');
+        if (currentSort === 'aiueo') {
+            return items.slice().sort((a, b) =>
+                String(a.name || '').localeCompare(String(b.name || ''), 'ja'));
+        }
+        if (currentSort === 'lastdate') {
+            return items.slice().sort((a, b) =>
+                (lastOrderDate[codeOf(b)] || 0) - (lastOrderDate[codeOf(a)] || 0));
+        }
+        // frequency（よく頼む順・既定）
+        if (Object.keys(orderFrequency).length > 0) {
+            return items.slice().sort((a, b) =>
+                (orderFrequency[codeOf(b)] || 0) - (orderFrequency[codeOf(a)] || 0));
+        }
+        return items;
+    };
+
     // --- 並べ替えセレクタの配線 ---
     const sortSelect = document.getElementById('sort-select');
     const sortWrapper = document.getElementById('sort-wrapper');
@@ -1415,11 +1409,8 @@ document.addEventListener('DOMContentLoaded', () => {
             itemListContainer.classList.remove('hidden');
             searchWrapper.classList.remove('hidden');
             cartSummary.classList.remove('hidden');
-            // 並べ替えは「すべて」タブのみ（お気に入りは専用の並びを維持）
-            if (sortWrapper) {
-                if (tabId === 'tab-favorites') sortWrapper.classList.add('hidden');
-                else sortWrapper.classList.remove('hidden');
-            }
+            // 並べ替えは「すべて」「お気に入り」両タブで表示（履歴タブは非表示）
+            if (sortWrapper) sortWrapper.classList.remove('hidden');
 
             // Sync Favorite Button visibility
             if (syncFavsWrapper) {

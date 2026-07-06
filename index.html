@@ -224,13 +224,13 @@
 
     <script src="lib/html5-qrcode.min.js"></script>
     <script src="config.js?v=2.18.0"></script>
-    <script src="app.js?v=2.19.1"></script>
+    <script src="app.js?v=2.19.3"></script>
 
     <!-- Service Worker 登録（PWA） -->
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function () {
-                navigator.serviceWorker.register('sw.js?v=2.19.1')
+                navigator.serviceWorker.register('sw.js?v=2.19.3')
                     .catch(function (err) {
                         console.warn('SW登録に失敗（通常サイトとして続行）:', err);
                     });
