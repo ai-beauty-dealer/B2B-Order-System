@@ -3252,7 +3252,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const html = `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>発注書 - ${escImportHtml(currentClientName)}様</title>
 <style>
-@page { size: A4; margin: 9mm 9mm 6mm 9mm; }
+/* 上余白をQR分（24mm+α）だけ広く取る。@pageの余白は全ページ共通で効くため、
+   これで毎ページ・被りなくQRの置き場所を確保できる（bodyのpaddingは最終ページにしか効かないため使わない） */
+@page { size: A4; margin: 27mm 9mm 6mm 9mm; }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: "Hiragino Sans", "Yu Gothic", sans-serif; color: #111; font-size: 7pt; }
 .head h1 { font-size: 12pt; }
@@ -3268,21 +3270,21 @@ body { font-family: "Hiragino Sans", "Yu Gothic", sans-serif; color: #111; font-
 .qty { width: 9mm; flex-shrink: 0; border-left: 1px solid #bbb; }
 .pair.blank .cell { min-height: 7mm; }
 .sec { font-size: 7.5pt; font-weight: bold; margin: 2.5mm 0 1mm; break-after: avoid; }
-.head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #111; padding-bottom: 2mm; margin-bottom: 2mm; }
-.head img { width: 24mm; height: 24mm; flex-shrink: 0; margin-left: 3mm; }
+.head { border-bottom: 2px solid #111; padding-bottom: 2mm; margin-bottom: 2mm; }
+/* 毎ページ右上の余白帯に印字されるQR（@pageの上余白27mm内に収まるため本文と被らない） */
+.qrbox { position: fixed; top: 1mm; right: 0; width: 23mm; text-align: center; }
+.qrbox img { width: 23mm; height: 23mm; display: block; }
 .print-btn { position: fixed; top: 8px; right: 8px; padding: 10px 18px; font-size: 12pt; cursor: pointer; z-index: 10; }
 @media print { .print-btn { display: none; } }
 </style></head><body>
 <button class="print-btn" onclick="window.print()">🖨 印刷</button>
+<div class="qrbox"><img src="${qrDataUrl}" alt="QR"></div>
 <div class="head">
-  <div>
-    <h1>発注書（記入して写真を送るだけ）</h1>
-    <div class="salon">${escImportHtml(currentClientName)} 様</div>
-    <div class="meta">発行日: ${dateStr} ／ 株式会社アクティム ／ 掲載 ${sheetItems.length}商品（お取引履歴より）</div>
-  </div>
-  <img src="${qrDataUrl}" alt="QR">
+  <h1>アクティム発注書</h1>
+  <div class="salon">${escImportHtml(currentClientName)} 様</div>
+  <div class="meta">発行日: ${dateStr} ／ 掲載 ${sheetItems.length}商品（お取引履歴より）</div>
 </div>
-<p class="note">✏️ ご注文の商品の右枠に<b>数量</b>をご記入ください。表にない商品は最後の空欄にご記入ください。記入後は<b>記入したページを全て</b>（表面は右上のQRも入るように）写真に撮ってお送りください。</p>
+<p class="note">✏️ ご注文の商品の右枠に<b>数量</b>をご記入ください。表にない商品は最後の空欄にご記入ください。記入したページを全て写真に撮ってお送りください。</p>
 ${pairsHtml}
 <p class="sec">▼ 表にない商品はこちらへ（商品名・サイズ・数量）</p>
 ${blankPairs}
