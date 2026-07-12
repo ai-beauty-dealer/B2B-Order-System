@@ -1703,7 +1703,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- Login Helper ---
-    const processLoginSuccess = async (announcement, isMaintenance, maintenanceMessage, dataVersion = null) => {
+    // cloudFavorites: ログインレスポンス同梱のお気に入り（新GASのみ）。配列ならGET往復を省略できる
+    const processLoginSuccess = async (announcement, isMaintenance, maintenanceMessage, dataVersion = null, cloudFavorites = null) => {
         loggedUnknownJans.clear(); // サロン切替時に未登録JANの送信済みSetをリセット
         // PWA: インストール案内バナーはログイン画面だけに出す
         // （注文画面のカートボタンに重ならないよう、ログイン後は消す）
@@ -1746,25 +1747,37 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) {
             favoriteItems = [];
         }
-        const favClientName = currentClientName;
-        (async () => {
-            try {
-                const favRes = await fetch(`${CONFIG.API_URL}?action=get_favorites&clientName=${encodeURIComponent(favClientName)}`);
-                const favData = await favRes.json();
-                if (favClientName !== currentClientName) return; // 取得中にサロン切替済みなら破棄
-                if (favData.status === 'success' && favData.data && favData.data.length > 0) {
-                    // 有効なコードのみを抽出（指数表示などの破損データを除去し、シングルクォートも剥がす）
-                    favoriteItems = favData.data
-                        .map(code => String(code).replace(/^'/, ''))
-                        .filter(code => isValidCode(code));
-                    localStorage.setItem(getFavsKey(), JSON.stringify(favoriteItems));
-                    if (itemsData.length) renderItems(itemsData); // ★を再描画
-                    console.log('Loaded favorites from cloud (and filtered corrupted items)');
-                }
-            } catch (e) {
-                console.warn('Failed to load favorites from cloud, keeping local', e);
+        // ログインレスポンスにfavoritesが同梱されていればGET往復を省略（新GASのみ）。
+        // 空配列＝クラウド未登録は従来のGET応答が空の時と同じ扱い（ローカルを維持）
+        if (Array.isArray(cloudFavorites)) {
+            if (cloudFavorites.length > 0) {
+                favoriteItems = cloudFavorites
+                    .map(code => String(code).replace(/^'/, ''))
+                    .filter(code => isValidCode(code));
+                localStorage.setItem(getFavsKey(), JSON.stringify(favoriteItems));
+                console.log('Loaded favorites from login response');
             }
-        })();
+        } else {
+            const favClientName = currentClientName;
+            (async () => {
+                try {
+                    const favRes = await fetch(`${CONFIG.API_URL}?action=get_favorites&clientName=${encodeURIComponent(favClientName)}`);
+                    const favData = await favRes.json();
+                    if (favClientName !== currentClientName) return; // 取得中にサロン切替済みなら破棄
+                    if (favData.status === 'success' && favData.data && favData.data.length > 0) {
+                        // 有効なコードのみを抽出（指数表示などの破損データを除去し、シングルクォートも剥がす）
+                        favoriteItems = favData.data
+                            .map(code => String(code).replace(/^'/, ''))
+                            .filter(code => isValidCode(code));
+                        localStorage.setItem(getFavsKey(), JSON.stringify(favoriteItems));
+                        if (itemsData.length) renderItems(itemsData); // ★を再描画
+                        console.log('Loaded favorites from cloud (and filtered corrupted items)');
+                    }
+                } catch (e) {
+                    console.warn('Failed to load favorites from cloud, keeping local', e);
+                }
+            })();
+        }
 
         // よく頼む順: このサロンの発注頻度を裏で読み込む（非同期・非ブロッキング）
         loadOrderFrequency();
@@ -1891,7 +1904,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 autoLoginInProgress = false;
                 saveResumeSession(username, password, currentClientName);
 
-                await processLoginSuccess(result.announcement, result.isMaintenance, result.maintenanceMessage, result.dataVersion);
+                await processLoginSuccess(result.announcement, result.isMaintenance, result.maintenanceMessage, result.dataVersion, result.favorites);
             } else {
                 console.error('[DEBUG] Login Failed result:', result);
                 // 自動ログインが認証エラーで失敗したら、
@@ -1985,6 +1998,22 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('tab-all');
     });
 
+    // --- 別注フラグの同梱（速度改善フェーズ2） ---
+    // 各orderにisSpecial(boolean)を付けて送ると、GAS側がマスタ11,000行の全読みをスキップできる。
+    // itemsDataに無いコード（廃番等）はisSpecialを付けない → サーバが従来のマスタ読みにフォールバック。
+    const attachIsSpecial = (orders) => {
+        const specialByCode = new Map();
+        itemsData.forEach(item => {
+            specialByCode.set(String(item.code), String(item.special || '').trim() !== '');
+        });
+        return orders.map(order => {
+            const strCode = String(order.code);
+            if (strCode.startsWith('CUSTOM_ITEM_')) return { ...order, isSpecial: true };
+            if (specialByCode.has(strCode)) return { ...order, isSpecial: specialByCode.get(strCode) };
+            return order;
+        });
+    };
+
     // --- Execute Order Helper ---
     const executeOrderActual = async (orders, isEditing, remarks, staffName = '') => {
         if (isSubmitting) return;
@@ -1996,7 +2025,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 action: action,
                 clientName: currentClientName,
                 clientType: currentClientType, // '直送' or ''
-                orders: orders,
+                orders: attachIsSpecial(orders),
                 remarks: remarks,
                 staffName: staffName
             };
@@ -2059,7 +2088,10 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const payload = {
                 action: 'multi_order',
-                orderGroups: orderGroups
+                orderGroups: orderGroups.map(group => ({
+                    ...group,
+                    orders: attachIsSpecial(group.orders)
+                }))
             };
             if (updateOrderId) {
                 payload.orderId = updateOrderId;

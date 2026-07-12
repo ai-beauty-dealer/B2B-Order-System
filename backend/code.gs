@@ -121,6 +121,39 @@ function isRecentDuplicateOrder(sheet, displayName, orders, timestamp) {
   });
 }
 
+// --- 別注判定の共通化（速度改善フェーズ2） ---
+// クライアント（v2.21.0以降）は各orderにisSpecial(boolean)を同梱してくる。
+// 全orderに揃っていればマスタ11,000行の全読みをスキップできる。
+// 1件でも欠けていれば従来どおりマスタを読む（旧クライアント共存のためのフォールバック）。
+function allOrdersHaveIsSpecial(orders) {
+    return orders.length > 0 && orders.every(o => typeof o.isSpecial === 'boolean');
+}
+
+function getSpecialCodesSet(ss) {
+    const specialCodes = new Set();
+    try {
+        const masterSheet = ss.getSheetByName(SHEET_NAMES.MASTER);
+        if (masterSheet) {
+            const masterValues = masterSheet.getDataRange().getValues();
+            for (let i = 1; i < masterValues.length; i++) {
+                const row = masterValues[i];
+                if (row[0] && String(row[4] || '').trim() !== '') {
+                    specialCodes.add(String(row[0]));
+                }
+            }
+        }
+    } catch(e) { console.warn('別注商品の取得に失敗:', e); }
+    return specialCodes;
+}
+
+// CUSTOM_ITEM_はクライアントの申告に関係なく常に別注扱い（安全側）
+function resolveIsSpecial(order, useClientSpecial, specialCodes) {
+    const strCode = String(order.code);
+    if (strCode.startsWith('CUSTOM_ITEM_')) return true;
+    if (useClientSpecial) return order.isSpecial === true;
+    return specialCodes.has(strCode);
+}
+
 function createOrderRow(timestamp, code, qty, name, displayName, status, remarks, isSpecial) {
   return [
     timestamp,
@@ -399,9 +432,32 @@ function handleLogin(data) {
 
          const dataVersion = PropertiesService.getScriptProperties().getProperty('ITEMS_VERSION') || '0';
 
-         return ContentService.createTextOutput(JSON.stringify({ 
-             status: 'success', 
-             message: 'Login successful', 
+         // 通常サロンはお気に入りを同梱してget_favoritesの往復を1本削減。
+         // マスター/グループはサロン選択後にクライアントがGETで取得する（favorites: nullのまま）。
+         // 読み込み失敗時もnullのままにしてクライアント側のGETフォールバックに任せる。
+         let favorites = null;
+         if (clientType !== 'MASTER' && !clientType.startsWith('GROUP_')) {
+             try {
+                 const favSheet = ss.getSheetByName(SHEET_NAMES.FAVORITES);
+                 if (favSheet) {
+                     favorites = [];
+                     const favValues = favSheet.getDataRange().getValues();
+                     for (let i = 1; i < favValues.length; i++) {
+                         if (favValues[i][0] === clientName) {
+                             favorites = String(favValues[i][1] || '').split(',').map(s => s.trim().replace(/^'/, '')).filter(x => x);
+                             break;
+                         }
+                     }
+                 }
+             } catch(e) {
+                 console.warn("Favorites fetch on login failed:", e);
+                 favorites = null;
+             }
+         }
+
+         return ContentService.createTextOutput(JSON.stringify({
+             status: 'success',
+             message: 'Login successful',
              clientName: clientName,
              clientType: clientType,
              isMaster: (clientType === 'MASTER'),
@@ -410,7 +466,8 @@ function handleLogin(data) {
              announcement: announcement,
              isMaintenance: isMaintenance,
              maintenanceMessage: maintenanceMessage,
-             dataVersion: dataVersion
+             dataVersion: dataVersion,
+             favorites: favorites
          })).setMimeType(ContentService.MimeType.JSON);
     } else {
          return ContentService.createTextOutput(JSON.stringify({ 
@@ -442,20 +499,9 @@ function handleOrder(data) {
          throw new Error("同じ内容の発注が直前に送信されています。二重発注防止のため、この送信は処理しませんでした。履歴をご確認ください。");
      }
 
-     // --- 1. ItemMasterから別注商品コードのセットを取得 ---
-     const specialCodes = new Set();
-     try {
-         const masterSheet = ss.getSheetByName(SHEET_NAMES.MASTER);
-         if (masterSheet) {
-             const masterValues = masterSheet.getDataRange().getValues();
-             for (let i = 1; i < masterValues.length; i++) {
-                 const row = masterValues[i];
-                 if (row[0] && String(row[4] || '').trim() !== '') {
-                     specialCodes.add(String(row[0]));
-                 }
-             }
-         }
-     } catch(e) { console.warn('別注商品の取得に失敗:', e); }
+     // --- 1. 別注判定（クライアント同梱のisSpecialが揃っていればマスタ全読みをスキップ） ---
+     const useClientSpecial = allOrdersHaveIsSpecial(orders);
+     const specialCodes = useClientSpecial ? null : getSpecialCodesSet(ss);
 
      // --- 2. シート内の「別注セクション」の開始位置（H列）を特定 ---
      const lastRow = sheet.getLastRow();
@@ -476,7 +522,7 @@ function handleOrder(data) {
 
      orders.forEach(order => {
          if(order.qty > 0) {
-             const isSpecial = specialCodes.has(String(order.code)) || String(order.code).startsWith('CUSTOM_ITEM_');
+             const isSpecial = resolveIsSpecial(order, useClientSpecial, specialCodes);
              // F:ステータス, G:備考, H:別注
              const row = createOrderRow(timestamp, order.code, order.qty, order.name, displayName, '', remarks, isSpecial);
              
@@ -554,20 +600,11 @@ function handleMultiOrder(data) {
          }
      }
 
-     // --- 1. ItemMasterから別注商品コードのセットを取得 ---
-     const specialCodes = new Set();
-     try {
-         const masterSheet = ss.getSheetByName(SHEET_NAMES.MASTER);
-         if (masterSheet) {
-             const masterValues = masterSheet.getDataRange().getValues();
-             for (let i = 1; i < masterValues.length; i++) {
-                 const row = masterValues[i];
-                 if (row[0] && String(row[4] || '').trim() !== '') {
-                     specialCodes.add(String(row[0]));
-                 }
-             }
-         }
-     } catch(e) { console.warn('別注商品の取得に失敗:', e); }
+     // --- 1. 別注判定（全グループの全orderにisSpecialが揃っていればマスタ全読みをスキップ） ---
+     const allOrdersFlat = [];
+     groups.forEach(g => { if (g.orders && Array.isArray(g.orders)) allOrdersFlat.push.apply(allOrdersFlat, g.orders); });
+     const useClientSpecial = allOrdersHaveIsSpecial(allOrdersFlat);
+     const specialCodes = useClientSpecial ? null : getSpecialCodesSet(ss);
 
      let combinedLineSummary = "";
 
@@ -607,7 +644,7 @@ function handleMultiOrder(data) {
 
          orders.forEach(order => {
              if(order.qty > 0) {
-                 const isSpecial = specialCodes.has(String(order.code)) || String(order.code).startsWith('CUSTOM_ITEM_');
+                 const isSpecial = resolveIsSpecial(order, useClientSpecial, specialCodes);
                  const row = createOrderRow(timestamp, order.code, order.qty, order.name, displayName, '', remarks, isSpecial);
                  
                  if (isSpecial) specialRows.push(row);
@@ -761,19 +798,9 @@ function handleUpdateOrder(data) {
      }
 
      // 2. Append new rows（絶対的末尾配置対応）
-     const specialCodesUpd = new Set();
-     try {
-         const masterSheet = ss.getSheetByName(SHEET_NAMES.MASTER);
-         if (masterSheet) {
-             const masterValues = masterSheet.getDataRange().getValues();
-             for (let i = 1; i < masterValues.length; i++) {
-                 const row = masterValues[i];
-                 if (row[0] && String(row[4] || '').trim() !== '') {
-                     specialCodesUpd.add(String(row[0]));
-                 }
-             }
-         }
-     } catch(e) { console.warn('別注商品取得失敗:', e); }
+     // 別注判定（クライアント同梱のisSpecialが揃っていればマスタ全読みをスキップ）
+     const useClientSpecial = allOrdersHaveIsSpecial(orders);
+     const specialCodesUpd = useClientSpecial ? null : getSpecialCodesSet(ss);
 
      // 挿入位置（別注セクションの開始行）を特定
      const lastRowUpd = sheet.getLastRow();
@@ -795,7 +822,7 @@ function handleUpdateOrder(data) {
      orders.forEach(order => {
          if(order.qty > 0) {
              const strCode = String(order.code);
-             const isSpecial = specialCodesUpd.has(strCode) || strCode.startsWith('CUSTOM_ITEM_');
+             const isSpecial = resolveIsSpecial(order, useClientSpecial, specialCodesUpd);
              const existingStatus = typeof statusMap[strCode] === 'string' ? statusMap[strCode] : '';
              const row = createOrderRow(originalTimestamp, order.code, order.qty, order.name, actualDisplayName, existingStatus, remarks, isSpecial);
              if (isSpecial) {
@@ -869,17 +896,14 @@ function handleSaveFavorites(data) {
 const LINE_FALLBACK_THRESHOLD_DEFAULT = 20;
 
 /**
- * 汎用通知関数: LINEは残数に応じてA/Bを切り替え、Discordは常時送信する
+ * 汎用通知関数: LINEのみ。残数に応じてA/Bを切り替える
  */
 function sendNotification(message) {
-    // 1. LINE通知（A残数が少ない場合はBへ切替。Aが上限エラーならBへフォールバック）
+    // LINE通知のみ（Discord通知は2026-07-12に停止。今はLINEしか見ていないため）
     const lineSuccess = sendLineNotification(message);
     if (!lineSuccess) {
         console.error("LINE Notification failed on all configured accounts.");
     }
-
-    // 2. Discord通知（常時送信用）
-    sendDiscordNotification(message);
 }
 
 function sendLineNotification(message) {
@@ -894,10 +918,16 @@ function sendLineNotification(message) {
         }
 
         const threshold = getLineFallbackThreshold(props);
-        const primaryQuota = primary ? getLineQuotaStatus(primary.token) : null;
-        const secondaryQuota = secondary ? getLineQuotaStatus(secondary.token) : null;
-        const primaryRemaining = primaryQuota ? primaryQuota.remaining : null;
-        const secondaryRemaining = secondaryQuota ? secondaryQuota.remaining : null;
+        // 残数の事前チェックはA/B両方が構成されている時だけ意味を持つ。
+        // 毎回4本のAPI往復（quota+consumption×2アカウント）は重いので30分キャッシュ。
+        // 実送信でquotaエラーが出た時はキャッシュを破棄する（下のフォールバック参照）。
+        let primaryRemaining = null;
+        let secondaryRemaining = null;
+        if (primary && secondary) {
+            const quotas = getLineQuotaRemainingCached(primary, secondary);
+            primaryRemaining = quotas.primaryRemaining;
+            secondaryRemaining = quotas.secondaryRemaining;
+        }
         const shouldUseSecondaryFirst = primary && secondary && primaryRemaining !== null && primaryRemaining <= threshold && (secondaryRemaining === null || secondaryRemaining > threshold);
         const shouldReturnToPrimary = primary && secondary && primaryRemaining !== null && primaryRemaining <= threshold && secondaryRemaining !== null && secondaryRemaining <= threshold;
 
@@ -929,6 +959,7 @@ function sendLineNotification(message) {
 
             if (secondary && isLineQuotaError(primaryResult.code, primaryResult.body)) {
                 console.log("Primary LINE account reached its limit. Falling back to secondary LINE account.");
+                invalidateLineQuotaCache(); // 実態と乖離したので次回は再取得
                 const secondaryResult = pushLineMessage(secondary, message);
                 if (secondaryResult.success) return true;
 
@@ -948,6 +979,31 @@ function sendLineNotification(message) {
         console.error("Failed to send LINE Notification: " + error.toString());
         return false;
     }
+}
+
+// --- LINE残数の30分キャッシュ（速度改善フェーズ2） ---
+const LINE_QUOTA_CACHE_KEY = 'LINE_QUOTA_REMAINING_V1';
+const LINE_QUOTA_CACHE_SECONDS = 1800; // 30分
+
+function getLineQuotaRemainingCached(primary, secondary) {
+    const cache = CacheService.getScriptCache();
+    try {
+        const hit = cache.get(LINE_QUOTA_CACHE_KEY);
+        if (hit) return JSON.parse(hit);
+    } catch (e) { /* キャッシュ不調でも続行 */ }
+
+    const primaryQuota = getLineQuotaStatus(primary.token);
+    const secondaryQuota = getLineQuotaStatus(secondary.token);
+    const result = {
+        primaryRemaining: primaryQuota ? primaryQuota.remaining : null,
+        secondaryRemaining: secondaryQuota ? secondaryQuota.remaining : null
+    };
+    try { cache.put(LINE_QUOTA_CACHE_KEY, JSON.stringify(result), LINE_QUOTA_CACHE_SECONDS); } catch (e) {}
+    return result;
+}
+
+function invalidateLineQuotaCache() {
+    try { CacheService.getScriptCache().remove(LINE_QUOTA_CACHE_KEY); } catch (e) {}
 }
 
 function getLineAccountConfig(props, suffix) {
@@ -1105,6 +1161,8 @@ function testLineFallbackSwitchNotification() {
     }
 }
 
+// 【未使用】2026-07-12にDiscord通知を停止（LINE通知のみ運用）。
+// 再開する場合は sendNotification() から呼び出しを復活させる。
 function sendDiscordNotification(message) {
     try {
         const webhookUrl = PropertiesService.getScriptProperties().getProperty('DISCORD_WEBHOOK_URL');
