@@ -3247,8 +3247,7 @@ document.addEventListener('DOMContentLoaded', () => {
 <style>
 @page { size: A4; margin: 9mm 9mm 6mm 9mm; }
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: "Hiragino Sans", "Yu Gothic", sans-serif; color: #111; font-size: 7.5pt; padding-bottom: 23mm; }
-.head { border-bottom: 2px solid #111; padding-bottom: 2mm; margin-bottom: 2mm; }
+body { font-family: "Hiragino Sans", "Yu Gothic", sans-serif; color: #111; font-size: 7.5pt; }
 .head h1 { font-size: 12pt; }
 .head .salon { font-size: 11pt; font-weight: bold; margin-top: 1mm; }
 .head .meta { font-size: 7pt; color: #444; margin-top: 0.8mm; }
@@ -3262,24 +3261,21 @@ body { font-family: "Hiragino Sans", "Yu Gothic", sans-serif; color: #111; font-
 .qty { width: 11mm; border-left: 1px solid #bbb; }
 .pair.blank .cell { min-height: 7mm; }
 .sec { font-size: 7.5pt; font-weight: bold; margin: 2.5mm 0 1mm; break-after: avoid; }
-/* 全ページ右下に繰り返し印字されるQRフッター（どのページを撮ってもサロン特定できる） */
-.pagefoot { position: fixed; bottom: 0; right: 0; display: flex; align-items: flex-end; gap: 2mm; background: #fff; padding: 1mm 0 0 2mm; }
-.pagefoot img { width: 20mm; height: 20mm; }
-.pagefoot .pf-txt { font-size: 6.5pt; color: #444; text-align: right; line-height: 1.4; padding-bottom: 1mm; }
+.head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #111; padding-bottom: 2mm; margin-bottom: 2mm; }
+.head img { width: 24mm; height: 24mm; flex-shrink: 0; margin-left: 3mm; }
 .print-btn { position: fixed; top: 8px; right: 8px; padding: 10px 18px; font-size: 12pt; cursor: pointer; z-index: 10; }
 @media print { .print-btn { display: none; } }
 </style></head><body>
 <button class="print-btn" onclick="window.print()">🖨 印刷</button>
-<div class="pagefoot">
-  <span class="pf-txt">${escImportHtml(currentClientName)} 様<br>※記入したページは全て撮影してください</span>
+<div class="head">
+  <div>
+    <h1>発注書（記入して写真を送るだけ）</h1>
+    <div class="salon">${escImportHtml(currentClientName)} 様</div>
+    <div class="meta">発行日: ${dateStr} ／ 株式会社アクティム ／ 掲載 ${sheetItems.length}商品（お取引履歴より）</div>
+  </div>
   <img src="${qrDataUrl}" alt="QR">
 </div>
-<div class="head">
-  <h1>発注書（記入して写真を送るだけ）</h1>
-  <div class="salon">${escImportHtml(currentClientName)} 様</div>
-  <div class="meta">発行日: ${dateStr} ／ 株式会社アクティム ／ 掲載 ${sheetItems.length}商品（お取引履歴より）</div>
-</div>
-<p class="note">✏️ ご注文の商品の右枠に<b>数量</b>をご記入ください。表にない商品は最後の空欄にご記入ください。記入後は<b>ページ全体（右下のQRも入るように）</b>を写真に撮ってお送りください。</p>
+<p class="note">✏️ ご注文の商品の右枠に<b>数量</b>をご記入ください。表にない商品は最後の空欄にご記入ください。記入後は<b>記入したページを全て</b>（表面は右上のQRも入るように）写真に撮ってお送りください。</p>
 ${pairsHtml}
 <p class="sec">▼ 表にない商品はこちらへ（商品名・サイズ・数量）</p>
 ${blankPairs}
@@ -3342,15 +3338,26 @@ ${blankPairs}
     const renderBatchList = () => {
         if (!batchList) return;
         batchList.innerHTML = '';
+        const salonOptions = Array.from(getValidSalonNames()).sort((a, b) => a.localeCompare(b, 'ja'));
         batchPhotos.forEach((p, idx) => {
             const row = document.createElement('div');
-            row.className = 'import-row' + (p.salon ? ' conf-high' : ' import-row-unmatched');
+            row.className = 'import-row' + (p.salon ? (p.manual ? ' conf-medium' : ' conf-high') : ' import-row-unmatched');
+            let salonHtml;
+            if (p.salon && !p.manual) {
+                salonHtml = `<span class="import-row-name">${escImportHtml(p.salon)} 様</span>
+                    <span class="import-row-conf" data-batch-result="${idx}">QR読み取りOK・解析待ち</span>`;
+            } else {
+                // QRなし → 直前の写真のサロンを初期値にした手動選択（裏面・2ページ目対策）
+                const opts = ['<option value="">（スキップ）</option>'].concat(
+                    salonOptions.map((n) => `<option value="${escImportHtml(n)}"${n === p.salon ? ' selected' : ''}>${escImportHtml(n)}</option>`)
+                ).join('');
+                salonHtml = `<span class="import-row-name">QRなし → サロンを指定：</span>
+                    <select class="batch-salon-select" data-idx="${idx}">${opts}</select>
+                    <span class="import-row-conf" data-batch-result="${idx}">${p.salon ? '直前の写真と同じサロンとして扱います（変更可）' : '未指定ならスキップされます'}</span>`;
+            }
             row.innerHTML = `
                 <img src="${p.preview}" class="batch-row-thumb" alt="発注書${idx + 1}">
-                <div class="import-row-info">
-                    <span class="import-row-name">${p.salon ? escImportHtml(p.salon) + ' 様' : '⚠️ QRが読めません'}</span>
-                    <span class="import-row-conf" data-batch-result="${idx}">${p.salon ? '解析待ち' : 'この写真はスキップされます（個別取り込みで対応）'}</span>
-                </div>
+                <div class="import-row-info">${salonHtml}</div>
                 <button type="button" class="import-thumb-del batch-row-del" data-idx="${idx}">&times;</button>
             `;
             batchList.appendChild(row);
@@ -3394,9 +3401,15 @@ ${blankPairs}
                 if (batchPhotos.length >= BATCH_MAX_PHOTOS) { alert(`写真は${BATCH_MAX_PHOTOS}枚までです。`); break; }
                 let salon = scanner ? await decodeSalonQr(scanner, f) : null;
                 if (salon && !validNames.has(salon)) salon = null; // 登録サロン名と一致しないQRは不採用
+                let manual = false;
+                if (!salon && batchPhotos.length > 0) {
+                    // QRなし＝発注書の裏面（2ページ目）の可能性が高い → 直前の写真のサロンを引き継ぐ（変更可）
+                    const prev = batchPhotos[batchPhotos.length - 1];
+                    if (prev.salon) { salon = prev.salon; manual = true; }
+                }
                 try {
                     const resized = await resizeImportPhoto(f);
-                    batchPhotos.push({ salon: salon, data: resized.data, preview: resized.preview });
+                    batchPhotos.push({ salon: salon, manual: manual, data: resized.data, preview: resized.preview });
                 } catch (err) {
                     console.error('[Batch] resize error:', err);
                 }
@@ -3412,6 +3425,16 @@ ${blankPairs}
             const btn = e.target.closest('.batch-row-del');
             if (!btn || isBatchRunning) return;
             batchPhotos.splice(parseInt(btn.dataset.idx, 10), 1);
+            renderBatchList();
+        });
+        // QRなし写真のサロン手動指定
+        batchList.addEventListener('change', (e) => {
+            const sel = e.target.closest('.batch-salon-select');
+            if (!sel || isBatchRunning) return;
+            const idx = parseInt(sel.dataset.idx, 10);
+            if (!batchPhotos[idx]) return;
+            batchPhotos[idx].salon = sel.value || null;
+            batchPhotos[idx].manual = true;
             renderBatchList();
         });
     }
