@@ -3134,16 +3134,53 @@ document.addEventListener('DOMContentLoaded', () => {
     const IMPORT_QR_PREFIX = 'B2BORDER|'; // QRの中身: B2BORDER|サロン名（一括取り込みのサロン判定に使う）
     const importDraftKey = (salonName) => 'b2b_import_draft_' + salonName;
 
-    const printOrderSheet = () => {
+    const PRINT_SHEET_MAX_ITEMS = 400;      // 安全上限（A4約5ページ相当）
+    const PRINT_ARCHIVE_MAX_PAGES = 6;      // アーカイブ履歴を遡る最大ページ数（50件×6）
+
+    // アーカイブ履歴からも商品コードを集めて「全履歴」に近づける
+    const collectArchiveCodes = async () => {
+        const codes = [];
+        let before = '';
+        try {
+            for (let page = 0; page < PRINT_ARCHIVE_MAX_PAGES; page++) {
+                let url = `${CONFIG.API_URL}?action=history_archive&clientName=${encodeURIComponent(currentClientName)}`;
+                if (before) url += `&before=${encodeURIComponent(before)}`;
+                const res = await fetch(url);
+                const result = await res.json();
+                if (result.status !== 'success') break;
+                (result.data || []).forEach((h) => codes.push(String(h.code).replace(/^'/, '').trim()));
+                if (!result.hasMore || !result.nextBefore) break;
+                before = result.nextBefore;
+            }
+        } catch (e) {
+            console.warn('[PrintSheet] archive fetch failed (続行):', e);
+        }
+        return codes;
+    };
+
+    const printOrderSheet = async () => {
         if (!isMasterSession || !currentClientName) return;
 
-        // よく頼む順（発注回数 → 最終発注日）で上位48商品を選ぶ。お気に入りも補完に使う
+        showLoading('全履歴を集めています...');
+        const archiveCodes = await collectArchiveCodes();
+        hideLoading();
+
+        // 商品の集め方（順序が印刷順になる）:
+        //  1. 直近履歴のよく頼む順（発注回数 → 最終発注日）
+        //  2. お気に入り（導入履歴同期済みならほぼ全取引商品）
+        //  3. アーカイブ履歴（古い順路の商品まで拾う）
+        //  4. history_favorites.json（一括同期スナップショット・保険）
         const nameByCode = {};
         itemsData.forEach((it) => { nameByCode[it.code] = it.name; });
         const codes = Object.keys(orderFrequency)
             .sort((a, b) => (orderFrequency[b] - orderFrequency[a]) || ((lastOrderDate[b] || 0) - (lastOrderDate[a] || 0)));
-        (favoriteItems || []).forEach((c) => { if (codes.indexOf(c) === -1) codes.push(c); });
-        const sheetItems = codes.filter((c) => nameByCode[c]).slice(0, 48)
+        const pushCode = (c) => { if (c && codes.indexOf(c) === -1) codes.push(c); };
+        (favoriteItems || []).forEach(pushCode);
+        archiveCodes.forEach(pushCode);
+        if (historyFavoritesData && historyFavoritesData[currentClientName]) {
+            historyFavoritesData[currentClientName].forEach(pushCode);
+        }
+        const sheetItems = codes.filter((c) => nameByCode[c]).slice(0, PRINT_SHEET_MAX_ITEMS)
             .map((c) => ({ code: c, name: nameByCode[c] }));
 
         if (sheetItems.length === 0) {
@@ -3167,44 +3204,59 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const today = new Date();
         const dateStr = `${today.getFullYear()}/${today.getMonth() + 1}/${today.getDate()}`;
-        const rowsHtml = sheetItems.map((it) => `
-            <div class="row"><span class="nm">${escImportHtml(it.name)}<span class="cd">${escImportHtml(it.code)}</span></span><span class="qty"></span></div>`).join('');
-        const blankRows = Array.from({ length: 8 }, () => '<div class="row blank"><span class="nm"></span><span class="qty"></span></div>').join('');
+
+        // 2列ペア方式（CSS段組ではなく行ごとに改ページさせる：複数ページでも崩れない）
+        const cell = (it) => it
+            ? `<div class="cell"><span class="nm">${escImportHtml(it.name)}<span class="cd">${escImportHtml(it.code)}</span></span><span class="qty"></span></div>`
+            : '<div class="cell empty"></div>';
+        let pairsHtml = '';
+        for (let i = 0; i < sheetItems.length; i += 2) {
+            pairsHtml += `<div class="pair">${cell(sheetItems[i])}${cell(sheetItems[i + 1])}</div>`;
+        }
+        let blankPairs = '';
+        for (let i = 0; i < 5; i++) {
+            blankPairs += '<div class="pair blank"><div class="cell"><span class="nm"></span><span class="qty"></span></div><div class="cell"><span class="nm"></span><span class="qty"></span></div></div>';
+        }
 
         const html = `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>発注書 - ${escImportHtml(currentClientName)}様</title>
 <style>
-@page { size: A4; margin: 9mm; }
+@page { size: A4; margin: 9mm 9mm 6mm 9mm; }
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: "Hiragino Sans", "Yu Gothic", sans-serif; color: #111; font-size: 8.5pt; }
-.head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #111; padding-bottom: 3mm; margin-bottom: 3mm; }
-.head h1 { font-size: 14pt; }
-.head .salon { font-size: 12pt; font-weight: bold; margin-top: 2mm; }
+body { font-family: "Hiragino Sans", "Yu Gothic", sans-serif; color: #111; font-size: 8pt; padding-bottom: 24mm; }
+.head { border-bottom: 2px solid #111; padding-bottom: 2.5mm; margin-bottom: 2.5mm; }
+.head h1 { font-size: 13pt; }
+.head .salon { font-size: 12pt; font-weight: bold; margin-top: 1.5mm; }
 .head .meta { font-size: 7.5pt; color: #444; margin-top: 1mm; }
-.head img { width: 26mm; height: 26mm; }
-.note { font-size: 7.5pt; color: #333; margin-bottom: 2.5mm; }
-.cols { column-count: 2; column-gap: 6mm; }
-.row { display: flex; align-items: stretch; border-bottom: 1px solid #bbb; break-inside: avoid; min-height: 6.4mm; }
-.nm { flex: 1; padding: 1mm 1mm 0.5mm 0; line-height: 1.25; }
+.note { font-size: 7.5pt; color: #333; margin-bottom: 2mm; }
+.pair { display: flex; gap: 5mm; break-inside: avoid; page-break-inside: avoid; }
+.cell { flex: 1; display: flex; align-items: stretch; border-bottom: 1px solid #bbb; min-height: 6.2mm; }
+.cell.empty { border-bottom: none; }
+.nm { flex: 1; padding: 0.8mm 1mm 0.5mm 0; line-height: 1.2; }
 .cd { display: block; font-size: 6pt; color: #999; }
-.qty { width: 13mm; border-left: 1px solid #bbb; }
-.row.blank { min-height: 7.5mm; }
-.sec { font-size: 8pt; font-weight: bold; margin: 3mm 0 1mm; }
-.print-btn { position: fixed; top: 8px; right: 8px; padding: 10px 18px; font-size: 12pt; cursor: pointer; }
+.qty { width: 12mm; border-left: 1px solid #bbb; }
+.pair.blank .cell { min-height: 7.5mm; }
+.sec { font-size: 8pt; font-weight: bold; margin: 3mm 0 1mm; break-after: avoid; }
+/* 全ページ右下に繰り返し印字されるQRフッター（どのページを撮ってもサロン特定できる） */
+.pagefoot { position: fixed; bottom: 0; right: 0; display: flex; align-items: flex-end; gap: 2mm; background: #fff; padding: 1mm 0 0 2mm; }
+.pagefoot img { width: 20mm; height: 20mm; }
+.pagefoot .pf-txt { font-size: 6.5pt; color: #444; text-align: right; line-height: 1.4; padding-bottom: 1mm; }
+.print-btn { position: fixed; top: 8px; right: 8px; padding: 10px 18px; font-size: 12pt; cursor: pointer; z-index: 10; }
 @media print { .print-btn { display: none; } }
 </style></head><body>
 <button class="print-btn" onclick="window.print()">🖨 印刷</button>
-<div class="head">
-  <div>
-    <h1>発注書（記入して写真を送るだけ）</h1>
-    <div class="salon">${escImportHtml(currentClientName)} 様</div>
-    <div class="meta">発行日: ${dateStr} ／ 株式会社アクティム</div>
-  </div>
+<div class="pagefoot">
+  <span class="pf-txt">${escImportHtml(currentClientName)} 様<br>※記入したページは全て撮影してください</span>
   <img src="${qrDataUrl}" alt="QR">
 </div>
-<p class="note">✏️ ご注文の商品の右枠に<b>数量</b>をご記入ください。表にない商品は下の空欄にご記入ください。記入後はこの用紙を<b>QRごと写真に撮って</b>お送りください。</p>
-<div class="cols">${rowsHtml}</div>
+<div class="head">
+  <h1>発注書（記入して写真を送るだけ）</h1>
+  <div class="salon">${escImportHtml(currentClientName)} 様</div>
+  <div class="meta">発行日: ${dateStr} ／ 株式会社アクティム ／ 掲載 ${sheetItems.length}商品（お取引履歴より）</div>
+</div>
+<p class="note">✏️ ご注文の商品の右枠に<b>数量</b>をご記入ください。表にない商品は最後の空欄にご記入ください。記入後は<b>ページ全体（右下のQRも入るように）</b>を写真に撮ってお送りください。</p>
+${pairsHtml}
 <p class="sec">▼ 表にない商品はこちらへ（商品名・サイズ・数量）</p>
-<div class="cols">${blankRows}</div>
+${blankPairs}
 </body></html>`;
 
         const win = window.open('', '_blank');
