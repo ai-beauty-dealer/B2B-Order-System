@@ -136,6 +136,20 @@ document.addEventListener('DOMContentLoaded', () => {
             loginForm.style.display = '';
         });
 
+        // 猶予中に商品キャッシュのparseとチップ構築を先に済ませておく（起動短縮）
+        setTimeout(() => {
+            try {
+                const cachedData = localStorage.getItem('b2b_items_cache');
+                const cachedTs = localStorage.getItem('b2b_items_ts');
+                if (cachedData && cachedTs && (Date.now() - parseInt(cachedTs) < CACHE_DURATION) && !itemsData.length) {
+                    itemsData = JSON.parse(cachedData);
+                    itemsPreparsedFromCache = true;
+                    renderManufacturerChips();
+                    renderCategoryChips();
+                }
+            } catch (e) { /* 失敗してもfetchItemsが通常経路で再parseする */ }
+        }, 0);
+
         // 「別のサロン」を押す猶予を少しだけ置いてから自動送信
         setTimeout(() => {
             if (cancelled) return;
@@ -190,6 +204,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentClientName = '';
     let currentClientType = ''; // '直送' or ''
     let itemsData = [];
+    let itemsPreparsedFromCache = false; // 自動ログイン猶予中にキャッシュをparse済みか
     let favoriteItems = [];
     let historyFavoritesData = null; // Mapping from history_favorites.json
     let currentFilter = 'all';
@@ -1572,44 +1587,54 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!needsFetch) {
             if (cachedData && cachedTs && (now - parseInt(cachedTs) < CACHE_DURATION)) {
-                // --- 1時間スロットリング付きバージョンチェック ---
-                const lastVersionCheck = parseInt(localStorage.getItem('b2b_last_version_check') || '0');
-                if (now - lastVersionCheck > 60 * 60 * 1000) { // 1時間以上経過
-                    try {
-                        console.log('[Version Check] Throttled check running...');
-                        const versionRes = await fetch(`${CONFIG.API_URL}?action=version`);
-                        const versionData = await versionRes.json();
-                        localStorage.setItem('b2b_last_version_check', now.toString());
-                        
-                        if (versionData.status === 'success' && versionData.dataVersion) {
-                            const localVersion = localStorage.getItem('b2b_data_version');
-                            if (localVersion !== versionData.dataVersion) {
-                                console.log(`[Version Check] Data version changed: ${localVersion} -> ${versionData.dataVersion}. Forcing refresh.`);
-                                // ここではキャッシュを消さず、fetch終了後に上書きする（ホワイトアウト対策）
-                                needsFetch = true;
-                                loadingMsg = '最新の商品マスタに更新しています...';
-                            }
-                        }
-                    } catch (e) {
-                        console.warn('Version check failed, ignoring:', e);
+                let parsedOk = false;
+                try {
+                    // 自動ログインの猶予中に事前parse済みならそれを流用
+                    if (!(itemsPreparsedFromCache && itemsData.length)) {
+                        itemsData = JSON.parse(cachedData);
                     }
+                    parsedOk = true;
+                } catch (e) {
+                    console.error('Failed to parse cache:', e);
+                    needsFetch = true;
                 }
 
-                if (!needsFetch) {
+                if (parsedOk) {
+                    // キャッシュを即描画。バージョンチェックは裏に回す（無表示待ちをなくす）
                     console.log('Using cached item data (valid for 24h)');
-                    try {
-                        itemsData = JSON.parse(cachedData);
-                        setTimeout(() => {
-                            renderManufacturerChips();
-                            renderCategoryChips();
-                            renderItems(itemsData);
-                            if (announcementBanner) announcementBanner.classList.remove('hidden');
-                        }, 0);
-                        return;
-                    } catch (e) {
-                        console.error('Failed to parse cache:', e);
-                        needsFetch = true;
+                    setTimeout(() => {
+                        renderManufacturerChips();
+                        renderCategoryChips();
+                        renderItems(itemsData);
+                        if (announcementBanner) announcementBanner.classList.remove('hidden');
+                    }, 0);
+
+                    // --- 1時間スロットリング付きバージョンチェック（非ブロッキング） ---
+                    const lastVersionCheck = parseInt(localStorage.getItem('b2b_last_version_check') || '0');
+                    if (now - lastVersionCheck > 60 * 60 * 1000) { // 1時間以上経過
+                        (async () => {
+                            try {
+                                console.log('[Version Check] Throttled check running...');
+                                const versionRes = await fetch(`${CONFIG.API_URL}?action=version`);
+                                const versionData = await versionRes.json();
+                                localStorage.setItem('b2b_last_version_check', now.toString());
+
+                                if (versionData.status === 'success' && versionData.dataVersion) {
+                                    const localVersion = localStorage.getItem('b2b_data_version');
+                                    if (localVersion !== versionData.dataVersion) {
+                                        console.log(`[Version Check] Data version changed: ${localVersion} -> ${versionData.dataVersion}. Forcing refresh.`);
+                                        // ここではキャッシュを消さず、fetch終了後に上書きする（ホワイトアウト対策）
+                                        await fetchItems(true, '最新の商品マスタに更新しています...');
+                                        // 裏差し替えで数量入力が初期化されるためカートから復元
+                                        Object.entries(currentCart).forEach(([code, data]) => syncCardQty(code, data.qty));
+                                    }
+                                }
+                            } catch (e) {
+                                console.warn('Version check failed, ignoring:', e);
+                            }
+                        })();
                     }
+                    return;
                 }
             } else {
                 needsFetch = true;
@@ -1714,26 +1739,32 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Load favorites from Cloud first, fallback to local
+        // Load favorites: ローカルを即読みして先に進み、クラウドは裏で取得（届いたら★を差し替え）
         try {
-            const favRes = await fetch(`${CONFIG.API_URL}?action=get_favorites&clientName=${encodeURIComponent(currentClientName)}`);
-            const favData = await favRes.json();
-            if (favData.status === 'success' && favData.data && favData.data.length > 0) {
-                // 有効なコードのみを抽出（指数表示などの破損データを除去し、シングルクォートも剥がす）
-                favoriteItems = favData.data
-                    .map(code => String(code).replace(/^'/, ''))
-                    .filter(code => isValidCode(code));
-                localStorage.setItem(getFavsKey(), JSON.stringify(favoriteItems));
-                console.log('Loaded favorites from cloud (and filtered corrupted items)');
-            } else {
-                const savedFavs = localStorage.getItem(getFavsKey());
-                favoriteItems = savedFavs ? JSON.parse(savedFavs).filter(code => isValidCode(code)) : [];
-            }
-        } catch (e) {
-            console.warn('Failed to load favorites from cloud, falling back to local', e);
             const savedFavs = localStorage.getItem(getFavsKey());
-            favoriteItems = savedFavs ? JSON.parse(savedFavs) : [];
+            favoriteItems = savedFavs ? JSON.parse(savedFavs).filter(code => isValidCode(code)) : [];
+        } catch (e) {
+            favoriteItems = [];
         }
+        const favClientName = currentClientName;
+        (async () => {
+            try {
+                const favRes = await fetch(`${CONFIG.API_URL}?action=get_favorites&clientName=${encodeURIComponent(favClientName)}`);
+                const favData = await favRes.json();
+                if (favClientName !== currentClientName) return; // 取得中にサロン切替済みなら破棄
+                if (favData.status === 'success' && favData.data && favData.data.length > 0) {
+                    // 有効なコードのみを抽出（指数表示などの破損データを除去し、シングルクォートも剥がす）
+                    favoriteItems = favData.data
+                        .map(code => String(code).replace(/^'/, ''))
+                        .filter(code => isValidCode(code));
+                    localStorage.setItem(getFavsKey(), JSON.stringify(favoriteItems));
+                    if (itemsData.length) renderItems(itemsData); // ★を再描画
+                    console.log('Loaded favorites from cloud (and filtered corrupted items)');
+                }
+            } catch (e) {
+                console.warn('Failed to load favorites from cloud, keeping local', e);
+            }
+        })();
 
         // よく頼む順: このサロンの発注頻度を裏で読み込む（非同期・非ブロッキング）
         loadOrderFrequency();
@@ -1775,7 +1806,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (restoredCount > 0) showCartRestoredBanner(restoredCount);
                 });
             switchTab('tab-all');
-        }, 300);
+        }, 50);
         hideLoading();
     };
 
@@ -1982,6 +2013,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const result = await response.json();
 
             if (result.status === 'success') {
+                fetchHistory(true); // alertを閉じるのを待たず履歴更新を先行開始
                 alert(isEditing ? '発注内容を変更しました。' : '発注が完了しました！\n引き続き発注いただけます。');
                 // ... (中略: favoriteItems の処理はそのまま)
                 let favsUpdated = false;
@@ -2002,7 +2034,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (customItemsList) customItemsList.innerHTML = '';
                 clearCartFromStorage(); // Order submitted — discard persisted draft
                 resetEditMode();
-                fetchHistory(true); // Force refresh history to include the new order
             } else {
                 const errorMsg = result.message || '不明なエラーが発生しました。';
                 if (errorMsg.includes('サーバーが混み合っています')) {
@@ -2039,6 +2070,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             const result = await response.json();
             if (result.status === 'success') {
+                fetchHistory(true); // alertを閉じるのを待たず履歴更新を先行開始
                 alert(isEditing ? '発注内容を変更しました。' : '発注が完了しました！\n引き続き発注いただけます。');
                 let favsUpdated = false;
                 orderGroups.forEach(group => {
@@ -2058,7 +2090,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (customItemsList) customItemsList.innerHTML = '';
                 clearCartFromStorage(); // Order submitted — discard persisted draft
                 resetEditMode();
-                fetchHistory(true);
             } else {
                 const errorMsg = result.message || '不明なエラーが発生しました。';
                 if (errorMsg.includes('サーバーが混み合っています')) {

@@ -6,12 +6,15 @@
 // R-3: 画面(html/js/css)は network-first（オンラインなら常に最新）。
 //      これで push した修正がすぐ反映される。古い版に固定されない。
 //      不変物（アイコン・ライブラリ）だけ cache-first で高速化。
+//      例外: バージョンクエリ付き資産（app.js?v= / style.css?v= / config.js?v=）は
+//      cache-first。v が変われば別URL＝キャッシュミスで新版を取るため、
+//      index.html（network-first維持）の ?v= 更新が反映の起点になる。R-3思想と両立。
 // R-6: 緊急停止するには、このファイルの中身を下記「キルスイッチ」に
 //      置き換えて push すればよい（末尾のコメント参照）。
 //
 // キャッシュ名にバージョンを持たせ、更新時に古いキャッシュを消す。
 
-const CACHE_VERSION = 'v2.19.3';
+const CACHE_VERSION = 'v2.20.0';
 const CACHE_NAME = 'b2b-order-' + CACHE_VERSION;
 
 // 起動に必要な最小資産（オフライン時のフォールバック用）
@@ -62,6 +65,14 @@ self.addEventListener('fetch', (event) => {
 
   // 不変物 → cache-first
   if (IMMUTABLE_HINTS.some((hint) => url.pathname.includes(hint))) {
+    event.respondWith(
+      caches.match(req).then((hit) => hit || fetchAndCache(req))
+    );
+    return;
+  }
+
+  // バージョンクエリ付き js/css → cache-first（vが変われば別URLなので古い版に固定されない）
+  if (url.searchParams.has('v') && /\.(js|css)$/.test(url.pathname)) {
     event.respondWith(
       caches.match(req).then((hit) => hit || fetchAndCache(req))
     );
