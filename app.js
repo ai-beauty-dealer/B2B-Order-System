@@ -3134,7 +3134,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const IMPORT_QR_PREFIX = 'B2BORDER|'; // QRの中身: B2BORDER|サロン名（一括取り込みのサロン判定に使う）
     const importDraftKey = (salonName) => 'b2b_import_draft_' + salonName;
 
-    const PRINT_SHEET_MAX_ITEMS = 150;      // A4両面（2ページ）に収まる上限。超えた分は頼む頻度が低い順に落とす
+    const PRINT_SHEET_MAX_ITEMS = 240;      // A4両面（2ページ・3列）に収まる上限。超えた分は頼む頻度が低い順に落とす
     const PRINT_ARCHIVE_MAX_PAGES = 6;      // アーカイブ履歴を遡る最大ページ数（50件×6）
     // 印刷時のカテゴリ掲載順（この順でセクション化し、各セクション内は商品名あいうえお順）
     const PRINT_CATEGORY_ORDER = ['カラー関連', '2剤/ブリーチ', 'パーマ関連', 'ストレート関連', 'シャンプー', 'トリートメント', 'スキャルプ関連', '業務用商品', 'コスメ関連'];
@@ -3206,7 +3206,8 @@ document.addEventListener('DOMContentLoaded', () => {
             return a.localeCompare(b, 'ja');
         });
         categoryKeys.forEach((cat) => {
-            byCategory[cat].sort((a, b) => String(a.name).localeCompare(String(b.name), 'ja'));
+            // カテゴリ内は商品コード順（同一系列はコードが並んでいるため自然にまとまる）
+            byCategory[cat].sort((a, b) => String(a.code).localeCompare(String(b.code), 'ja', { numeric: true }));
         });
 
         // QR生成（qrcode-generator。日本語サロン名のためUTF-8バイト変換を指定）
@@ -3226,7 +3227,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const today = new Date();
         const dateStr = `${today.getFullYear()}/${today.getMonth() + 1}/${today.getDate()}`;
 
-        // 2列ペア方式（CSS段組ではなく行ごとに改ページさせる：複数ページでも崩れない）
+        // 縦3列方式（CSS段組ではなく行ごとに改ページさせる：複数ページでも崩れない）
+        const PRINT_COLS = 3;
         const cell = (it) => it
             ? `<div class="cell"><span class="nm">${escImportHtml(it.name)}<span class="cd">${escImportHtml(it.code)}</span></span><span class="qty"></span></div>`
             : '<div class="cell empty"></div>';
@@ -3234,31 +3236,34 @@ document.addEventListener('DOMContentLoaded', () => {
         categoryKeys.forEach((cat) => {
             pairsHtml += `<div class="cat">${escImportHtml(cat)}</div>`;
             const arr = byCategory[cat];
-            for (let i = 0; i < arr.length; i += 2) {
-                pairsHtml += `<div class="pair">${cell(arr[i])}${cell(arr[i + 1])}</div>`;
+            for (let i = 0; i < arr.length; i += PRINT_COLS) {
+                let row = '';
+                for (let k = 0; k < PRINT_COLS; k++) row += cell(arr[i + k]);
+                pairsHtml += `<div class="pair">${row}</div>`;
             }
         });
+        const blankCell = '<div class="cell"><span class="nm"></span><span class="qty"></span></div>';
         let blankPairs = '';
         for (let i = 0; i < 4; i++) {
-            blankPairs += '<div class="pair blank"><div class="cell"><span class="nm"></span><span class="qty"></span></div><div class="cell"><span class="nm"></span><span class="qty"></span></div></div>';
+            blankPairs += `<div class="pair blank">${blankCell.repeat(PRINT_COLS)}</div>`;
         }
 
         const html = `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>発注書 - ${escImportHtml(currentClientName)}様</title>
 <style>
 @page { size: A4; margin: 9mm 9mm 6mm 9mm; }
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: "Hiragino Sans", "Yu Gothic", sans-serif; color: #111; font-size: 7.5pt; }
+body { font-family: "Hiragino Sans", "Yu Gothic", sans-serif; color: #111; font-size: 7pt; }
 .head h1 { font-size: 12pt; }
 .head .salon { font-size: 11pt; font-weight: bold; margin-top: 1mm; }
 .head .meta { font-size: 7pt; color: #444; margin-top: 0.8mm; }
 .note { font-size: 7pt; color: #333; margin-bottom: 1.6mm; }
 .cat { font-size: 7.5pt; font-weight: bold; background: #ececec; padding: 0.7mm 1.2mm; margin-top: 1.4mm; break-after: avoid; page-break-after: avoid; }
-.pair { display: flex; gap: 5mm; break-inside: avoid; page-break-inside: avoid; }
-.cell { flex: 1; display: flex; align-items: stretch; border-bottom: 1px solid #bbb; min-height: 5.4mm; }
+.pair { display: flex; gap: 3.5mm; break-inside: avoid; page-break-inside: avoid; }
+.cell { flex: 1; min-width: 0; display: flex; align-items: stretch; border-bottom: 1px solid #bbb; min-height: 5.2mm; }
 .cell.empty { border-bottom: none; }
-.nm { flex: 1; padding: 0.6mm 1mm 0.4mm 0; line-height: 1.15; }
-.cd { display: block; font-size: 5.5pt; color: #999; }
-.qty { width: 11mm; border-left: 1px solid #bbb; }
+.nm { flex: 1; min-width: 0; padding: 0.5mm 0.8mm 0.4mm 0; line-height: 1.15; overflow-wrap: anywhere; }
+.cd { display: block; font-size: 5pt; color: #999; }
+.qty { width: 9.5mm; flex-shrink: 0; border-left: 1px solid #bbb; }
 .pair.blank .cell { min-height: 7mm; }
 .sec { font-size: 7.5pt; font-weight: bold; margin: 2.5mm 0 1mm; break-after: avoid; }
 .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #111; padding-bottom: 2mm; margin-bottom: 2mm; }
