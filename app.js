@@ -2690,19 +2690,28 @@ document.addEventListener('DOMContentLoaded', () => {
     // バーコードを大きく写せるようにする。倍率はスライダーで調整でき、端末ごとに記憶する。
     // 非対応端末（iOS16以前等）では何もしない（スライダーも出さない）。
     const scanZoomRow = document.getElementById('scan-zoom-row');
-    const scanZoomSlider = document.getElementById('scan-zoom-slider');
-    const scanZoomValue = document.getElementById('scan-zoom-value');
+    const scanZoomPresets = document.getElementById('scan-zoom-presets');
     // v2.23.0はデフォルト2倍を自動保存してしまっていたため、キーを変えて仕切り直し
     // （旧キーの値は「ユーザーが選んだ倍率」と区別できない）
     const SCAN_ZOOM_STORAGE_KEY = 'b2b_scan_zoom_v2';
+    // スライダーは適用の重さ（iOSで1回数百ms）と相性が悪く狙った倍率に合わせにくいため、
+    // プリセットボタンのタップ一発方式にする
+    const SCAN_ZOOM_PRESET_VALUES = [1, 1.5, 2, 3, 4];
     let scanVideoTrack = null;
+
+    const updateZoomActiveButton = (zoom) => {
+        if (!scanZoomPresets) return;
+        scanZoomPresets.querySelectorAll('.scan-zoom-preset-btn').forEach(btn => {
+            btn.classList.toggle('active', parseFloat(btn.dataset.zoom) === zoom);
+        });
+    };
 
     // applyConstraintsはiOSで1回数百msかかる。ドラッグ中のイベント全部で呼ぶと
     // 行列ができて固まるため、実行中は1件だけ・中間値は捨てて最新値のみ適用する。
     let scanZoomBusy = false;
     let scanZoomPending = null;
     const setScanZoom = (zoom) => {
-        if (scanZoomValue) scanZoomValue.textContent = zoom.toFixed(1) + 'x'; // ラベルは即時反映
+        updateZoomActiveButton(zoom); // 選択表示は即時反映
         scanZoomPending = zoom;
         if (scanZoomBusy || !scanVideoTrack) return;
         scanZoomBusy = true;
@@ -2740,35 +2749,37 @@ document.addEventListener('DOMContentLoaded', () => {
                 const minZoom = caps.zoom.min || 1;
                 const maxZoom = caps.zoom.max;
                 // デフォルトは1倍＝従来のカメラ挙動のまま（今まで読めていた人を変えない）。
-                // スライダーを動かした端末だけ、その倍率を記憶して次回復元する。
+                // ボタンを押した端末だけ、その倍率を記憶して次回復元する。
                 const saved = parseFloat(localStorage.getItem(SCAN_ZOOM_STORAGE_KEY));
                 const zoom = Math.min(maxZoom, Math.max(minZoom, Number.isFinite(saved) ? saved : 1));
 
-                if (scanZoomSlider && scanZoomRow) {
-                    scanZoomSlider.min = minZoom;
-                    scanZoomSlider.max = maxZoom;
-                    scanZoomSlider.step = caps.zoom.step || 0.1;
-                    scanZoomSlider.value = zoom;
+                if (scanZoomPresets && scanZoomRow) {
+                    scanZoomPresets.innerHTML = '';
+                    SCAN_ZOOM_PRESET_VALUES
+                        .filter(v => v >= minZoom && v <= maxZoom)
+                        .forEach(v => {
+                            const btn = document.createElement('button');
+                            btn.type = 'button';
+                            btn.className = 'scan-zoom-preset-btn';
+                            btn.dataset.zoom = String(v);
+                            btn.textContent = (Number.isInteger(v) ? v : v.toFixed(1)) + 'x';
+                            btn.addEventListener('click', () => setScanZoom(v));
+                            scanZoomPresets.appendChild(btn);
+                        });
                     scanZoomRow.classList.remove('hidden');
                 }
                 if (scannerStatus) scannerStatus.textContent = 'バーコードを枠内に収めてください（ピントが合わない時は🔍ズーム調整）';
                 // 記憶済みの端末だけ適用。初回（=1倍）はカメラに触らない
                 if (Number.isFinite(saved)) {
                     setScanZoom(zoom);
-                } else if (scanZoomValue) {
-                    scanZoomValue.textContent = zoom.toFixed(1) + 'x';
+                } else {
+                    updateZoomActiveButton(zoom);
                 }
-                console.log(`[Scanner] Zoom slider ready: ${zoom}x (range ${minZoom}-${maxZoom})`);
+                console.log(`[Scanner] Zoom presets ready: ${zoom}x (range ${minZoom}-${maxZoom})`);
             }
         } catch (e) { console.warn('[Scanner] Focus/zoom constraints not applied:', e); }
     };
 
-    if (scanZoomSlider) {
-        scanZoomSlider.addEventListener('input', () => {
-            const zoom = parseFloat(scanZoomSlider.value);
-            if (Number.isFinite(zoom)) setScanZoom(zoom);
-        });
-    }
 
     const startScanner = async () => {
         if (!scannerModal || !scannerOverlay) return;

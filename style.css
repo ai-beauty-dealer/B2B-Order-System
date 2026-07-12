@@ -1368,15 +1368,26 @@ input[type=number]::-webkit-outer-spin-button {
     font-weight: 600;
     white-space: nowrap;
 }
-.scan-zoom-slider {
+.scan-zoom-presets {
+    display: flex;
+    gap: 6px;
     flex: 1;
-    accent-color: #1e3a5f;
-    min-width: 0;
+    justify-content: flex-end;
 }
-.scan-zoom-value {
-    font-size: 0.8rem;
+.scan-zoom-preset-btn {
+    background: #fff;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
     color: #1e3a5f;
+    font-size: 0.85rem;
     font-weight: 600;
-    min-width: 38px;
-    text-align: right;
+    padding: 8px 0;
+    flex: 1;
+    max-width: 56px;
+    cursor: pointer;
+}
+.scan-zoom-preset-btn.active {
+    background: #1e3a5f;
+    border-color: #1e3a5f;
+    color: #fff;
 }
