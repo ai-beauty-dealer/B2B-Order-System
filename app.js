@@ -3227,8 +3227,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const today = new Date();
         const dateStr = `${today.getFullYear()}/${today.getMonth() + 1}/${today.getDate()}`;
 
-        // 縦3列方式（CSS段組ではなく行ごとに改ページさせる：複数ページでも崩れない）
-        const PRINT_COLS = 3;
+        // 縦4列・列優先方式（コード順が縦に流れる。行単位のDOMなので複数ページでも崩れず、
+        // ページをまたいでも各列の連番は途切れない）
+        const PRINT_COLS = 4;
         const cell = (it) => it
             ? `<div class="cell"><span class="nm">${escImportHtml(it.name)}<span class="cd">${escImportHtml(it.code)}</span></span><span class="qty"></span></div>`
             : '<div class="cell empty"></div>';
@@ -3236,9 +3237,10 @@ document.addEventListener('DOMContentLoaded', () => {
         categoryKeys.forEach((cat) => {
             pairsHtml += `<div class="cat">${escImportHtml(cat)}</div>`;
             const arr = byCategory[cat];
-            for (let i = 0; i < arr.length; i += PRINT_COLS) {
+            const rows = Math.ceil(arr.length / PRINT_COLS);
+            for (let i = 0; i < rows; i++) {
                 let row = '';
-                for (let k = 0; k < PRINT_COLS; k++) row += cell(arr[i + k]);
+                for (let k = 0; k < PRINT_COLS; k++) row += cell(arr[i + k * rows]);
                 pairsHtml += `<div class="pair">${row}</div>`;
             }
         });
@@ -3258,12 +3260,12 @@ body { font-family: "Hiragino Sans", "Yu Gothic", sans-serif; color: #111; font-
 .head .meta { font-size: 7pt; color: #444; margin-top: 0.8mm; }
 .note { font-size: 7pt; color: #333; margin-bottom: 1.6mm; }
 .cat { font-size: 7.5pt; font-weight: bold; background: #ececec; padding: 0.7mm 1.2mm; margin-top: 1.4mm; break-after: avoid; page-break-after: avoid; }
-.pair { display: flex; gap: 3.5mm; break-inside: avoid; page-break-inside: avoid; }
+.pair { display: flex; gap: 2.8mm; break-inside: avoid; page-break-inside: avoid; }
 .cell { flex: 1; min-width: 0; display: flex; align-items: stretch; border-bottom: 1px solid #bbb; min-height: 5.2mm; }
 .cell.empty { border-bottom: none; }
 .nm { flex: 1; min-width: 0; padding: 0.5mm 0.8mm 0.4mm 0; line-height: 1.15; overflow-wrap: anywhere; }
 .cd { display: block; font-size: 5pt; color: #999; }
-.qty { width: 9.5mm; flex-shrink: 0; border-left: 1px solid #bbb; }
+.qty { width: 9mm; flex-shrink: 0; border-left: 1px solid #bbb; }
 .pair.blank .cell { min-height: 7mm; }
 .sec { font-size: 7.5pt; font-weight: bold; margin: 2.5mm 0 1mm; break-after: avoid; }
 .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #111; padding-bottom: 2mm; margin-bottom: 2mm; }
