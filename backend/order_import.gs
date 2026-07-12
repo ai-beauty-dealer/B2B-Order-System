@@ -1,5 +1,5 @@
 // ==========================================
-// 📥 取り込みモード（LINE文面 → 発注ドラフト解析）
+// 📥 取り込みモード（LINE文面・発注書写メ → 発注ドラフト解析）
 // ==========================================
 // doPost の action: 'parse_order' から呼ばれる（code.gs にルーティングあり）。
 // サロンの履歴・お気に入り・使用メーカーのカラー剤を候補にして、
@@ -8,13 +8,21 @@
 //
 // 必要な Script Property:
 //   ANTHROPIC_API_KEY … Claude APIキー（プロジェクトの設定 → スクリプト プロパティ）
+//
+// コスト設計:
+//   テキスト解析 … 文面に出てくる語で候補を事前フィルタ → 1回2〜3円目安
+//   写メ解析     … 事前フィルタ不可のため候補広め＋画像 → 1回5円前後目安（Haiku時）
 
-// モデル選定: まずHaiku（1回1円以下）で運用し、精度がイマイチなら 'claude-opus-4-8' に上げる。
-// ※ 'claude-opus-4-8' に変える場合は下の payload に thinking: { type: 'adaptive' } を足すと精度が上がる
-//   （Haiku 4.5 は adaptive thinking 非対応のため現在は外してある）
-const PARSE_MODEL = 'claude-haiku-4-5';
-const PARSE_MAX_INPUT_CHARS = 4000;   // LINE文面の上限
-const PARSE_MAX_CANDIDATES = 1500;    // プロンプトに渡す候補商品の上限
+// モデル選定: まずHaikuで運用し、精度がイマイチなら該当モードだけ 'claude-opus-4-8' に上げる。
+// ※ Opusに変える場合は buildClaudePayload_ 内のコメント参照（thinking: adaptive を足すと精度が上がる）
+const PARSE_MODEL_TEXT = 'claude-haiku-4-5';   // LINE文面の解析
+const PARSE_MODEL_IMAGE = 'claude-haiku-4-5';  // 発注書写メの解析（手書き精度が足りなければここだけOpusへ）
+
+const PARSE_MAX_INPUT_CHARS = 4000;    // LINE文面の上限
+const PARSE_MAX_IMAGES = 3;            // 写メの上限枚数
+const PARSE_MAX_IMAGE_B64 = 6000000;   // 1枚あたりbase64上限（約4.5MB実体）
+const PARSE_MAX_CANDIDATES_TEXT = 600;  // テキスト解析時の候補上限（事前フィルタ後）
+const PARSE_MAX_CANDIDATES_IMAGE = 1200; // 写メ解析時の候補上限
 const PARSE_HISTORY_LOOKBACK_DAYS = 62; // 履歴を遡る日数（発注サイト未使用サロンも拾えるよう広め）
 
 // 別名辞書（正本: docs/取り込みモード_別名辞書.md。確定した行だけここに反映する）
@@ -26,8 +34,7 @@ const PARSE_ALIAS_HINTS = [
   'プライム = Nカラーストーリープライム（アリミノ）',
   'イノア = iNOA（ロレアル）。8.82等の小数表記はiNOAの色番',
   'BL/BLカラー = BLカラー（フィヨーレ）。色番だけの記載（8GA等）はBLカラーの場合が多い',
-  'サンドベージュ[n] = クオルシアサンドベージュ[n]（フィヨーレ）',
-  'グレージュ[n] = クオルシアグレージュ[n]（フィヨーレ）',
+  'サンドベージュ[n] = クオルシアサンドベージュ[n]（フィヨーレ）。グレージュ[n]=クオルシアグレージュ[n]。グレーとグレージュは別商品なので混同しない',
   'OX6/BLオキシ6% = BLカラー OX 6% 2000 パウチ。OX3=3%、OX2=2%',
   'プリフィカ = F.Aidプリフィカ（フィヨーレ）',
   'CD = クリエイティブデザイン（フィヨーレ）',
@@ -37,11 +44,19 @@ const PARSE_ALIAS_HINTS = [
 function handleParseOrder(data) {
   const clientName = String(data.clientName || '').trim();
   const text = String(data.text || '').trim();
+  const images = Array.isArray(data.images) ? data.images : [];
 
   if (!clientName) return parseOrderError_('clientName がありません。');
-  if (!text) return parseOrderError_('解析するテキストが空です。');
+  if (!text && images.length === 0) return parseOrderError_('文面か写真のどちらかを入れてください。');
   if (text.length > PARSE_MAX_INPUT_CHARS) {
     return parseOrderError_('テキストが長すぎます（' + PARSE_MAX_INPUT_CHARS + '文字まで）。分割して取り込んでください。');
+  }
+  if (images.length > PARSE_MAX_IMAGES) {
+    return parseOrderError_('写真は' + PARSE_MAX_IMAGES + '枚までです。分けて取り込んでください。');
+  }
+  for (let i = 0; i < images.length; i++) {
+    if (typeof images[i] !== 'string' || !images[i]) return parseOrderError_('写真データが不正です。');
+    if (images[i].length > PARSE_MAX_IMAGE_B64) return parseOrderError_('写真が大きすぎます。アプリを最新版にして撮り直してください。');
   }
 
   const apiKey = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
@@ -49,9 +64,12 @@ function handleParseOrder(data) {
 
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const master = loadMasterForParse_(ss);
-  const candidates = buildParseCandidates_(ss, clientName, master);
+  const isImageMode = images.length > 0;
+  // テキストのみのときは文面の語で色番候補を事前フィルタしてトークンを節約する。
+  // 写メがあるときは中身が読めないためフィルタしない（候補広め）。
+  const candidates = buildParseCandidates_(ss, clientName, master, isImageMode ? '' : text);
 
-  const result = callClaudeForParse_(apiKey, text, candidates);
+  const result = callClaudeForParse_(apiKey, text, images, candidates);
   if (result.error) return parseOrderError_(result.error);
 
   // サーバー側検証: 返ってきたコードがマスタに実在するか。実在すれば名前はマスタ表記で上書き
@@ -115,19 +133,55 @@ function loadMasterForParse_(ss) {
   return { byCode: byCode, colorByMfr: colorByMfr };
 }
 
-// --- 候補リスト生成: 履歴 + お気に入り + 履歴メーカーのカラー剤全色番 ---
-function buildParseCandidates_(ss, clientName, master) {
+// --- 照合用正規化: 半角カナ→全角、全角英数→半角、小文字化、区切り除去 ---
+function normalizeForMatch_(str) {
+  if (!str) return '';
+  let s = String(str);
+  // 全角英数→半角
+  s = s.replace(/[Ａ-Ｚａ-ｚ０-９．]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); });
+  // 半角カナ→全角（濁点結合）
+  const dakuten = { 'ｶ': 'ガ', 'ｷ': 'ギ', 'ｸ': 'グ', 'ｹ': 'ゲ', 'ｺ': 'ゴ', 'ｻ': 'ザ', 'ｼ': 'ジ', 'ｽ': 'ズ', 'ｾ': 'ゼ', 'ｿ': 'ゾ', 'ﾀ': 'ダ', 'ﾁ': 'ヂ', 'ﾂ': 'ヅ', 'ﾃ': 'デ', 'ﾄ': 'ド', 'ﾊ': 'バ', 'ﾋ': 'ビ', 'ﾌ': 'ブ', 'ﾍ': 'ベ', 'ﾎ': 'ボ', 'ｳ': 'ヴ' };
+  const handakuten = { 'ﾊ': 'パ', 'ﾋ': 'ピ', 'ﾌ': 'プ', 'ﾍ': 'ペ', 'ﾎ': 'ポ' };
+  const plain = { 'ｱ': 'ア', 'ｲ': 'イ', 'ｳ': 'ウ', 'ｴ': 'エ', 'ｵ': 'オ', 'ｶ': 'カ', 'ｷ': 'キ', 'ｸ': 'ク', 'ｹ': 'ケ', 'ｺ': 'コ', 'ｻ': 'サ', 'ｼ': 'シ', 'ｽ': 'ス', 'ｾ': 'セ', 'ｿ': 'ソ', 'ﾀ': 'タ', 'ﾁ': 'チ', 'ﾂ': 'ツ', 'ﾃ': 'テ', 'ﾄ': 'ト', 'ﾅ': 'ナ', 'ﾆ': 'ニ', 'ﾇ': 'ヌ', 'ﾈ': 'ネ', 'ﾉ': 'ノ', 'ﾊ': 'ハ', 'ﾋ': 'ヒ', 'ﾌ': 'フ', 'ﾍ': 'ヘ', 'ﾎ': 'ホ', 'ﾏ': 'マ', 'ﾐ': 'ミ', 'ﾑ': 'ム', 'ﾒ': 'メ', 'ﾓ': 'モ', 'ﾔ': 'ヤ', 'ﾕ': 'ユ', 'ﾖ': 'ヨ', 'ﾗ': 'ラ', 'ﾘ': 'リ', 'ﾙ': 'ル', 'ﾚ': 'レ', 'ﾛ': 'ロ', 'ﾜ': 'ワ', 'ｦ': 'ヲ', 'ﾝ': 'ン', 'ｧ': 'ァ', 'ｨ': 'ィ', 'ｩ': 'ゥ', 'ｪ': 'ェ', 'ｫ': 'ォ', 'ｯ': 'ッ', 'ｬ': 'ャ', 'ｭ': 'ュ', 'ｮ': 'ョ', 'ｰ': 'ー' };
+  let out = '';
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    const next = s[i + 1];
+    if (next === 'ﾞ' && dakuten[c]) { out += dakuten[c]; i++; continue; }
+    if (next === 'ﾟ' && handakuten[c]) { out += handakuten[c]; i++; continue; }
+    out += plain[c] || c;
+  }
+  // ひらがな→カタカナ
+  out = out.replace(/[ぁ-ゖ]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) + 0x60); });
+  return out.toLowerCase().replace(/[\s　\-\_\/\\.,:;･・]/g, '');
+}
+
+// --- 文面から照合トークンを抽出（英数字の型番・カタカナ語） ---
+function extractMatchTokens_(text) {
+  const norm = normalizeForMatch_(text);
+  const tokens = {};
+  // 英数字トークン（8ga, rv8, 8.82→882 等。長さ2以上）
+  (norm.match(/[a-z0-9]{2,}/g) || []).forEach(function (t) { tokens[t] = true; });
+  // カタカナ語（2文字以上）
+  (norm.match(/[ァ-ヶー]{2,}/g) || []).forEach(function (t) { tokens[t] = true; });
+  return Object.keys(tokens);
+}
+
+// --- 候補リスト生成: 履歴 + お気に入り + 履歴メーカーのカラー剤色番 ---
+// filterText が渡されたら（テキスト解析時）、色番展開分は文面に出てくる語を含む商品だけに絞る
+function buildParseCandidates_(ss, clientName, master, filterText) {
   const seen = {};
-  const candidates = [];
-  const push = function (item, tag) {
+  const base = [];      // 履歴・お気に入り（常に全量入れる）
+  const expanded = [];  // カラー剤色番の展開分（絞り込み対象）
+  const pushBase = function (item) {
     if (!item || seen[item.code]) return;
     seen[item.code] = true;
-    candidates.push({ code: item.code, name: item.name, mfr: item.mfr, tag: tag });
+    base.push(item);
   };
 
   // 1. 発注履歴（過去 PARSE_HISTORY_LOOKBACK_DAYS 日の日付シート + Ordersシート）
   const historyCodes = collectHistoryCodes_(ss, clientName);
-  historyCodes.forEach(function (code) { push(master.byCode[code], '履歴'); });
+  historyCodes.forEach(function (code) { pushBase(master.byCode[code]); });
 
   // 2. お気に入り
   const favSheet = ss.getSheetByName(SHEET_NAMES.FAVORITES);
@@ -136,24 +190,40 @@ function buildParseCandidates_(ss, clientName, master) {
     for (let i = 1; i < values.length; i++) {
       if (values[i][0] === clientName) {
         String(values[i][1] || '').split(',').forEach(function (c) {
-          push(master.byCode[c.trim().replace(/^'/, '')], 'お気に入り');
+          pushBase(master.byCode[c.trim().replace(/^'/, '')]);
         });
         break;
       }
     }
   }
 
-  // 3. 履歴・お気に入りに登場したメーカーのカラー剤を全色番展開
-  //    （色番は履歴に無いことが多いが、サロンが使うブランドは履歴から分かる）
-  const mfrs = {};
-  candidates.forEach(function (c) { if (c.mfr) mfrs[c.mfr] = true; });
-  Object.keys(mfrs).forEach(function (mfr) {
+  // 3. メーカーを履歴での登場数順に並べ、カラー剤色番を展開
+  const mfrCount = {};
+  base.forEach(function (c) { if (c.mfr) mfrCount[c.mfr] = (mfrCount[c.mfr] || 0) + 1; });
+  const rankedMfrs = Object.keys(mfrCount).sort(function (a, b) { return mfrCount[b] - mfrCount[a]; });
+
+  const tokens = filterText ? extractMatchTokens_(filterText) : null;
+  const maxTotal = filterText ? PARSE_MAX_CANDIDATES_TEXT : PARSE_MAX_CANDIDATES_IMAGE;
+
+  rankedMfrs.forEach(function (mfr) {
     (master.colorByMfr[mfr] || []).forEach(function (item) {
-      if (candidates.length < PARSE_MAX_CANDIDATES) push(item, 'カラー剤');
+      if (seen[item.code]) return;
+      if (base.length + expanded.length >= maxTotal) return;
+      if (tokens) {
+        // 文面の語（型番・カタカナ）を商品名に含むものだけ通す
+        const normName = normalizeForMatch_(item.name);
+        let hit = false;
+        for (let i = 0; i < tokens.length; i++) {
+          if (normName.indexOf(tokens[i]) !== -1) { hit = true; break; }
+        }
+        if (!hit) return;
+      }
+      seen[item.code] = true;
+      expanded.push(item);
     });
   });
 
-  return candidates.slice(0, PARSE_MAX_CANDIDATES);
+  return { base: base, expanded: expanded, length: base.length + expanded.length };
 }
 
 // --- 履歴コード収集（doGet action=history と同じシート構造を読む・コードだけ） ---
@@ -194,31 +264,50 @@ function collectHistoryCodes_(ss, clientName) {
 }
 
 // --- Claude API 呼び出し（構造化出力・1回だけ自動リトライ） ---
-function callClaudeForParse_(apiKey, text, candidates) {
-  const candidateLines = candidates.map(function (c) {
-    return c.code + '\t' + c.name + '\t' + c.mfr + '\t' + c.tag;
-  }).join('\n');
+function callClaudeForParse_(apiKey, text, images, candidates) {
+  const toLine = function (c) { return c.code + '|' + c.name + '|' + c.mfr; };
+  const candidateSection =
+    '### このサロンの発注履歴・お気に入り（最優先で照合する）\n' +
+    candidates.base.map(toLine).join('\n') +
+    '\n### サロン使用メーカーのカラー剤色番\n' +
+    candidates.expanded.map(toLine).join('\n');
 
-  const systemPrompt = [
-    'あなたは美容ディーラーの発注アシスタント。サロンから届いたLINEの発注文面を解析し、',
-    '候補商品リストの中から該当する商品を特定して、商品コード・数量を抽出する。',
-    '',
-    '## 厳守ルール',
-    '- 商品コードは必ず候補リストにあるものだけを使う。リストにない商品は絶対に創作せず unmatched に入れる',
+  const isImageMode = images.length > 0;
+
+  const rules = [
+    '- 商品コードは必ず候補リストにあるもの（または別名辞書に明記されたコード）だけを使う。それ以外は絶対に創作せず unmatched に入れる',
     '- 数量が読み取れない行は qty=1 とし、confidence を low にして note に「数量未記載」と書く',
     '- 「あれば〜」「おっきいサイズ」のような曖昧な依頼は unmatched に入れ、note に理由を書く',
     '- 挨拶・締めの文（「発注お願いします」等)は無視する。商品行だけを抽出する',
     '- 1行に複数商品（「8と10を一本ずつ」等）があれば商品ごとに分解する',
     '- source_text には元の記載を一字一句そのまま入れる（照合用）',
     '- confidence: high=候補と表記がほぼ一致 / medium=別名・略記からの推定 / low=推測を含む',
-    '- 候補のtag列: 履歴=このサロンが実際に頼んだ商品（最優先）/ お気に入り / カラー剤=サロン使用メーカーの色番展開',
+    '- 似た名前の別商品（グレーとグレージュ等）に注意。文字列が完全一致しない推定は high にしない'
+  ];
+  if (isImageMode) {
+    rules.push(
+      '- 取消線（横線・ぐしゃぐしゃ）で消された行は除外する',
+      '- 書き直し・訂正がある場合は訂正後の内容を採用する',
+      '- 紙の裏写り・鏡文字・薄い写り込みは無視する',
+      '- 印字済みのヘッダー・フッター（会社名・電話番号・登録番号・注意書き）は商品ではない',
+      '- 「〃」「同上」は直前の行の商品系列を引き継ぐ',
+      '- どうしても判読できない行は unmatched に入れ、note に「判読不能」と書く'
+    );
+  }
+
+  const systemPrompt = [
+    'あなたは美容ディーラーの発注アシスタント。サロンから届いた発注（LINE文面や手書き発注書の写真）を解析し、',
+    '候補商品リストの中から該当する商品を特定して、商品コード・数量を抽出する。',
+    '',
+    '## 厳守ルール',
+    rules.join('\n'),
     '',
     '## 別名辞書（サロンの通称 → 正式名）',
     PARSE_ALIAS_HINTS
   ].join('\n');
 
-  const userPrompt = '## 候補商品リスト（コード\\t商品名\\tメーカー\\t出所）\n' + candidateLines +
-    '\n\n## サロンからの発注文面\n' + text;
+  const userPrompt = '## 候補商品リスト（コード|商品名|メーカー）\n' + candidateSection +
+    '\n\n## サロンからの発注\n' + (text || '（添付の写真を読み取ってください）');
 
   const schema = {
     type: 'object',
@@ -257,11 +346,20 @@ function callClaudeForParse_(apiKey, text, candidates) {
     additionalProperties: false
   };
 
+  // 画像がある場合は image ブロックを先に並べ、最後にテキスト
+  const content = [];
+  images.forEach(function (b64) {
+    content.push({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } });
+  });
+  content.push({ type: 'text', text: userPrompt });
+
   const payload = {
-    model: PARSE_MODEL,
+    model: isImageMode ? PARSE_MODEL_IMAGE : PARSE_MODEL_TEXT,
     max_tokens: 16000,
+    // Opus 4.8 に上げる場合はこの行を有効化すると精度が上がる（Haiku 4.5 では入れない）:
+    // thinking: { type: 'adaptive' },
     system: systemPrompt,
-    messages: [{ role: 'user', content: userPrompt }],
+    messages: [{ role: 'user', content: content }],
     output_config: { format: { type: 'json_schema', schema: schema } }
   };
 

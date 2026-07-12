@@ -1532,3 +1532,61 @@ input[type=number]::-webkit-outer-spin-button {
 }
 .import-actions .btn-secondary { flex: 1; }
 .import-actions .btn-primary { flex: 2; }
+
+/* 取り込みモード: 写真アップ */
+.import-photo-label {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+    padding: 12px;
+    margin-bottom: 10px;
+    border: 2px dashed var(--primary);
+    border-radius: 10px;
+    background: var(--primary-light);
+    color: var(--primary);
+    font-weight: 700;
+    font-size: 0.9rem;
+    cursor: pointer;
+    user-select: none;
+}
+.import-photo-label.import-photo-label-full {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.import-photo-thumbs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+}
+
+.import-thumb {
+    position: relative;
+    width: 84px;
+    height: 84px;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid #cbd5e1;
+}
+.import-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.import-thumb-del {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: rgba(15, 23, 42, 0.75);
+    color: #fff;
+    border: none;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+}

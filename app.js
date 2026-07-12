@@ -2895,8 +2895,77 @@ document.addEventListener('DOMContentLoaded', () => {
     const importBackBtn = document.getElementById('import-back-btn');
     const importApplyBtn = document.getElementById('import-apply-btn');
 
+    const importPhotosInput = document.getElementById('import-photos');
+    const importPhotoLabel = document.querySelector('.import-photo-label');
+    const importPhotoThumbs = document.getElementById('import-photo-thumbs');
+
     let importParsedItems = [];
     let isParsingImport = false;
+    let importImages = []; // [{data: base64(jpegヘッダなし), preview: dataURL}]
+    const IMPORT_MAX_PHOTOS = 3;
+    const IMPORT_PHOTO_LONG_EDGE = 1568; // Claude vision の推奨解像度に縮小して転送量とコストを抑える
+
+    // 写真をcanvasで縮小してJPEG base64にする
+    const resizeImportPhoto = (file) => new Promise((resolve, reject) => {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload = () => {
+            URL.revokeObjectURL(url);
+            const scale = Math.min(1, IMPORT_PHOTO_LONG_EDGE / Math.max(img.width, img.height));
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.round(img.width * scale);
+            canvas.height = Math.round(img.height * scale);
+            canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+            resolve({ data: dataUrl.split(',')[1], preview: dataUrl });
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('画像を読み込めませんでした')); };
+        img.src = url;
+    });
+
+    const renderImportThumbs = () => {
+        if (!importPhotoThumbs) return;
+        importPhotoThumbs.innerHTML = '';
+        importImages.forEach((im, idx) => {
+            const wrap = document.createElement('div');
+            wrap.className = 'import-thumb';
+            wrap.innerHTML = `<img src="${im.preview}" alt="発注書${idx + 1}"><button type="button" class="import-thumb-del" data-idx="${idx}">&times;</button>`;
+            importPhotoThumbs.appendChild(wrap);
+        });
+        if (importPhotoLabel) {
+            importPhotoLabel.classList.toggle('import-photo-label-full', importImages.length >= IMPORT_MAX_PHOTOS);
+        }
+    };
+
+    if (importPhotoLabel && importPhotosInput) {
+        importPhotoLabel.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (importImages.length >= IMPORT_MAX_PHOTOS) { alert(`写真は${IMPORT_MAX_PHOTOS}枚までです。`); return; }
+            importPhotosInput.click();
+        });
+        importPhotosInput.addEventListener('change', async () => {
+            const files = Array.from(importPhotosInput.files || []);
+            importPhotosInput.value = '';
+            for (const f of files) {
+                if (importImages.length >= IMPORT_MAX_PHOTOS) { alert(`写真は${IMPORT_MAX_PHOTOS}枚までです。`); break; }
+                try {
+                    importImages.push(await resizeImportPhoto(f));
+                } catch (err) {
+                    console.error('[Import] photo resize error:', err);
+                    alert('写真の読み込みに失敗しました。');
+                }
+            }
+            renderImportThumbs();
+        });
+    }
+    if (importPhotoThumbs) {
+        importPhotoThumbs.addEventListener('click', (e) => {
+            const btn = e.target.closest('.import-thumb-del');
+            if (!btn) return;
+            importImages.splice(parseInt(btn.dataset.idx, 10), 1);
+            renderImportThumbs();
+        });
+    }
 
     const escImportHtml = (s) => String(s ?? '')
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -2911,6 +2980,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const openImportModal = () => {
         if (!isMasterSession) return; // 念のための二重ガード
         importParsedItems = [];
+        importImages = [];
+        renderImportThumbs();
         if (importText) importText.value = '';
         if (importStatus) importStatus.classList.add('hidden');
         if (importInputStep) importInputStep.classList.remove('hidden');
@@ -2972,12 +3043,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const parseImportText = async () => {
         if (isParsingImport) return;
         const text = (importText.value || '').trim();
-        if (!text) { showImportStatus('文面を貼り付けてください。', true); return; }
+        if (!text && importImages.length === 0) { showImportStatus('写真を追加するか、文面を貼り付けてください。', true); return; }
         if (!currentClientName) { showImportStatus('サロンに入室してから使ってください。', true); return; }
 
         isParsingImport = true;
         importParseBtn.disabled = true;
-        importParseBtn.textContent = 'AIが解析中...（30秒ほどかかります）';
+        importParseBtn.textContent = importImages.length > 0
+            ? 'AIが写真を読み取り中...（1分ほどかかります）'
+            : 'AIが解析中...（30秒ほどかかります）';
         showImportStatus('候補商品と照合しています...');
 
         try {
@@ -2988,7 +3061,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({
                     action: 'parse_order',
                     clientName: currentClientName,
-                    text: text
+                    text: text,
+                    images: importImages.map(im => im.data)
                 })
             });
             const result = await response.json();
