@@ -1796,9 +1796,16 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        // 取り込みモード（MASTERログインでサロンに入室したときだけ表示）
+        // 取り込みモード・発注書印刷（MASTERログインでサロンに入室したときだけ表示）
         if (importModeBtn) {
             importModeBtn.classList.toggle('hidden', !isMasterSession);
+        }
+        if (printSheetBtn) {
+            printSheetBtn.classList.toggle('hidden', !isMasterSession);
+        }
+        // 一括取り込みのドラフトがあれば自動でプレビューを開く
+        if (isMasterSession) {
+            setTimeout(() => maybeOpenImportDraft(), 900);
         }
 
         // Version Check Logic
@@ -1893,6 +1900,9 @@ document.addEventListener('DOMContentLoaded', () => {
                                 globalSyncBtn.classList.add('hidden');
                             }
                         }
+                        // 一括取り込みボタン（MASTERのみ）
+                        const batchBtnEl = document.getElementById('batch-import-btn');
+                        if (batchBtnEl) batchBtnEl.classList.toggle('hidden', !result.isMaster);
 
                         // Save these temporarily to pass to the processLoginSuccess later
                         selectEl.dataset.announcement = result.announcement || '';
@@ -1963,6 +1973,8 @@ document.addEventListener('DOMContentLoaded', () => {
         masterCancelBtn.addEventListener('click', () => {
             document.getElementById('master-salon-selector').classList.add('hidden');
             if (globalSyncBtn) globalSyncBtn.classList.add('hidden');
+            const batchBtnEl = document.getElementById('batch-import-btn');
+            if (batchBtnEl) batchBtnEl.classList.add('hidden');
             loginForm.classList.remove('hidden');
             clearCartFromStorage(); // Must be called before currentUsername is cleared
             currentUsername = '';
@@ -1982,6 +1994,7 @@ document.addEventListener('DOMContentLoaded', () => {
         currentClientType = '';
         isMasterSession = false;
         if (importModeBtn) importModeBtn.classList.add('hidden');
+        if (printSheetBtn) printSheetBtn.classList.add('hidden');
         favoriteItems = [];
         currentCart = {};
         cartOrder = [];
@@ -3095,6 +3108,8 @@ document.addEventListener('DOMContentLoaded', () => {
             applied++;
         });
         closeImportModal();
+        // 一括取り込みのドラフトはカート反映で役目を終える
+        try { localStorage.removeItem('b2b_import_draft_' + currentClientName); } catch (e) { /* noop */ }
         if (applied > 0) {
             alert(`${applied}品目をカートに追加しました。\n内容を確認してから「発注する」で確定してください。`);
         } else {
@@ -3111,5 +3126,298 @@ document.addEventListener('DOMContentLoaded', () => {
         importInputStep.classList.remove('hidden');
     });
     if (importApplyBtn) importApplyBtn.addEventListener('click', applyImportToCart);
+
+    // ==========================================
+    // 🖨 発注書ジェネレーター（QR付き・MASTERログイン限定）
+    // ==========================================
+    const printSheetBtn = document.getElementById('print-sheet-btn');
+    const IMPORT_QR_PREFIX = 'B2BORDER|'; // QRの中身: B2BORDER|サロン名（一括取り込みのサロン判定に使う）
+    const importDraftKey = (salonName) => 'b2b_import_draft_' + salonName;
+
+    const printOrderSheet = () => {
+        if (!isMasterSession || !currentClientName) return;
+
+        // よく頼む順（発注回数 → 最終発注日）で上位48商品を選ぶ。お気に入りも補完に使う
+        const nameByCode = {};
+        itemsData.forEach((it) => { nameByCode[it.code] = it.name; });
+        const codes = Object.keys(orderFrequency)
+            .sort((a, b) => (orderFrequency[b] - orderFrequency[a]) || ((lastOrderDate[b] || 0) - (lastOrderDate[a] || 0)));
+        (favoriteItems || []).forEach((c) => { if (codes.indexOf(c) === -1) codes.push(c); });
+        const sheetItems = codes.filter((c) => nameByCode[c]).slice(0, 48)
+            .map((c) => ({ code: c, name: nameByCode[c] }));
+
+        if (sheetItems.length === 0) {
+            alert('このサロンの履歴・お気に入りがまだありません。発注書を作るには履歴が必要です。');
+            return;
+        }
+
+        // QR生成（qrcode-generator。日本語サロン名のためUTF-8バイト変換を指定）
+        let qrDataUrl = '';
+        try {
+            qrcode.stringToBytes = qrcode.stringToBytesFuncs['UTF-8'];
+            const qr = qrcode(0, 'M');
+            qr.addData(IMPORT_QR_PREFIX + currentClientName, 'Byte');
+            qr.make();
+            qrDataUrl = qr.createDataURL(6, 3);
+        } catch (e) {
+            console.error('[PrintSheet] QR generation failed:', e);
+            alert('QRコードの生成に失敗しました。');
+            return;
+        }
+
+        const today = new Date();
+        const dateStr = `${today.getFullYear()}/${today.getMonth() + 1}/${today.getDate()}`;
+        const rowsHtml = sheetItems.map((it) => `
+            <div class="row"><span class="nm">${escImportHtml(it.name)}<span class="cd">${escImportHtml(it.code)}</span></span><span class="qty"></span></div>`).join('');
+        const blankRows = Array.from({ length: 8 }, () => '<div class="row blank"><span class="nm"></span><span class="qty"></span></div>').join('');
+
+        const html = `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>発注書 - ${escImportHtml(currentClientName)}様</title>
+<style>
+@page { size: A4; margin: 9mm; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: "Hiragino Sans", "Yu Gothic", sans-serif; color: #111; font-size: 8.5pt; }
+.head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #111; padding-bottom: 3mm; margin-bottom: 3mm; }
+.head h1 { font-size: 14pt; }
+.head .salon { font-size: 12pt; font-weight: bold; margin-top: 2mm; }
+.head .meta { font-size: 7.5pt; color: #444; margin-top: 1mm; }
+.head img { width: 26mm; height: 26mm; }
+.note { font-size: 7.5pt; color: #333; margin-bottom: 2.5mm; }
+.cols { column-count: 2; column-gap: 6mm; }
+.row { display: flex; align-items: stretch; border-bottom: 1px solid #bbb; break-inside: avoid; min-height: 6.4mm; }
+.nm { flex: 1; padding: 1mm 1mm 0.5mm 0; line-height: 1.25; }
+.cd { display: block; font-size: 6pt; color: #999; }
+.qty { width: 13mm; border-left: 1px solid #bbb; }
+.row.blank { min-height: 7.5mm; }
+.sec { font-size: 8pt; font-weight: bold; margin: 3mm 0 1mm; }
+.print-btn { position: fixed; top: 8px; right: 8px; padding: 10px 18px; font-size: 12pt; cursor: pointer; }
+@media print { .print-btn { display: none; } }
+</style></head><body>
+<button class="print-btn" onclick="window.print()">🖨 印刷</button>
+<div class="head">
+  <div>
+    <h1>発注書（記入して写真を送るだけ）</h1>
+    <div class="salon">${escImportHtml(currentClientName)} 様</div>
+    <div class="meta">発行日: ${dateStr} ／ 株式会社アクティム</div>
+  </div>
+  <img src="${qrDataUrl}" alt="QR">
+</div>
+<p class="note">✏️ ご注文の商品の右枠に<b>数量</b>をご記入ください。表にない商品は下の空欄にご記入ください。記入後はこの用紙を<b>QRごと写真に撮って</b>お送りください。</p>
+<div class="cols">${rowsHtml}</div>
+<p class="sec">▼ 表にない商品はこちらへ（商品名・サイズ・数量）</p>
+<div class="cols">${blankRows}</div>
+</body></html>`;
+
+        const win = window.open('', '_blank');
+        if (!win) { alert('ポップアップがブロックされました。許可してください。'); return; }
+        win.document.write(html);
+        win.document.close();
+    };
+
+    if (printSheetBtn) printSheetBtn.addEventListener('click', printOrderSheet);
+
+    // ==========================================
+    // 📥 一括取り込み（発注書の束 → QRでサロン自動仕分け・MASTER限定）
+    // ==========================================
+    const batchImportBtn = document.getElementById('batch-import-btn');
+    const batchOverlay = document.getElementById('batch-overlay');
+    const batchModal = document.getElementById('batch-modal');
+    const batchCloseBtn = document.getElementById('batch-close-btn');
+    const batchPhotosInput = document.getElementById('batch-photos');
+    const batchPhotoLabel = document.querySelector('#batch-modal .import-photo-label');
+    const batchList = document.getElementById('batch-list');
+    const batchStartBtn = document.getElementById('batch-start-btn');
+    const batchStatus = document.getElementById('batch-status');
+
+    const BATCH_MAX_PHOTOS = 12;
+    let batchPhotos = []; // [{salon: string|null, data: base64, preview: dataURL}]
+    let isBatchRunning = false;
+
+    const showBatchStatus = (msg, isError = false) => {
+        if (!batchStatus) return;
+        batchStatus.textContent = msg;
+        batchStatus.classList.toggle('import-status-error', isError);
+        batchStatus.classList.remove('hidden');
+    };
+
+    // 有効なサロン名一覧（マスターのサロン選択プルダウンから取得）
+    const getValidSalonNames = () => {
+        const names = new Set();
+        document.querySelectorAll('#master-salon-select option').forEach((opt) => {
+            try { names.add((JSON.parse(opt.value).name || '').trim()); } catch (e) { /* skip */ }
+        });
+        return names;
+    };
+
+    // 元解像度のファイルからQRを読む（縮小前の方がQRが読みやすい）
+    const decodeSalonQr = async (scanner, file) => {
+        try {
+            const decoded = await scanner.scanFile(file, false);
+            if (decoded && decoded.indexOf(IMPORT_QR_PREFIX) === 0) {
+                return decoded.slice(IMPORT_QR_PREFIX.length).trim();
+            }
+            return null;
+        } catch (e) {
+            return null; // QRが見つからない・読めない
+        }
+    };
+
+    const renderBatchList = () => {
+        if (!batchList) return;
+        batchList.innerHTML = '';
+        batchPhotos.forEach((p, idx) => {
+            const row = document.createElement('div');
+            row.className = 'import-row' + (p.salon ? ' conf-high' : ' import-row-unmatched');
+            row.innerHTML = `
+                <img src="${p.preview}" class="batch-row-thumb" alt="発注書${idx + 1}">
+                <div class="import-row-info">
+                    <span class="import-row-name">${p.salon ? escImportHtml(p.salon) + ' 様' : '⚠️ QRが読めません'}</span>
+                    <span class="import-row-conf" data-batch-result="${idx}">${p.salon ? '解析待ち' : 'この写真はスキップされます（個別取り込みで対応）'}</span>
+                </div>
+                <button type="button" class="import-thumb-del batch-row-del" data-idx="${idx}">&times;</button>
+            `;
+            batchList.appendChild(row);
+        });
+        if (batchStartBtn) batchStartBtn.classList.toggle('hidden', !batchPhotos.some((p) => p.salon));
+    };
+
+    const openBatchModal = () => {
+        batchPhotos = [];
+        isBatchRunning = false;
+        if (batchStatus) batchStatus.classList.add('hidden');
+        if (batchStartBtn) { batchStartBtn.disabled = false; batchStartBtn.textContent = '解析開始'; }
+        renderBatchList();
+        batchModal.classList.remove('hidden');
+        batchOverlay.classList.remove('hidden');
+    };
+
+    const closeBatchModal = () => {
+        if (isBatchRunning) {
+            if (!confirm('解析の途中です。閉じますか？（処理済みのサロンのドラフトは保存されています）')) return;
+        }
+        batchModal.classList.add('hidden');
+        batchOverlay.classList.add('hidden');
+    };
+
+    if (batchPhotoLabel && batchPhotosInput) {
+        batchPhotoLabel.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (isBatchRunning) return;
+            batchPhotosInput.click();
+        });
+        batchPhotosInput.addEventListener('change', async () => {
+            const files = Array.from(batchPhotosInput.files || []);
+            batchPhotosInput.value = '';
+            if (files.length === 0) return;
+            showBatchStatus('QRを読み取っています...');
+            const validNames = getValidSalonNames();
+            let scanner = null;
+            try { scanner = new Html5Qrcode('batch-qr-scratch'); } catch (e) { console.error(e); }
+            for (const f of files) {
+                if (batchPhotos.length >= BATCH_MAX_PHOTOS) { alert(`写真は${BATCH_MAX_PHOTOS}枚までです。`); break; }
+                let salon = scanner ? await decodeSalonQr(scanner, f) : null;
+                if (salon && !validNames.has(salon)) salon = null; // 登録サロン名と一致しないQRは不採用
+                try {
+                    const resized = await resizeImportPhoto(f);
+                    batchPhotos.push({ salon: salon, data: resized.data, preview: resized.preview });
+                } catch (err) {
+                    console.error('[Batch] resize error:', err);
+                }
+            }
+            if (scanner) { try { scanner.clear(); } catch (e) { /* noop */ } }
+            batchStatus.classList.add('hidden');
+            renderBatchList();
+        });
+    }
+
+    if (batchList) {
+        batchList.addEventListener('click', (e) => {
+            const btn = e.target.closest('.batch-row-del');
+            if (!btn || isBatchRunning) return;
+            batchPhotos.splice(parseInt(btn.dataset.idx, 10), 1);
+            renderBatchList();
+        });
+    }
+
+    const runBatchImport = async () => {
+        if (isBatchRunning) return;
+        // サロンごとに写真をまとめる（同じサロンの複数ページは1回で解析）
+        const groups = {};
+        batchPhotos.forEach((p, idx) => {
+            if (!p.salon) return;
+            if (!groups[p.salon]) groups[p.salon] = { images: [], rowIdxs: [] };
+            groups[p.salon].images.push(p.data);
+            groups[p.salon].rowIdxs.push(idx);
+        });
+        const salons = Object.keys(groups);
+        if (salons.length === 0) return;
+
+        isBatchRunning = true;
+        batchStartBtn.disabled = true;
+        let done = 0, ok = 0;
+
+        for (const salon of salons) {
+            done++;
+            batchStartBtn.textContent = `解析中... (${done}/${salons.length}) ${salon}様`;
+            const setRowResult = (msg) => {
+                groups[salon].rowIdxs.forEach((i) => {
+                    const el = batchList.querySelector(`[data-batch-result="${i}"]`);
+                    if (el) el.textContent = msg;
+                });
+            };
+            setRowResult('AIが解析中...');
+            try {
+                const response = await fetch(CONFIG.API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    redirect: 'follow',
+                    body: JSON.stringify({
+                        action: 'parse_order',
+                        clientName: salon,
+                        text: '',
+                        images: groups[salon].images
+                    })
+                });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    const d = result.data;
+                    d.savedAt = Date.now();
+                    localStorage.setItem(importDraftKey(salon), JSON.stringify(d));
+                    setRowResult(`✅ ${d.items.length}件マッチ／未マッチ${d.unmatched.length}件（入室すると開きます）`);
+                    ok++;
+                } else {
+                    setRowResult('❌ ' + (result.message || '解析に失敗'));
+                }
+            } catch (e) {
+                console.error('[Batch] parse error:', e);
+                setRowResult('❌ 通信に失敗しました');
+            }
+        }
+
+        isBatchRunning = false;
+        batchStartBtn.textContent = '解析完了';
+        showBatchStatus(`${ok}/${salons.length}サロンのドラフトを保存しました。サロンに入室すると自動でプレビューが開きます。`);
+    };
+
+    if (batchImportBtn) batchImportBtn.addEventListener('click', openBatchModal);
+    if (batchCloseBtn) batchCloseBtn.addEventListener('click', closeBatchModal);
+    if (batchOverlay) batchOverlay.addEventListener('click', closeBatchModal);
+    if (batchStartBtn) batchStartBtn.addEventListener('click', runBatchImport);
+
+    // 入室したサロンに一括取り込みのドラフトがあれば、プレビューを自動で開く
+    const maybeOpenImportDraft = () => {
+        if (!isMasterSession || !currentClientName) return;
+        const raw = localStorage.getItem(importDraftKey(currentClientName));
+        if (!raw) return;
+        try {
+            const draft = JSON.parse(raw);
+            if (!draft.items || (draft.items.length === 0 && (!draft.unmatched || draft.unmatched.length === 0))) return;
+            importModal.classList.remove('hidden');
+            importOverlay.classList.remove('hidden');
+            renderImportPreview(draft);
+        } catch (e) {
+            console.warn('[Import] draft parse error:', e);
+            localStorage.removeItem(importDraftKey(currentClientName));
+        }
+    };
 
 });

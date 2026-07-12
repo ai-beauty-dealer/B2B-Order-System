@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="robots" content="noindex">
     <title>AI Beauty Dealer - B2B Order System</title>
-    <link rel="stylesheet" href="style.css?v=2.27.0">
+    <link rel="stylesheet" href="style.css?v=2.28.0">
 
     <!-- PWA -->
     <link rel="manifest" href="manifest.json?v=2.18.0">
@@ -59,6 +59,10 @@
                 style="width: 100%; margin-top: 4px; margin-bottom: 8px; background: #4338ca; color: white; font-weight: bold; padding: 12px; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);">
                 🚀 【管理者】全サロン一括同期を実行
             </button>
+            <button id="batch-import-btn" class="btn-primary hidden"
+                style="width: 100%; margin-top: 4px; margin-bottom: 8px; background: #0f766e; color: white; font-weight: bold; padding: 12px; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px;">
+                📥 【管理者】発注書の束を一括取り込み
+            </button>
             <button type="button" id="master-cancel-btn" class="btn-secondary">ログアウト</button>
         </div>
 
@@ -87,8 +91,11 @@
             <div id="client-name-display"
                 style="font-weight: 600; color: var(--primary); font-size: 0.9rem; margin-left: 5px;"></div>
             <div style="flex-grow: 1;"></div>
-            <button id="import-mode-btn" class="btn-secondary hidden" title="LINE文面から取り込み">
+            <button id="import-mode-btn" class="btn-secondary hidden" title="LINE文面・写メから取り込み">
                 📥 取り込み
+            </button>
+            <button id="print-sheet-btn" class="btn-secondary hidden" title="このサロン用の発注書を印刷">
+                🖨 発注書
             </button>
             <button id="cart-toggle-btn" class="btn-secondary" title="カート一覧">
                 🛒 <span id="cart-badge">0</span>点
@@ -226,14 +233,15 @@
     </div>
 
     <script src="lib/html5-qrcode.min.js"></script>
+    <script src="lib/qrcode-generator.js"></script>
     <script src="config.js?v=2.18.0"></script>
-    <script src="app.js?v=2.27.0"></script>
+    <script src="app.js?v=2.28.0"></script>
 
     <!-- Service Worker 登録（PWA） -->
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function () {
-                navigator.serviceWorker.register('sw.js?v=2.27.0')
+                navigator.serviceWorker.register('sw.js?v=2.28.0')
                     .catch(function (err) {
                         console.warn('SW登録に失敗（通常サイトとして続行）:', err);
                     });
@@ -294,6 +302,26 @@
                     <button id="import-apply-btn" class="btn-primary">✔ チェックした商品をカートへ</button>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Batch Import Modal（発注書の束を一括取り込み・MASTER限定） -->
+    <div id="batch-overlay" class="cart-overlay hidden"></div>
+    <div id="batch-modal" class="import-modal hidden">
+        <div class="import-header">
+            <h3>📥 発注書の束を一括取り込み</h3>
+            <button id="batch-close-btn" class="cart-close-btn">&times;</button>
+        </div>
+        <div class="import-body">
+            <p class="import-desc">QR付き発注書の写真をまとめて選んでください。QRからサロンを自動判定して、サロンごとにAI解析します。<br>
+                <span style="color:#64748b; font-size:0.75rem;">※QRが読めない写真はスキップされます（従来の個別取り込みで対応してください）</span>
+            </p>
+            <label for="batch-photos" class="import-photo-label">📷 発注書の写真を選ぶ（12枚まで）</label>
+            <input type="file" id="batch-photos" accept="image/*" multiple class="hidden">
+            <div id="batch-list"></div>
+            <button id="batch-start-btn" class="btn-primary hidden" style="width: 100%; margin-top: 10px;">解析開始</button>
+            <p id="batch-status" class="import-status hidden"></p>
+            <div id="batch-qr-scratch" class="hidden"></div>
         </div>
     </div>
 
