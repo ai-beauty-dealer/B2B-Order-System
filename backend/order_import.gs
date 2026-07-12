@@ -81,20 +81,58 @@ function handleParseOrder(data) {
   const result = callClaudeForParse_(apiKey, effectiveText, candidates);
   if (result.error) return parseOrderError_(result.error);
 
-  // サーバー側検証: 返ってきたコードがマスタに実在するか。実在すれば名前はマスタ表記で上書き
+  // 候補リストの「正規化した商品名 → 商品」索引（コード転記ミスの自動補正に使う）
+  const candByName = {};
+  candidates.base.concat(candidates.expanded).forEach(function (c) {
+    const key = normalizeForMatch_(c.name);
+    if (!key) return;
+    candByName[key] = candByName.hasOwnProperty(key) ? 'DUP' : c; // 同名複数は補正に使わない
+  });
+
+  // サーバー側検証:
+  //  1. コードがマスタに実在するか
+  //  2. AIが答えた商品名とコードが一致しているか（小型モデルは隣の行のコードを書き写すことがある）
+  //     不一致なら「商品名」を信じて候補からコードを自動補正。補正先が特定できなければ low に落とす
   const items = [];
   const unmatched = (result.parsed.unmatched || []).slice();
   (result.parsed.items || []).forEach(function (it) {
-    const code = String(it.code || '').trim();
+    let code = String(it.code || '').trim();
     const qty = Math.max(1, Math.min(999, parseInt(it.qty, 10) || 1));
-    if (code && master.byCode[code]) {
+    let confidence = (it.confidence === 'high' || it.confidence === 'low') ? it.confidence : 'medium';
+    let note = String(it.note || '');
+
+    const claimedKey = normalizeForMatch_(String(it.name || ''));
+    let masterItem = master.byCode[code] || null;
+
+    if (claimedKey && masterItem && normalizeForMatch_(masterItem.name) !== claimedKey) {
+      // コードと商品名が食い違っている → 商品名側から正しいコードを引き直す
+      const fix = candByName[claimedKey];
+      if (fix && fix !== 'DUP') {
+        code = fix.code;
+        masterItem = fix;
+        note = (note ? note + '・' : '') + 'コード転記ミスを自動補正';
+      } else {
+        confidence = 'low';
+        note = (note ? note + '・' : '') + 'コードと商品名が不一致の可能性（要確認）';
+      }
+    } else if (claimedKey && !masterItem) {
+      // コード自体が存在しない → 商品名から復元を試みる
+      const fix = candByName[claimedKey];
+      if (fix && fix !== 'DUP') {
+        code = fix.code;
+        masterItem = fix;
+        note = (note ? note + '・' : '') + 'コード転記ミスを自動補正';
+      }
+    }
+
+    if (code && masterItem) {
       items.push({
         source_text: String(it.source_text || ''),
         code: code,
-        name: master.byCode[code].name,
+        name: masterItem.name,
         qty: qty,
-        confidence: (it.confidence === 'high' || it.confidence === 'low') ? it.confidence : 'medium',
-        note: String(it.note || '')
+        confidence: confidence,
+        note: note
       });
     } else {
       unmatched.push({
@@ -320,6 +358,7 @@ function callClaudeForParse_(apiKey, text, candidates) {
 
   const rules = [
     '- 商品コードは必ず候補リストにあるもの（または別名辞書に明記されたコード）だけを使う。それ以外は絶対に創作せず unmatched に入れる',
+    '- code と name は候補リストの**同じ行**からセットでそのまま書き写す。1行ズレた転記（CB/5のつもりでCB/3の行のコードを書く等）は厳禁。書く前にその行のコードと名前を再確認する',
     '- 数量が読み取れない行・「×?」の行は qty=1 とし、confidence を low にして note に「数量未記載」と書く',
     '- 「あれば〜」「おっきいサイズ」のような曖昧な依頼は unmatched に入れ、note に理由を書く',
     '- 「〓」（判読不能文字）を含む行は unmatched に入れ、note に「判読不能」と書く',
