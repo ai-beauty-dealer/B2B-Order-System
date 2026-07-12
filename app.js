@@ -2685,6 +2685,30 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // スキャナ起動
+    // iPhone 13等の近接ピント問題対策（マクロ非対応機はバーコードに近づけるほどボケる）:
+    // 対応端末ではズーム約2倍＋連続AFをかけて、レンズが合焦できる距離のまま
+    // バーコードを大きく写せるようにする。非対応端末（iOS16以前等）では何もしない。
+    const applyFocusWorkaround = async () => {
+        try {
+            const video = document.querySelector('#reader video');
+            const track = video && video.srcObject && video.srcObject.getVideoTracks()[0];
+            if (!track || !track.getCapabilities) return;
+            const caps = track.getCapabilities();
+            const advanced = [];
+            if (caps.focusMode && caps.focusMode.includes('continuous')) {
+                advanced.push({ focusMode: 'continuous' });
+            }
+            if (caps.zoom && caps.zoom.max) {
+                const zoom = Math.min(2, caps.zoom.max);
+                if (zoom > (caps.zoom.min || 1)) advanced.push({ zoom: zoom });
+            }
+            if (advanced.length) {
+                await track.applyConstraints({ advanced: advanced });
+                console.log('[Scanner] Focus workaround applied:', JSON.stringify(advanced));
+            }
+        } catch (e) { console.warn('[Scanner] Focus/zoom constraints not applied:', e); }
+    };
+
     const startScanner = async () => {
         if (!scannerModal || !scannerOverlay) return;
         if (janToItemMap.size === 0) buildJanMap();
@@ -2710,10 +2734,17 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             await html5QrcodeScanner.start(
                 { facingMode: "environment" },
-                { 
+                {
                     fps: 15,
                     qrbox: { width: 300, height: 120 },
                     disableFlip: true,
+                    // 高解像度で起動：離した位置からでもバーコードのピクセル数を確保する
+                    // （iPhone 13等は近づけるほどピントが合わないため「離して読む」前提を作る）
+                    videoConstraints: {
+                        facingMode: "environment",
+                        width: { ideal: 1920 },
+                        height: { ideal: 1080 }
+                    },
                     // ブラウザのネイティブBarcode Detection APIを優先使用（GPU高速化）
                     experimentalFeatures: {
                         useBarCodeDetectorIfSupported: true
@@ -2723,6 +2754,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 () => {}
             );
             if (scannerStatus) scannerStatus.textContent = 'バーコードを枠内に収めてください';
+            applyFocusWorkaround();
         } catch (err) {
             console.error("Camera error:", err);
             if (scannerStatus) {
