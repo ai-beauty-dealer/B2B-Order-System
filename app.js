@@ -2692,16 +2692,36 @@ document.addEventListener('DOMContentLoaded', () => {
     const scanZoomRow = document.getElementById('scan-zoom-row');
     const scanZoomSlider = document.getElementById('scan-zoom-slider');
     const scanZoomValue = document.getElementById('scan-zoom-value');
-    const SCAN_ZOOM_STORAGE_KEY = 'b2b_scan_zoom';
+    // v2.23.0はデフォルト2倍を自動保存してしまっていたため、キーを変えて仕切り直し
+    // （旧キーの値は「ユーザーが選んだ倍率」と区別できない）
+    const SCAN_ZOOM_STORAGE_KEY = 'b2b_scan_zoom_v2';
     let scanVideoTrack = null;
 
-    const setScanZoom = async (zoom) => {
-        if (!scanVideoTrack) return;
-        try {
-            await scanVideoTrack.applyConstraints({ advanced: [{ zoom: zoom }] });
-            if (scanZoomValue) scanZoomValue.textContent = zoom.toFixed(1) + 'x';
-            localStorage.setItem(SCAN_ZOOM_STORAGE_KEY, String(zoom));
-        } catch (e) { console.warn('[Scanner] Zoom apply failed:', e); }
+    // applyConstraintsはiOSで1回数百msかかる。ドラッグ中のイベント全部で呼ぶと
+    // 行列ができて固まるため、実行中は1件だけ・中間値は捨てて最新値のみ適用する。
+    let scanZoomBusy = false;
+    let scanZoomPending = null;
+    const setScanZoom = (zoom) => {
+        if (scanZoomValue) scanZoomValue.textContent = zoom.toFixed(1) + 'x'; // ラベルは即時反映
+        scanZoomPending = zoom;
+        if (scanZoomBusy || !scanVideoTrack) return;
+        scanZoomBusy = true;
+        (async () => {
+            let lastApplied = null;
+            while (scanZoomPending !== null && scanVideoTrack) {
+                const target = scanZoomPending;
+                scanZoomPending = null;
+                try {
+                    await scanVideoTrack.applyConstraints({ advanced: [{ zoom: target }] });
+                    lastApplied = target;
+                } catch (e) {
+                    console.warn('[Scanner] Zoom apply failed:', e);
+                    break;
+                }
+            }
+            if (lastApplied !== null) localStorage.setItem(SCAN_ZOOM_STORAGE_KEY, String(lastApplied));
+            scanZoomBusy = false;
+        })();
     };
 
     const applyFocusWorkaround = async () => {
@@ -2719,9 +2739,10 @@ document.addEventListener('DOMContentLoaded', () => {
             if (caps.zoom && caps.zoom.max && caps.zoom.max > (caps.zoom.min || 1)) {
                 const minZoom = caps.zoom.min || 1;
                 const maxZoom = caps.zoom.max;
-                // 前回の倍率を復元。初回はデフォルト2倍（範囲内にクランプ）
+                // デフォルトは1倍＝従来のカメラ挙動のまま（今まで読めていた人を変えない）。
+                // スライダーを動かした端末だけ、その倍率を記憶して次回復元する。
                 const saved = parseFloat(localStorage.getItem(SCAN_ZOOM_STORAGE_KEY));
-                const zoom = Math.min(maxZoom, Math.max(minZoom, Number.isFinite(saved) ? saved : 2));
+                const zoom = Math.min(maxZoom, Math.max(minZoom, Number.isFinite(saved) ? saved : 1));
 
                 if (scanZoomSlider && scanZoomRow) {
                     scanZoomSlider.min = minZoom;
@@ -2730,8 +2751,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     scanZoomSlider.value = zoom;
                     scanZoomRow.classList.remove('hidden');
                 }
-                await setScanZoom(zoom);
-                console.log(`[Scanner] Zoom enabled: ${zoom}x (range ${minZoom}-${maxZoom})`);
+                if (scannerStatus) scannerStatus.textContent = 'バーコードを枠内に収めてください（ピントが合わない時は🔍ズーム調整）';
+                // 記憶済みの端末だけ適用。初回（=1倍）はカメラに触らない
+                if (Number.isFinite(saved)) {
+                    setScanZoom(zoom);
+                } else if (scanZoomValue) {
+                    scanZoomValue.textContent = zoom.toFixed(1) + 'x';
+                }
+                console.log(`[Scanner] Zoom slider ready: ${zoom}x (range ${minZoom}-${maxZoom})`);
             }
         } catch (e) { console.warn('[Scanner] Focus/zoom constraints not applied:', e); }
     };
