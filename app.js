@@ -2408,7 +2408,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let pendingScanTs = 0;
     let pendingScanFirstTs = 0;
     const SCAN_CONFIRM_WINDOW_MS = 1200;
-    const SCAN_CONFIRM_MIN_GAP_MS = 450;
+    const SCAN_CONFIRM_MIN_GAP_MS = 250; // 2回一致の最短間隔。450msから短縮（15fpsで約4フレーム分は確保）
     const SCAN_REQUIRED_MATCHES = 2;
 
     // ビープ音生成（Web Audio API - iOS Safari対応）
@@ -2686,28 +2686,62 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // スキャナ起動
     // iPhone 13等の近接ピント問題対策（マクロ非対応機はバーコードに近づけるほどボケる）:
-    // 対応端末ではズーム約2倍＋連続AFをかけて、レンズが合焦できる距離のまま
-    // バーコードを大きく写せるようにする。非対応端末（iOS16以前等）では何もしない。
+    // 対応端末ではズーム＋連続AFをかけて、レンズが合焦できる距離のまま
+    // バーコードを大きく写せるようにする。倍率はスライダーで調整でき、端末ごとに記憶する。
+    // 非対応端末（iOS16以前等）では何もしない（スライダーも出さない）。
+    const scanZoomRow = document.getElementById('scan-zoom-row');
+    const scanZoomSlider = document.getElementById('scan-zoom-slider');
+    const scanZoomValue = document.getElementById('scan-zoom-value');
+    const SCAN_ZOOM_STORAGE_KEY = 'b2b_scan_zoom';
+    let scanVideoTrack = null;
+
+    const setScanZoom = async (zoom) => {
+        if (!scanVideoTrack) return;
+        try {
+            await scanVideoTrack.applyConstraints({ advanced: [{ zoom: zoom }] });
+            if (scanZoomValue) scanZoomValue.textContent = zoom.toFixed(1) + 'x';
+            localStorage.setItem(SCAN_ZOOM_STORAGE_KEY, String(zoom));
+        } catch (e) { console.warn('[Scanner] Zoom apply failed:', e); }
+    };
+
     const applyFocusWorkaround = async () => {
         try {
             const video = document.querySelector('#reader video');
             const track = video && video.srcObject && video.srcObject.getVideoTracks()[0];
             if (!track || !track.getCapabilities) return;
+            scanVideoTrack = track;
             const caps = track.getCapabilities();
-            const advanced = [];
+
             if (caps.focusMode && caps.focusMode.includes('continuous')) {
-                advanced.push({ focusMode: 'continuous' });
+                try { await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); } catch (e) {}
             }
-            if (caps.zoom && caps.zoom.max) {
-                const zoom = Math.min(2, caps.zoom.max);
-                if (zoom > (caps.zoom.min || 1)) advanced.push({ zoom: zoom });
-            }
-            if (advanced.length) {
-                await track.applyConstraints({ advanced: advanced });
-                console.log('[Scanner] Focus workaround applied:', JSON.stringify(advanced));
+
+            if (caps.zoom && caps.zoom.max && caps.zoom.max > (caps.zoom.min || 1)) {
+                const minZoom = caps.zoom.min || 1;
+                const maxZoom = caps.zoom.max;
+                // 前回の倍率を復元。初回はデフォルト2倍（範囲内にクランプ）
+                const saved = parseFloat(localStorage.getItem(SCAN_ZOOM_STORAGE_KEY));
+                const zoom = Math.min(maxZoom, Math.max(minZoom, Number.isFinite(saved) ? saved : 2));
+
+                if (scanZoomSlider && scanZoomRow) {
+                    scanZoomSlider.min = minZoom;
+                    scanZoomSlider.max = maxZoom;
+                    scanZoomSlider.step = caps.zoom.step || 0.1;
+                    scanZoomSlider.value = zoom;
+                    scanZoomRow.classList.remove('hidden');
+                }
+                await setScanZoom(zoom);
+                console.log(`[Scanner] Zoom enabled: ${zoom}x (range ${minZoom}-${maxZoom})`);
             }
         } catch (e) { console.warn('[Scanner] Focus/zoom constraints not applied:', e); }
     };
+
+    if (scanZoomSlider) {
+        scanZoomSlider.addEventListener('input', () => {
+            const zoom = parseFloat(scanZoomSlider.value);
+            if (Number.isFinite(zoom)) setScanZoom(zoom);
+        });
+    }
 
     const startScanner = async () => {
         if (!scannerModal || !scannerOverlay) return;
@@ -2776,6 +2810,8 @@ document.addEventListener('DOMContentLoaded', () => {
             } catch (e) { console.warn('Scanner stop error:', e); }
             html5QrcodeScanner = null;
         }
+        scanVideoTrack = null;
+        if (scanZoomRow) scanZoomRow.classList.add('hidden');
         if (scannerModal) scannerModal.classList.add('hidden');
         if (scannerOverlay) scannerOverlay.classList.add('hidden');
         if (scanResultPanel) scanResultPanel.classList.add('hidden');
