@@ -317,6 +317,7 @@ function doPost(e) {
 
         // ── ロック不要なアクション（先に処理） ──
         if (action === 'log_unknown_jan') return handleLogUnknownJan(postData);
+        if (action === 'parse_order') return handleParseOrder(postData); // 取り込みモード（order_import.gs・読み取り専用）
 
         // ── ロックが必要なアクション ──
         const lock = LockService.getScriptLock();

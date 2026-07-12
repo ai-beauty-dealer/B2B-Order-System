@@ -217,6 +217,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentCart = {};
     let cartOrder = []; // Track the order in which items are added to the cart
     let isSubmitting = false;
+    let isMasterSession = false; // MASTERアカウントでログイン中か（サロン切替後もtrueを維持。取り込みモードの表示制御に使う）
 
     const setSubmittingState = (submitting, isEditing = false) => {
         isSubmitting = submitting;
@@ -1795,6 +1796,11 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
+        // 取り込みモード（MASTERログインでサロンに入室したときだけ表示）
+        if (importModeBtn) {
+            importModeBtn.classList.toggle('hidden', !isMasterSession);
+        }
+
         // Version Check Logic
         let forceFetchVersion = false;
         if (dataVersion) {
@@ -1861,6 +1867,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 currentUsername = username;
 
                 // --- Master / Group Account Logic ---
+                isMasterSession = !!result.isMaster;
                 if (result.isMaster || result.isGroup) {
                     currentClientType = result.isMaster ? 'MASTER' : 'GROUP';
                     console.log(`[DEBUG] ${result.isMaster ? 'Master' : 'Group'} Account detected`);
@@ -1973,6 +1980,8 @@ document.addEventListener('DOMContentLoaded', () => {
         currentUsername = '';
         currentClientName = '';
         currentClientType = '';
+        isMasterSession = false;
+        if (importModeBtn) importModeBtn.classList.add('hidden');
         favoriteItems = [];
         currentCart = {};
         cartOrder = [];
@@ -2867,5 +2876,166 @@ document.addEventListener('DOMContentLoaded', () => {
     if (scanBtn) scanBtn.addEventListener('click', startScanner);
     if (scannerCloseBtn) scannerCloseBtn.addEventListener('click', stopScanner);
     if (scannerOverlay) scannerOverlay.addEventListener('click', stopScanner);
+
+    // ==========================================
+    // 📥 取り込みモード（LINE文面 → カート・MASTERログイン限定）
+    // ==========================================
+    const importModeBtn = document.getElementById('import-mode-btn');
+    const importOverlay = document.getElementById('import-overlay');
+    const importModal = document.getElementById('import-modal');
+    const importCloseBtn = document.getElementById('import-close-btn');
+    const importText = document.getElementById('import-text');
+    const importParseBtn = document.getElementById('import-parse-btn');
+    const importStatus = document.getElementById('import-status');
+    const importInputStep = document.getElementById('import-input-step');
+    const importPreviewStep = document.getElementById('import-preview-step');
+    const importPreviewList = document.getElementById('import-preview-list');
+    const importUnmatchedWrapper = document.getElementById('import-unmatched-wrapper');
+    const importUnmatchedList = document.getElementById('import-unmatched-list');
+    const importBackBtn = document.getElementById('import-back-btn');
+    const importApplyBtn = document.getElementById('import-apply-btn');
+
+    let importParsedItems = [];
+    let isParsingImport = false;
+
+    const escImportHtml = (s) => String(s ?? '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+    const showImportStatus = (msg, isError = false) => {
+        if (!importStatus) return;
+        importStatus.textContent = msg;
+        importStatus.classList.toggle('import-status-error', isError);
+        importStatus.classList.remove('hidden');
+    };
+
+    const openImportModal = () => {
+        if (!isMasterSession) return; // 念のための二重ガード
+        importParsedItems = [];
+        if (importText) importText.value = '';
+        if (importStatus) importStatus.classList.add('hidden');
+        if (importInputStep) importInputStep.classList.remove('hidden');
+        if (importPreviewStep) importPreviewStep.classList.add('hidden');
+        importModal.classList.remove('hidden');
+        importOverlay.classList.remove('hidden');
+    };
+
+    const closeImportModal = () => {
+        importModal.classList.add('hidden');
+        importOverlay.classList.add('hidden');
+    };
+
+    const confLabel = { high: 'ほぼ確実', medium: '推定', low: '要確認' };
+
+    const renderImportPreview = (data) => {
+        importParsedItems = data.items || [];
+        const unmatched = data.unmatched || [];
+
+        importPreviewList.innerHTML = '';
+        importParsedItems.forEach((it, idx) => {
+            const row = document.createElement('div');
+            row.className = `import-row conf-${it.confidence}`;
+            row.innerHTML = `
+                <label class="import-row-check">
+                    <input type="checkbox" class="import-check" data-idx="${idx}" checked>
+                </label>
+                <div class="import-row-info">
+                    <span class="import-row-source">「${escImportHtml(it.source_text)}」</span>
+                    <span class="import-row-name">${escImportHtml(it.name)} <span class="import-row-code">${escImportHtml(it.code)}</span></span>
+                    <span class="import-row-conf">${confLabel[it.confidence] || ''}${it.note ? '・' + escImportHtml(it.note) : ''}</span>
+                </div>
+                <input type="number" class="import-qty" data-idx="${idx}" value="${it.qty}" min="0" inputmode="numeric">
+            `;
+            importPreviewList.appendChild(row);
+        });
+        if (importParsedItems.length === 0) {
+            importPreviewList.innerHTML = '<p class="import-empty">カートに入れられる商品が見つかりませんでした。</p>';
+        }
+
+        importUnmatchedList.innerHTML = '';
+        unmatched.forEach((u) => {
+            const row = document.createElement('div');
+            row.className = 'import-row import-row-unmatched';
+            row.innerHTML = `
+                <div class="import-row-info">
+                    <span class="import-row-source">「${escImportHtml(u.source_text)}」${u.qty ? ` × ${u.qty}` : ''}</span>
+                    <span class="import-row-conf">${escImportHtml(u.note)}</span>
+                </div>
+            `;
+            importUnmatchedList.appendChild(row);
+        });
+        importUnmatchedWrapper.classList.toggle('hidden', unmatched.length === 0);
+
+        importInputStep.classList.add('hidden');
+        importPreviewStep.classList.remove('hidden');
+    };
+
+    const parseImportText = async () => {
+        if (isParsingImport) return;
+        const text = (importText.value || '').trim();
+        if (!text) { showImportStatus('文面を貼り付けてください。', true); return; }
+        if (!currentClientName) { showImportStatus('サロンに入室してから使ってください。', true); return; }
+
+        isParsingImport = true;
+        importParseBtn.disabled = true;
+        importParseBtn.textContent = 'AIが解析中...（30秒ほどかかります）';
+        showImportStatus('候補商品と照合しています...');
+
+        try {
+            const response = await fetch(CONFIG.API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                redirect: 'follow',
+                body: JSON.stringify({
+                    action: 'parse_order',
+                    clientName: currentClientName,
+                    text: text
+                })
+            });
+            const result = await response.json();
+            if (result.status === 'success') {
+                renderImportPreview(result.data);
+            } else {
+                showImportStatus('解析に失敗しました: ' + (result.message || '不明なエラー'), true);
+            }
+        } catch (e) {
+            console.error('[Import] parse error:', e);
+            showImportStatus('通信に失敗しました。もう一度お試しください。', true);
+        } finally {
+            isParsingImport = false;
+            importParseBtn.disabled = false;
+            importParseBtn.textContent = '解析する';
+        }
+    };
+
+    const applyImportToCart = () => {
+        let applied = 0;
+        importPreviewList.querySelectorAll('.import-check:checked').forEach((cb) => {
+            const idx = parseInt(cb.dataset.idx, 10);
+            const it = importParsedItems[idx];
+            if (!it) return;
+            const qtyInput = importPreviewList.querySelector(`.import-qty[data-idx="${idx}"]`);
+            const qty = Math.max(0, parseInt(qtyInput && qtyInput.value, 10) || 0);
+            if (qty <= 0) return;
+            const existingQty = (currentCart[it.code] && currentCart[it.code].qty) || 0;
+            updateFromCart(it.code, it.name, existingQty + qty);
+            applied++;
+        });
+        closeImportModal();
+        if (applied > 0) {
+            alert(`${applied}品目をカートに追加しました。\n内容を確認してから「発注する」で確定してください。`);
+        } else {
+            alert('カートに追加した商品はありません。');
+        }
+    };
+
+    if (importModeBtn) importModeBtn.addEventListener('click', openImportModal);
+    if (importCloseBtn) importCloseBtn.addEventListener('click', closeImportModal);
+    if (importOverlay) importOverlay.addEventListener('click', closeImportModal);
+    if (importParseBtn) importParseBtn.addEventListener('click', parseImportText);
+    if (importBackBtn) importBackBtn.addEventListener('click', () => {
+        importPreviewStep.classList.add('hidden');
+        importInputStep.classList.remove('hidden');
+    });
+    if (importApplyBtn) importApplyBtn.addEventListener('click', applyImportToCart);
 
 });
