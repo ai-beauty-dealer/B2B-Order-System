@@ -9,14 +9,13 @@
 // 必要な Script Property:
 //   ANTHROPIC_API_KEY … Claude APIキー（プロジェクトの設定 → スクリプト プロパティ）
 //
-// コスト設計:
-//   テキスト解析 … 文面に出てくる語で候補を事前フィルタ → 1回2〜3円目安
-//   写メ解析     … 事前フィルタ不可のため候補広め＋画像 → 1回5円前後目安（Haiku時）
-
-// モデル選定: まずHaikuで運用し、精度がイマイチなら該当モードだけ 'claude-opus-4-8' に上げる。
-// ※ Opusに変える場合は buildClaudePayload_ 内のコメント参照（thinking: adaptive を足すと精度が上がる）
-const PARSE_MODEL_TEXT = 'claude-haiku-4-5';   // LINE文面の解析
-const PARSE_MODEL_IMAGE = 'claude-haiku-4-5';  // 発注書写メの解析（手書き精度が足りなければここだけOpusへ）
+// コスト設計（二段階方式）:
+//   テキスト解析 … 文面の語で候補を事前フィルタ＋Haikuでマッチング → 1回2〜3円目安
+//   写メ解析     … ①Opusで文字起こし（画像だけ・候補リストなし＝安い）
+//                  ②起こしたテキストをHaikuでマッチング（事前フィルタ有効）
+//                  → 合計1枚5円前後。読みの品質はOpus、照合コストはHaiku
+const PARSE_MODEL_TEXT = 'claude-haiku-4-5';   // マッチング（商品コード特定）
+const PARSE_MODEL_IMAGE = 'claude-opus-4-8';   // 写メの文字起こし（手書きOCR。ここはケチらない）
 
 const PARSE_MAX_INPUT_CHARS = 4000;    // LINE文面の上限
 const PARSE_MAX_IMAGES = 3;            // 写メの上限枚数
@@ -64,12 +63,22 @@ function handleParseOrder(data) {
 
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const master = loadMasterForParse_(ss);
-  const isImageMode = images.length > 0;
-  // テキストのみのときは文面の語で色番候補を事前フィルタしてトークンを節約する。
-  // 写メがあるときは中身が読めないためフィルタしない（候補広め）。
-  const candidates = buildParseCandidates_(ss, clientName, master, isImageMode ? '' : text);
 
-  const result = callClaudeForParse_(apiKey, text, images, candidates);
+  // 写メがある場合はまずOpusで文字起こしし、以降はテキストとして扱う（二段階方式）
+  let effectiveText = text;
+  let transcript = '';
+  if (images.length > 0) {
+    const ocr = transcribeOrderImages_(apiKey, images);
+    if (ocr.error) return parseOrderError_(ocr.error);
+    transcript = ocr.text;
+    effectiveText = (text ? text + '\n' : '') + transcript;
+    if (!effectiveText.trim()) return parseOrderError_('写真から発注内容を読み取れませんでした。撮り直すか、文面を貼り付けてください。');
+  }
+
+  // 文字起こし済みテキストの語で色番候補を事前フィルタしてトークンを節約する
+  const candidates = buildParseCandidates_(ss, clientName, master, effectiveText);
+
+  const result = callClaudeForParse_(apiKey, effectiveText, candidates);
   if (result.error) return parseOrderError_(result.error);
 
   // サーバー側検証: 返ってきたコードがマスタに実在するか。実在すれば名前はマスタ表記で上書き
@@ -98,8 +107,45 @@ function handleParseOrder(data) {
 
   return ContentService.createTextOutput(JSON.stringify({
     status: 'success',
-    data: { items: items, unmatched: unmatched, candidateCount: candidates.length }
+    data: { items: items, unmatched: unmatched, candidateCount: candidates.length, transcript: transcript }
   })).setMimeType(ContentService.MimeType.JSON);
+}
+
+// --- 写メ→文字起こし（Opus。候補リストを渡さないので画像枚数分だけの低コスト） ---
+function transcribeOrderImages_(apiKey, images) {
+  const systemPrompt = [
+    'あなたは美容ディーラーの発注書読み取り係。手書きの発注書・メモの写真から、発注内容だけを書き起こす。',
+    '',
+    '## 厳守ルール',
+    '- 出力は「商品名（書いてあるまま）×数量」を1行1商品で。例: 8GA×2',
+    '- ブランド名・メーカー名の行があれば、続く色番の行頭に付ける。例: BLカラー 9CB×5',
+    '- 「〃」「同上」は直前の行の商品系列を引き継いで展開する',
+    '- 取消線（横線・ぐしゃぐしゃ）で消された行は出力しない',
+    '- 書き直し・訂正がある場合は訂正後だけを出力する',
+    '- 紙の裏写り・鏡文字・薄い写り込みは無視する',
+    '- 印字済みのヘッダー・フッター（会社名・サロン名・電話番号・登録番号・注意書き）は出力しない',
+    '- サイズ表記（1000ml、80g等）が書いてあれば商品名に含める',
+    '- 数量が読めない場合は「×?」とする。文字が判読できない部分は「〓」に置き換える',
+    '- 余計な説明・前置きは一切書かない。書き起こした行だけを出力する'
+  ].join('\n');
+
+  const content = [];
+  images.forEach(function (b64) {
+    content.push({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } });
+  });
+  content.push({ type: 'text', text: 'この発注書の発注内容を書き起こしてください。' });
+
+  const payload = {
+    model: PARSE_MODEL_IMAGE,
+    max_tokens: 4000,
+    thinking: { type: 'adaptive' },
+    system: systemPrompt,
+    messages: [{ role: 'user', content: content }]
+  };
+
+  const res = fetchClaude_(apiKey, payload);
+  if (res.error) return res;
+  return { text: res.text.trim() };
 }
 
 function parseOrderError_(message) {
@@ -263,8 +309,8 @@ function collectHistoryCodes_(ss, clientName) {
   return codes;
 }
 
-// --- Claude API 呼び出し（構造化出力・1回だけ自動リトライ） ---
-function callClaudeForParse_(apiKey, text, images, candidates) {
+// --- テキスト→商品マッチング（構造化出力） ---
+function callClaudeForParse_(apiKey, text, candidates) {
   const toLine = function (c) { return c.code + '|' + c.name + '|' + c.mfr; };
   const candidateSection =
     '### このサロンの発注履歴・お気に入り（最優先で照合する）\n' +
@@ -272,31 +318,20 @@ function callClaudeForParse_(apiKey, text, images, candidates) {
     '\n### サロン使用メーカーのカラー剤色番\n' +
     candidates.expanded.map(toLine).join('\n');
 
-  const isImageMode = images.length > 0;
-
   const rules = [
     '- 商品コードは必ず候補リストにあるもの（または別名辞書に明記されたコード）だけを使う。それ以外は絶対に創作せず unmatched に入れる',
-    '- 数量が読み取れない行は qty=1 とし、confidence を low にして note に「数量未記載」と書く',
+    '- 数量が読み取れない行・「×?」の行は qty=1 とし、confidence を low にして note に「数量未記載」と書く',
     '- 「あれば〜」「おっきいサイズ」のような曖昧な依頼は unmatched に入れ、note に理由を書く',
+    '- 「〓」（判読不能文字）を含む行は unmatched に入れ、note に「判読不能」と書く',
     '- 挨拶・締めの文（「発注お願いします」等)は無視する。商品行だけを抽出する',
     '- 1行に複数商品（「8と10を一本ずつ」等）があれば商品ごとに分解する',
     '- source_text には元の記載を一字一句そのまま入れる（照合用）',
     '- confidence: high=候補と表記がほぼ一致 / medium=別名・略記からの推定 / low=推測を含む',
     '- 似た名前の別商品（グレーとグレージュ等）に注意。文字列が完全一致しない推定は high にしない'
   ];
-  if (isImageMode) {
-    rules.push(
-      '- 取消線（横線・ぐしゃぐしゃ）で消された行は除外する',
-      '- 書き直し・訂正がある場合は訂正後の内容を採用する',
-      '- 紙の裏写り・鏡文字・薄い写り込みは無視する',
-      '- 印字済みのヘッダー・フッター（会社名・電話番号・登録番号・注意書き）は商品ではない',
-      '- 「〃」「同上」は直前の行の商品系列を引き継ぐ',
-      '- どうしても判読できない行は unmatched に入れ、note に「判読不能」と書く'
-    );
-  }
 
   const systemPrompt = [
-    'あなたは美容ディーラーの発注アシスタント。サロンから届いた発注（LINE文面や手書き発注書の写真）を解析し、',
+    'あなたは美容ディーラーの発注アシスタント。サロンから届いた発注文面を解析し、',
     '候補商品リストの中から該当する商品を特定して、商品コード・数量を抽出する。',
     '',
     '## 厳守ルール',
@@ -307,7 +342,7 @@ function callClaudeForParse_(apiKey, text, images, candidates) {
   ].join('\n');
 
   const userPrompt = '## 候補商品リスト（コード|商品名|メーカー）\n' + candidateSection +
-    '\n\n## サロンからの発注\n' + (text || '（添付の写真を読み取ってください）');
+    '\n\n## サロンからの発注\n' + text;
 
   const schema = {
     type: 'object',
@@ -346,23 +381,27 @@ function callClaudeForParse_(apiKey, text, images, candidates) {
     additionalProperties: false
   };
 
-  // 画像がある場合は image ブロックを先に並べ、最後にテキスト
-  const content = [];
-  images.forEach(function (b64) {
-    content.push({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } });
-  });
-  content.push({ type: 'text', text: userPrompt });
-
   const payload = {
-    model: isImageMode ? PARSE_MODEL_IMAGE : PARSE_MODEL_TEXT,
+    model: PARSE_MODEL_TEXT,
     max_tokens: 16000,
-    // Opus 4.8 に上げる場合はこの行を有効化すると精度が上がる（Haiku 4.5 では入れない）:
+    // マッチング側を Opus 4.8 に上げる場合はこの行を有効化すると精度が上がる（Haiku 4.5 では入れない）:
     // thinking: { type: 'adaptive' },
     system: systemPrompt,
-    messages: [{ role: 'user', content: content }],
+    messages: [{ role: 'user', content: userPrompt }],
     output_config: { format: { type: 'json_schema', schema: schema } }
   };
 
+  const res = fetchClaude_(apiKey, payload);
+  if (res.error) return res;
+  try {
+    return { parsed: JSON.parse(res.text) };
+  } catch (e) {
+    return { error: 'AI応答の解析に失敗しました: ' + e };
+  }
+}
+
+// --- Claude API 共通呼び出し（1回だけ自動リトライ。成功時は最初のtextブロックを返す） ---
+function fetchClaude_(apiKey, payload) {
   const options = {
     method: 'post',
     contentType: 'application/json',
@@ -388,11 +427,11 @@ function callClaudeForParse_(apiKey, text, images, candidates) {
     if (status === 200) {
       try {
         const json = JSON.parse(body);
-        if (json.stop_reason === 'refusal') return { error: 'AIが解析を拒否しました。文面を確認してください。' };
+        if (json.stop_reason === 'refusal') return { error: 'AIが解析を拒否しました。内容を確認してください。' };
         let textBlock = '';
         (json.content || []).forEach(function (b) { if (b.type === 'text' && !textBlock) textBlock = b.text; });
         if (!textBlock) return { error: 'AI応答が空でした。もう一度試してください。' };
-        return { parsed: JSON.parse(textBlock) };
+        return { text: textBlock };
       } catch (e) {
         return { error: 'AI応答の解析に失敗しました: ' + e };
       }
