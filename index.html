@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="robots" content="noindex">
     <title>AI Beauty Dealer - B2B Order System</title>
-    <link rel="stylesheet" href="style.css?v=2.32.0">
+    <link rel="stylesheet" href="style.css?v=2.33.0">
 
     <!-- PWA -->
     <link rel="manifest" href="manifest.json?v=2.18.0">
@@ -91,6 +91,12 @@
             <div id="client-name-display"
                 style="font-weight: 600; color: var(--primary); font-size: 0.9rem; margin-left: 5px;"></div>
             <div style="flex-grow: 1;"></div>
+            <button id="master-return-btn" class="btn-secondary hidden" title="サロン選択へ戻る">
+                ← マスターへ
+            </button>
+            <button id="code-entry-btn" class="btn-secondary hidden" title="商品コードと数量を連続入力">
+                CODE入力
+            </button>
             <button id="import-mode-btn" class="btn-secondary hidden" title="LINE文面・写メから取り込み">
                 📥 取り込み
             </button>
@@ -235,13 +241,13 @@
     <script src="lib/html5-qrcode.min.js"></script>
     <script src="lib/qrcode-generator.js"></script>
     <script src="config.js?v=2.18.0"></script>
-    <script src="app.js?v=2.32.0"></script>
+    <script src="app.js?v=2.33.0"></script>
 
     <!-- Service Worker 登録（PWA） -->
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function () {
-                navigator.serviceWorker.register('sw.js?v=2.32.0')
+                navigator.serviceWorker.register('sw.js?v=2.33.0')
                     .catch(function (err) {
                         console.warn('SW登録に失敗（通常サイトとして続行）:', err);
                     });
@@ -318,6 +324,30 @@
                 </div>
             </div>
         </div>
+    </div>
+
+    <!-- CODE Entry Modal（MASTER限定） -->
+    <div id="code-entry-overlay" class="cart-overlay hidden"></div>
+    <div id="code-entry-modal" class="import-modal code-entry-modal hidden" role="dialog" aria-modal="true" aria-labelledby="code-entry-title">
+        <div class="import-header">
+            <h3 id="code-entry-title">CODE入力</h3>
+            <button id="code-entry-close-btn" class="cart-close-btn" type="button" aria-label="閉じる">&times;</button>
+        </div>
+        <form id="code-entry-form" autocomplete="off">
+            <div class="code-entry-fields">
+                <label>
+                    <span>商品CODE</span>
+                    <input id="code-entry-code" type="text" inputmode="numeric" enterkeyhint="next" maxlength="16" placeholder="商品CODE">
+                </label>
+                <label>
+                    <span>数量</span>
+                    <input id="code-entry-qty" type="number" inputmode="numeric" enterkeyhint="done" min="1" max="999" value="1" disabled>
+                </label>
+            </div>
+            <div id="code-entry-product" class="code-entry-product hidden"></div>
+            <p id="code-entry-status" class="code-entry-status" aria-live="polite"></p>
+            <button id="code-entry-add-btn" class="btn-primary code-entry-add-btn" type="submit">カートに追加</button>
+        </form>
     </div>
 
     <!-- Print Layout Modal -->

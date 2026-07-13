@@ -1,8 +1,8 @@
-// v2.32.0 (SELECTABLE-OCR-MODEL)
+// v2.33.0 (MASTER-CODE-ENTRY)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.32.0 (SELECTABLE-OCR-MODEL) Loaded ---');
+    console.log('--- B2B Order System v2.33.0 (MASTER-CODE-ENTRY) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -27,6 +27,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const orderContainer = document.getElementById('order-container');
     const refreshItemsBtn = document.getElementById('refresh-items-btn');
     const logoutBtn = document.getElementById('logout-btn');
+    const masterReturnBtn = document.getElementById('master-return-btn');
+    const codeEntryBtn = document.getElementById('code-entry-btn');
     const totalQtySpan = document.getElementById('total-qty');
     const orderSubmitBtn = document.getElementById('order-submit-btn');
     const searchInput = document.getElementById('search-input');
@@ -500,6 +502,142 @@ document.addEventListener('DOMContentLoaded', () => {
     if (cartToggleBtn) cartToggleBtn.addEventListener('click', openCartSidebar);
     if (cartCloseBtn) cartCloseBtn.addEventListener('click', closeCartSidebar);
     if (cartOverlay) cartOverlay.addEventListener('click', closeCartSidebar);
+
+    // --- MASTER限定: CODE → 数量の連続入力 ---
+    const codeEntryOverlay = document.getElementById('code-entry-overlay');
+    const codeEntryModal = document.getElementById('code-entry-modal');
+    const codeEntryCloseBtn = document.getElementById('code-entry-close-btn');
+    const codeEntryForm = document.getElementById('code-entry-form');
+    const codeEntryCode = document.getElementById('code-entry-code');
+    const codeEntryQty = document.getElementById('code-entry-qty');
+    const codeEntryProduct = document.getElementById('code-entry-product');
+    const codeEntryStatus = document.getElementById('code-entry-status');
+    let resolvedCodeEntryItem = null;
+    let codeEntryItemIndex = new Map();
+
+    const normalizeCodeEntry = (value) => String(value || '')
+        .trim()
+        .replace(/^CODE\s*[:：#-]?\s*/i, '')
+        .replace(/^'/, '')
+        .replace(/[\s　]/g, '');
+
+    const setCodeEntryStatus = (message, isError = false) => {
+        if (!codeEntryStatus) return;
+        codeEntryStatus.textContent = message;
+        codeEntryStatus.classList.toggle('is-error', isError);
+    };
+
+    const clearResolvedCodeEntry = () => {
+        resolvedCodeEntryItem = null;
+        if (codeEntryQty) {
+            codeEntryQty.value = '1';
+            codeEntryQty.disabled = true;
+        }
+        if (codeEntryProduct) {
+            codeEntryProduct.textContent = '';
+            codeEntryProduct.classList.add('hidden');
+        }
+    };
+
+    const resolveCodeEntry = () => {
+        const code = normalizeCodeEntry(codeEntryCode && codeEntryCode.value);
+        if (!code) {
+            clearResolvedCodeEntry();
+            setCodeEntryStatus('商品CODEを入力してください。', true);
+            if (codeEntryCode) codeEntryCode.focus();
+            return false;
+        }
+        const item = codeEntryItemIndex.get(code);
+        if (!item) {
+            clearResolvedCodeEntry();
+            setCodeEntryStatus(`CODE ${code} は商品マスタにありません。`, true);
+            if (codeEntryCode) { codeEntryCode.focus(); codeEntryCode.select(); }
+            return false;
+        }
+
+        resolvedCodeEntryItem = item;
+        if (codeEntryCode) codeEntryCode.value = code;
+        if (codeEntryProduct) {
+            codeEntryProduct.textContent = `${item.name} ／ CODE ${code}`;
+            codeEntryProduct.classList.remove('hidden');
+        }
+        if (codeEntryQty) {
+            codeEntryQty.disabled = false;
+            codeEntryQty.value = '1';
+            codeEntryQty.focus();
+            codeEntryQty.select();
+        }
+        setCodeEntryStatus('数量を入力してEnter');
+        return true;
+    };
+
+    const addResolvedCodeEntry = () => {
+        if (!resolvedCodeEntryItem && !resolveCodeEntry()) return false;
+        const rawQty = parseInt(codeEntryQty && codeEntryQty.value, 10);
+        if (!Number.isFinite(rawQty) || rawQty < 1 || rawQty > 999) {
+            setCodeEntryStatus('数量は1〜999で入力してください。', true);
+            if (codeEntryQty) { codeEntryQty.focus(); codeEntryQty.select(); }
+            return false;
+        }
+        const qty = rawQty;
+        const code = String(resolvedCodeEntryItem.code).replace(/^'/, '').trim();
+        const name = resolvedCodeEntryItem.name;
+        const existingQty = (currentCart[code] && currentCart[code].qty) || 0;
+        updateFromCart(code, name, existingQty + qty);
+
+        if (codeEntryCode) codeEntryCode.value = '';
+        clearResolvedCodeEntry();
+        setCodeEntryStatus(`${name} × ${qty} を追加しました。`);
+        if (codeEntryCode) codeEntryCode.focus();
+        return true;
+    };
+
+    const openCodeEntryModal = () => {
+        if (!isMasterSession || !currentClientName || !codeEntryModal || !codeEntryOverlay) return;
+        if (!itemsData.length) {
+            alert('商品マスタを読み込み中です。少し待ってからもう一度開いてください。');
+            return;
+        }
+        codeEntryItemIndex = new Map(itemsData.map((item) => [String(item.code || '').replace(/^'/, '').trim(), item]));
+        if (codeEntryCode) codeEntryCode.value = '';
+        clearResolvedCodeEntry();
+        setCodeEntryStatus('商品CODEを入力してEnter');
+        codeEntryModal.classList.remove('hidden');
+        codeEntryOverlay.classList.remove('hidden');
+        requestAnimationFrame(() => { if (codeEntryCode) codeEntryCode.focus(); });
+    };
+
+    const closeCodeEntryModal = () => {
+        if (codeEntryModal) codeEntryModal.classList.add('hidden');
+        if (codeEntryOverlay) codeEntryOverlay.classList.add('hidden');
+        codeEntryItemIndex = new Map();
+        clearResolvedCodeEntry();
+    };
+
+    if (codeEntryBtn) codeEntryBtn.addEventListener('click', openCodeEntryModal);
+    if (codeEntryCloseBtn) codeEntryCloseBtn.addEventListener('click', closeCodeEntryModal);
+    if (codeEntryOverlay) codeEntryOverlay.addEventListener('click', closeCodeEntryModal);
+    if (codeEntryCode) {
+        codeEntryCode.addEventListener('input', clearResolvedCodeEntry);
+        codeEntryCode.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            resolveCodeEntry();
+        });
+    }
+    if (codeEntryQty) {
+        codeEntryQty.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            addResolvedCodeEntry();
+        });
+    }
+    if (codeEntryForm) {
+        codeEntryForm.addEventListener('submit', (event) => {
+            event.preventDefault();
+            addResolvedCodeEntry();
+        });
+    }
 
     // --- Save Favorites to Cloud Helper ---
     const saveFavoritesToCloud = () => {
@@ -1796,7 +1934,13 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        // 取り込みモード・発注書印刷（MASTERログインでサロンに入室したときだけ表示）
+        // 管理機能（MASTERログインでサロンに入室したときだけ表示）
+        if (masterReturnBtn) {
+            masterReturnBtn.classList.toggle('hidden', !isMasterSession);
+        }
+        if (codeEntryBtn) {
+            codeEntryBtn.classList.toggle('hidden', !isMasterSession);
+        }
         if (importModeBtn) {
             importModeBtn.classList.toggle('hidden', !isMasterSession);
         }
@@ -1978,10 +2122,66 @@ document.addEventListener('DOMContentLoaded', () => {
             loginForm.classList.remove('hidden');
             clearCartFromStorage(); // Must be called before currentUsername is cleared
             currentUsername = '';
+            currentClientName = '';
+            currentClientType = '';
+            isMasterSession = false;
             // 切替キャンセル時もクリアしておく
             favoriteItems = [];
             currentCart = {};
             cartOrder = [];
+        });
+    }
+
+    if (masterReturnBtn) {
+        masterReturnBtn.addEventListener('click', () => {
+            if (!isMasterSession) return;
+            if (editingOrderId !== null && !confirm('発注内容の編集中です。編集を中止してマスター画面へ戻りますか？')) return;
+            const hasUnsavedCustomItem = cartOrder.some((code) =>
+                String(code).startsWith('CUSTOM_ITEM_') && currentCart[code] && currentCart[code].qty > 0
+            );
+            if (hasUnsavedCustomItem && !confirm('特注・その他の商品は一時保存できません。破棄してマスター画面へ戻りますか？')) return;
+
+            // 現在サロンの未発注カートはサロン別キーに保存し、再入室時に復元する。
+            saveCartToStorage();
+            closeCartSidebar();
+            closeCodeEntryModal();
+
+            currentClientName = '';
+            currentClientType = 'MASTER';
+            favoriteItems = [];
+            currentCart = {};
+            cartOrder = [];
+            orderFrequency = {};
+            lastOrderDate = {};
+            currentFilter = 'all';
+            currentManufacturerFilter = 'all';
+            currentCategoryFilter = 'all';
+            currentSort = 'frequency';
+            editingOrderId = null;
+            loggedUnknownJans.clear();
+
+            if (clientNameDisplay) clientNameDisplay.textContent = '';
+            if (itemListContainer) itemListContainer.innerHTML = '';
+            if (historyListContainer) historyListContainer.innerHTML = '';
+            if (customItemsList) customItemsList.innerHTML = '';
+            if (searchInput) searchInput.value = '';
+            if (announcementBanner) announcementBanner.classList.add('hidden');
+            calculateTotal();
+
+            orderContainer.classList.add('hidden');
+            confirmationContainer.classList.add('hidden');
+            loginContainer.classList.remove('hidden');
+            loginForm.classList.add('hidden');
+            document.getElementById('master-salon-selector').classList.remove('hidden');
+            if (globalSyncBtn) globalSyncBtn.classList.remove('hidden');
+            const batchBtnEl = document.getElementById('batch-import-btn');
+            if (batchBtnEl) batchBtnEl.classList.remove('hidden');
+
+            if (masterReturnBtn) masterReturnBtn.classList.add('hidden');
+            if (codeEntryBtn) codeEntryBtn.classList.add('hidden');
+            if (importModeBtn) importModeBtn.classList.add('hidden');
+            if (printSheetBtn) printSheetBtn.classList.add('hidden');
+            switchTab('tab-all');
         });
     }
 
@@ -1993,6 +2193,8 @@ document.addEventListener('DOMContentLoaded', () => {
         currentClientName = '';
         currentClientType = '';
         isMasterSession = false;
+        if (masterReturnBtn) masterReturnBtn.classList.add('hidden');
+        if (codeEntryBtn) codeEntryBtn.classList.add('hidden');
         if (importModeBtn) importModeBtn.classList.add('hidden');
         if (printSheetBtn) printSheetBtn.classList.add('hidden');
         favoriteItems = [];
