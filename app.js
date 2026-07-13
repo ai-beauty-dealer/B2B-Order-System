@@ -1,8 +1,8 @@
-// v2.31.0 (SELECTABLE-PRINT-COLUMNS)
+// v2.32.0 (SELECTABLE-OCR-MODEL)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.31.0 (SELECTABLE-PRINT-COLUMNS) Loaded ---');
+    console.log('--- B2B Order System v2.32.0 (SELECTABLE-OCR-MODEL) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -2920,6 +2920,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const IMPORT_MAX_PHOTOS = 3;
     const IMPORT_PHOTO_LONG_EDGE = 1568; // Claude vision の推奨解像度に縮小して転送量とコストを抑える
 
+    const selectedImageModel = (radioName) => {
+        const selected = document.querySelector(`input[name="${radioName}"]:checked`);
+        return selected && selected.value === 'opus' ? 'opus' : 'sonnet';
+    };
+    const resetImageModel = (radioName) => {
+        const sonnet = document.querySelector(`input[name="${radioName}"][value="sonnet"]`);
+        if (sonnet) sonnet.checked = true;
+    };
+    const disableImageModelPicker = (radioName, disabled) => {
+        document.querySelectorAll(`input[name="${radioName}"]`).forEach((input) => { input.disabled = disabled; });
+    };
+
     // 写真をcanvasで縮小してJPEG base64にする
     const resizeImportPhoto = (file) => new Promise((resolve, reject) => {
         const img = new Image();
@@ -3023,6 +3035,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (importStatus) importStatus.classList.add('hidden');
         if (importUsageSummary) importUsageSummary.classList.add('hidden');
         if (importHighAccuracyBtn) importHighAccuracyBtn.classList.add('hidden');
+        resetImageModel('import-image-model');
         if (importInputStep) importInputStep.classList.remove('hidden');
         if (importPreviewStep) importPreviewStep.classList.add('hidden');
         importModal.classList.remove('hidden');
@@ -3117,7 +3130,7 @@ document.addEventListener('DOMContentLoaded', () => {
             importUsageSummary.classList.toggle('hidden', !modelNames.length);
         }
         if (importHighAccuracyBtn) {
-            const usedSonnetForImage = debug.standardSheet && String(debug.imageModel || '').includes('sonnet');
+            const usedSonnetForImage = String(debug.imageModel || '').includes('sonnet');
             importHighAccuracyBtn.classList.toggle('hidden', !(usedSonnetForImage && importImages.length > 0));
         }
 
@@ -3125,21 +3138,24 @@ document.addEventListener('DOMContentLoaded', () => {
         importPreviewStep.classList.remove('hidden');
     };
 
-    const parseImportText = async (forceHighAccuracy = false) => {
+    const parseImportText = async (forcedImageModel = '') => {
         if (isParsingImport) return;
         const text = (importText.value || '').trim();
         if (!text && importImages.length === 0) { showImportStatus('写真を追加するか、文面を貼り付けてください。', true); return; }
         if (!currentClientName) { showImportStatus('サロンに入室してから使ってください。', true); return; }
 
         const standardSheet = importImages.length > 0 && importImages.every((im) => im.standardSheet);
+        const imageModel = forcedImageModel || selectedImageModel('import-image-model');
+        const isHighAccuracyRetry = forcedImageModel === 'opus';
 
         isParsingImport = true;
         importParseBtn.disabled = true;
+        disableImageModelPicker('import-image-model', true);
         if (importHighAccuracyBtn) {
             importHighAccuracyBtn.disabled = true;
-            if (forceHighAccuracy) importHighAccuracyBtn.textContent = '高精度で再解析中...';
+            if (isHighAccuracyRetry) importHighAccuracyBtn.textContent = '高精度で再解析中...';
         }
-        if (!forceHighAccuracy) {
+        if (!isHighAccuracyRetry) {
             importParseBtn.textContent = importImages.length > 0
                 ? 'AIが写真を読み取り中...（1分ほどかかります）'
                 : 'AIが解析中...（30秒ほどかかります）';
@@ -3157,7 +3173,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     text: text,
                     images: importImages.map(im => im.data),
                     standardSheet: standardSheet,
-                    forceImageModel: forceHighAccuracy ? 'opus' : ''
+                    forceImageModel: importImages.length > 0 ? imageModel : ''
                 })
             });
             const result = await response.json();
@@ -3165,17 +3181,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 renderImportPreview(result.data);
             } else {
                 const message = '解析に失敗しました: ' + (result.message || '不明なエラー');
-                if (forceHighAccuracy) alert(message);
+                if (isHighAccuracyRetry) alert(message);
                 else showImportStatus(message, true);
             }
         } catch (e) {
             console.error('[Import] parse error:', e);
-            if (forceHighAccuracy) alert('通信に失敗しました。');
+            if (isHighAccuracyRetry) alert('通信に失敗しました。');
             else showImportStatus('通信に失敗しました。もう一度お試しください。', true);
         } finally {
             isParsingImport = false;
             importParseBtn.disabled = false;
             importParseBtn.textContent = '解析する';
+            disableImageModelPicker('import-image-model', false);
             if (importHighAccuracyBtn) {
                 importHighAccuracyBtn.disabled = false;
                 importHighAccuracyBtn.textContent = '高精度で再解析（Opus）';
@@ -3209,8 +3226,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (importModeBtn) importModeBtn.addEventListener('click', openImportModal);
     if (importCloseBtn) importCloseBtn.addEventListener('click', closeImportModal);
     if (importOverlay) importOverlay.addEventListener('click', closeImportModal);
-    if (importParseBtn) importParseBtn.addEventListener('click', () => parseImportText(false));
-    if (importHighAccuracyBtn) importHighAccuracyBtn.addEventListener('click', () => parseImportText(true));
+    if (importParseBtn) importParseBtn.addEventListener('click', () => parseImportText(''));
+    if (importHighAccuracyBtn) importHighAccuracyBtn.addEventListener('click', () => parseImportText('opus'));
     if (importBackBtn) importBackBtn.addEventListener('click', () => {
         importPreviewStep.classList.add('hidden');
         importInputStep.classList.remove('hidden');
@@ -3570,6 +3587,8 @@ ${pagesHtml}
         isBatchRunning = false;
         if (batchStatus) batchStatus.classList.add('hidden');
         if (batchStartBtn) { batchStartBtn.disabled = false; batchStartBtn.textContent = '解析開始'; }
+        resetImageModel('batch-image-model');
+        disableImageModelPicker('batch-image-model', false);
         renderBatchList();
         batchModal.classList.remove('hidden');
         batchOverlay.classList.remove('hidden');
@@ -3655,9 +3674,11 @@ ${pagesHtml}
         });
         const salons = Object.keys(groups);
         if (salons.length === 0) return;
+        const imageModel = selectedImageModel('batch-image-model');
 
         isBatchRunning = true;
         batchStartBtn.disabled = true;
+        disableImageModelPicker('batch-image-model', true);
         let done = 0, ok = 0;
 
         for (const salon of salons) {
@@ -3681,7 +3702,7 @@ ${pagesHtml}
                         text: '',
                         images: groups[salon].images,
                         standardSheet: true,
-                        forceImageModel: ''
+                        forceImageModel: imageModel
                     })
                 });
                 const result = await response.json();
@@ -3703,6 +3724,7 @@ ${pagesHtml}
 
         isBatchRunning = false;
         batchStartBtn.textContent = '解析完了';
+        disableImageModelPicker('batch-image-model', false);
         showBatchStatus(`${ok}/${salons.length}サロンのドラフトを保存しました。サロンに入室すると自動でプレビューが開きます。`);
     };
 

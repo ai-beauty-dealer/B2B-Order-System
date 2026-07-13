@@ -47,7 +47,9 @@ function handleParseOrder(data) {
   const text = String(data.text || '').trim();
   const images = Array.isArray(data.images) ? data.images : [];
   const standardSheet = data.standardSheet === true;
-  const forceHighAccuracy = String(data.forceImageModel || '') === 'opus';
+  const requestedImageModel = ['sonnet', 'opus'].indexOf(String(data.forceImageModel || '')) !== -1
+    ? String(data.forceImageModel) : '';
+  const forceHighAccuracy = requestedImageModel === 'opus';
 
   if (!clientName) return parseOrderError_('clientName がありません。');
   if (!text && images.length === 0) return parseOrderError_('文面か写真のどちらかを入れてください。');
@@ -77,6 +79,7 @@ function handleParseOrder(data) {
     matched: 0,
     unmatched: 0,
     standardSheet: standardSheet,
+    requestedImageModel: requestedImageModel,
     highAccuracy: forceHighAccuracy,
     imageModel: '',
     apiUsage: [],
@@ -87,6 +90,7 @@ function handleParseOrder(data) {
     imageCount: images.length,
     inputTextLength: text.length,
     standardSheet: standardSheet,
+    requestedImageModel: requestedImageModel,
     highAccuracy: forceHighAccuracy
   });
 
@@ -99,7 +103,7 @@ function handleParseOrder(data) {
   if (images.length > 0) {
     const ocr = transcribeOrderImages_(apiKey, images, {
       standardSheet: standardSheet,
-      forceHighAccuracy: forceHighAccuracy
+      requestedImageModel: requestedImageModel
     });
     if (ocr.error) {
       logParseStage_(requestId, 'ocr_error', { error: ocr.error });
@@ -314,8 +318,10 @@ function estimateClaudeCostUsd_(model, inputTokens, outputTokens, cacheWriteToke
 // --- 写メ→文字起こし（標準発注書=Sonnet、自由手書き=Opus） ---
 function transcribeOrderImages_(apiKey, images, settings) {
   settings = settings || {};
-  const useStandardModel = settings.standardSheet && !settings.forceHighAccuracy;
-  const imageModel = useStandardModel ? PARSE_MODEL_IMAGE_STANDARD : PARSE_MODEL_IMAGE_FREEFORM;
+  let imageModel;
+  if (settings.requestedImageModel === 'sonnet') imageModel = PARSE_MODEL_IMAGE_STANDARD;
+  else if (settings.requestedImageModel === 'opus') imageModel = PARSE_MODEL_IMAGE_FREEFORM;
+  else imageModel = settings.standardSheet ? PARSE_MODEL_IMAGE_STANDARD : PARSE_MODEL_IMAGE_FREEFORM;
   const systemPrompt = [
     'あなたは美容ディーラーの発注書読み取り係。手書きの発注書・メモの写真から、発注内容だけを書き起こす。',
     '',
