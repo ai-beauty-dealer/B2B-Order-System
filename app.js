@@ -1,8 +1,8 @@
-// v2.29.1 (IMPORT-OCR-DIAGNOSTICS)
+// v2.30.0 (THREE-COLUMN-HAIKU-OCR)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.29.1 (IMPORT-OCR-DIAGNOSTICS) Loaded ---');
+    console.log('--- B2B Order System v2.30.0 (THREE-COLUMN-HAIKU-OCR) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -2907,6 +2907,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const importUnmatchedList = document.getElementById('import-unmatched-list');
     const importBackBtn = document.getElementById('import-back-btn');
     const importApplyBtn = document.getElementById('import-apply-btn');
+    const importHighAccuracyBtn = document.getElementById('import-high-accuracy-btn');
+    const importUsageSummary = document.getElementById('import-usage-summary');
 
     const importPhotosInput = document.getElementById('import-photos');
     const importPhotoLabel = document.querySelector('.import-photo-label');
@@ -2914,7 +2916,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let importParsedItems = [];
     let isParsingImport = false;
-    let importImages = []; // [{data: base64(jpegヘッダなし), preview: dataURL}]
+    let importImages = []; // [{data, preview, standardSheet, qrSalon}]
     const IMPORT_MAX_PHOTOS = 3;
     const IMPORT_PHOTO_LONG_EDGE = 1568; // Claude vision の推奨解像度に縮小して転送量とコストを抑える
 
@@ -2939,6 +2941,12 @@ document.addEventListener('DOMContentLoaded', () => {
         img.src = url;
     });
 
+    const importDataUrlToFile = async (dataUrl, fileName) => {
+        const response = await fetch(dataUrl);
+        const blob = await response.blob();
+        return new File([blob], fileName, { type: blob.type || 'image/jpeg' });
+    };
+
     const renderImportThumbs = () => {
         if (!importPhotoThumbs) return;
         importPhotoThumbs.innerHTML = '';
@@ -2962,15 +2970,28 @@ document.addEventListener('DOMContentLoaded', () => {
         importPhotosInput.addEventListener('change', async () => {
             const files = Array.from(importPhotosInput.files || []);
             importPhotosInput.value = '';
+            let qrScanner = null;
+            try { qrScanner = new Html5Qrcode('batch-qr-scratch'); } catch (e) { console.warn('[Import] QR scanner unavailable:', e); }
             for (const f of files) {
                 if (importImages.length >= IMPORT_MAX_PHOTOS) { alert(`写真は${IMPORT_MAX_PHOTOS}枚までです。`); break; }
                 try {
-                    importImages.push(await resizeImportPhoto(f));
+                    const resized = await resizeImportPhoto(f);
+                    let qrSalon = qrScanner ? await decodeSalonQr(qrScanner, f) : null;
+                    if (!qrSalon && qrScanner) {
+                        const qrFile = await importDataUrlToFile(resized.preview, `qr-${Date.now()}.jpg`);
+                        qrSalon = await decodeSalonQr(qrScanner, qrFile);
+                    }
+                    importImages.push({
+                        ...resized,
+                        standardSheet: Boolean(qrSalon),
+                        qrSalon: qrSalon || ''
+                    });
                 } catch (err) {
                     console.error('[Import] photo resize error:', err);
                     alert('写真の読み込みに失敗しました。');
                 }
             }
+            if (qrScanner) { try { qrScanner.clear(); } catch (e) { /* noop */ } }
             renderImportThumbs();
         });
     }
@@ -3000,6 +3021,8 @@ document.addEventListener('DOMContentLoaded', () => {
         renderImportThumbs();
         if (importText) importText.value = '';
         if (importStatus) importStatus.classList.add('hidden');
+        if (importUsageSummary) importUsageSummary.classList.add('hidden');
+        if (importHighAccuracyBtn) importHighAccuracyBtn.classList.add('hidden');
         if (importInputStep) importInputStep.classList.remove('hidden');
         if (importPreviewStep) importPreviewStep.classList.add('hidden');
         importModal.classList.remove('hidden');
@@ -3054,6 +3077,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 '照合候補数: ' + (debug.candidateCount ?? data.candidateCount ?? '不明'),
                 '最終一致: ' + (debug.matched ?? 0),
                 '未一致: ' + (debug.unmatched ?? unmatched.length),
+                '画像AI: ' + (debug.imageModel || '不明'),
+                '概算コスト: $' + Number(debug.estimatedCostUsd || 0).toFixed(4),
                 '',
                 '--- OCR文字起こし ---',
                 data.transcript || '（文字起こしなし）'
@@ -3076,21 +3101,48 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         importUnmatchedWrapper.classList.toggle('hidden', unmatched.length === 0);
 
+        if (importUsageSummary) {
+            const usage = Array.isArray(debug.apiUsage) ? debug.apiUsage : [];
+            const modelNames = usage.map((entry) => {
+                const model = String(entry.model || '');
+                if (model.includes('haiku')) return 'Haiku';
+                if (model.includes('opus')) return 'Opus';
+                return model || 'AI';
+            }).filter((name, idx, arr) => arr.indexOf(name) === idx);
+            const cost = Number(debug.estimatedCostUsd || 0);
+            importUsageSummary.textContent = modelNames.length
+                ? `使用AI: ${modelNames.join(' + ')}／概算 $${cost.toFixed(4)}`
+                : '';
+            importUsageSummary.classList.toggle('hidden', !modelNames.length);
+        }
+        if (importHighAccuracyBtn) {
+            const usedHaikuForImage = debug.standardSheet && String(debug.imageModel || '').includes('haiku');
+            importHighAccuracyBtn.classList.toggle('hidden', !(usedHaikuForImage && importImages.length > 0));
+        }
+
         importInputStep.classList.add('hidden');
         importPreviewStep.classList.remove('hidden');
     };
 
-    const parseImportText = async () => {
+    const parseImportText = async (forceHighAccuracy = false) => {
         if (isParsingImport) return;
         const text = (importText.value || '').trim();
         if (!text && importImages.length === 0) { showImportStatus('写真を追加するか、文面を貼り付けてください。', true); return; }
         if (!currentClientName) { showImportStatus('サロンに入室してから使ってください。', true); return; }
 
+        const standardSheet = importImages.length > 0 && importImages.every((im) => im.standardSheet);
+
         isParsingImport = true;
         importParseBtn.disabled = true;
-        importParseBtn.textContent = importImages.length > 0
-            ? 'AIが写真を読み取り中...（1分ほどかかります）'
-            : 'AIが解析中...（30秒ほどかかります）';
+        if (importHighAccuracyBtn) {
+            importHighAccuracyBtn.disabled = true;
+            if (forceHighAccuracy) importHighAccuracyBtn.textContent = '高精度で再解析中...';
+        }
+        if (!forceHighAccuracy) {
+            importParseBtn.textContent = importImages.length > 0
+                ? 'AIが写真を読み取り中...（1分ほどかかります）'
+                : 'AIが解析中...（30秒ほどかかります）';
+        }
         showImportStatus('候補商品と照合しています...');
 
         try {
@@ -3102,22 +3154,31 @@ document.addEventListener('DOMContentLoaded', () => {
                     action: 'parse_order',
                     clientName: currentClientName,
                     text: text,
-                    images: importImages.map(im => im.data)
+                    images: importImages.map(im => im.data),
+                    standardSheet: standardSheet,
+                    forceImageModel: forceHighAccuracy ? 'opus' : ''
                 })
             });
             const result = await response.json();
             if (result.status === 'success') {
                 renderImportPreview(result.data);
             } else {
-                showImportStatus('解析に失敗しました: ' + (result.message || '不明なエラー'), true);
+                const message = '解析に失敗しました: ' + (result.message || '不明なエラー');
+                if (forceHighAccuracy) alert(message);
+                else showImportStatus(message, true);
             }
         } catch (e) {
             console.error('[Import] parse error:', e);
-            showImportStatus('通信に失敗しました。もう一度お試しください。', true);
+            if (forceHighAccuracy) alert('通信に失敗しました。');
+            else showImportStatus('通信に失敗しました。もう一度お試しください。', true);
         } finally {
             isParsingImport = false;
             importParseBtn.disabled = false;
             importParseBtn.textContent = '解析する';
+            if (importHighAccuracyBtn) {
+                importHighAccuracyBtn.disabled = false;
+                importHighAccuracyBtn.textContent = '高精度で再解析（Opus）';
+            }
         }
     };
 
@@ -3147,7 +3208,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (importModeBtn) importModeBtn.addEventListener('click', openImportModal);
     if (importCloseBtn) importCloseBtn.addEventListener('click', closeImportModal);
     if (importOverlay) importOverlay.addEventListener('click', closeImportModal);
-    if (importParseBtn) importParseBtn.addEventListener('click', parseImportText);
+    if (importParseBtn) importParseBtn.addEventListener('click', () => parseImportText(false));
+    if (importHighAccuracyBtn) importHighAccuracyBtn.addEventListener('click', () => parseImportText(true));
     if (importBackBtn) importBackBtn.addEventListener('click', () => {
         importPreviewStep.classList.add('hidden');
         importInputStep.classList.remove('hidden');
@@ -3161,7 +3223,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const IMPORT_QR_PREFIX = 'B2BORDER|'; // QRの中身: B2BORDER|サロン名（一括取り込みのサロン判定に使う）
     const importDraftKey = (salonName) => 'b2b_import_draft_' + salonName;
 
-    const PRINT_SHEET_MAX_ITEMS = 240;      // 最大240商品。170商品程度までは2ページ、商品名の長さにより3ページへ続く
+    const PRINT_SHEET_MAX_ITEMS = 240;      // 最大240商品。実測最多の170商品は3列で2ページに収める
     const PRINT_ARCHIVE_MAX_PAGES = 6;      // アーカイブ履歴を遡る最大ページ数（50件×6）
     // 印刷時のカテゴリ掲載順（この順でセクション化し、各セクション内は商品名あいうえお順）
     const PRINT_CATEGORY_ORDER = ['カラー関連', '2剤/ブリーチ', 'パーマ関連', 'ストレート関連', 'シャンプー', 'トリートメント', 'スキャルプ関連', '業務用商品', 'コスメ関連'];
@@ -3254,8 +3316,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const today = new Date();
         const dateStr = `${today.getFullYear()}/${today.getMonth() + 1}/${today.getDate()}`;
 
-        // 縦4列・列優先方式（コード順が縦に流れる）
-        const PRINT_COLS = 4;
+        // 縦3列・列優先方式。写真OCR用に商品名とCODEを大きく保つ。
+        const PRINT_COLS = 3;
         const cell = (it) => it
             ? `<div class="cell"><span class="nm">${escImportHtml(it.name)}<span class="cd">CODE ${escImportHtml(it.code)}</span></span><span class="qty"></span></div>`
             : '<div class="cell empty"></div>';
@@ -3264,8 +3326,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const visualWidth = Array.from(String(it.name)).reduce((sum, ch) => {
                 return sum + (/^[\x20-\x7eｦ-ﾟ]$/.test(ch) ? 0.56 : 1);
             }, 0);
-            const lines = Math.max(1, Math.ceil(visualWidth / 18));
-            return Math.min(2.4, 1 + (lines - 1) * 0.58);
+            const lines = Math.max(1, Math.ceil(visualWidth / 24));
+            return Math.min(2.6, 1.05 + (lines - 1) * 0.62);
         };
         const printBlocks = [];
         categoryKeys.forEach((cat) => {
@@ -3371,11 +3433,11 @@ body { font-family: "Hiragino Sans", "Yu Gothic", sans-serif; color: #111; font-
 .note { font-size: 7pt; color: #333; margin-bottom: 1.6mm; }
 .cat { font-size: 7.5pt; font-weight: bold; background: #ececec; padding: 0.7mm 1.2mm; margin-top: 1.4mm; break-after: avoid; page-break-after: avoid; }
 .pair { display: flex; gap: 2.8mm; break-inside: avoid; page-break-inside: avoid; }
-.cell { flex: 1; min-width: 0; display: flex; align-items: stretch; border-bottom: 1px solid #bbb; min-height: 5.6mm; }
+.cell { flex: 1; min-width: 0; display: flex; align-items: stretch; border-bottom: 1px solid #bbb; min-height: 6mm; }
 .cell.empty { border-bottom: none; }
-.nm { flex: 1; min-width: 0; padding: 0.2mm 0.8mm 0.2mm 0; line-height: 1.02; overflow-wrap: anywhere; }
-.cd { display: block; margin-top: 0.05mm; color: #111; font-family: Menlo, Monaco, "Courier New", monospace; font-size: 7pt; font-weight: 700; line-height: 1; letter-spacing: 0; white-space: nowrap; }
-.qty { width: 9mm; flex-shrink: 0; border-left: 1px solid #bbb; }
+.nm { flex: 1; min-width: 0; padding: 0.2mm 0.8mm 0.2mm 0; font-size: 7.5pt; line-height: 1.02; overflow-wrap: anywhere; }
+.cd { display: block; margin-top: 0.05mm; color: #111; font-family: Menlo, Monaco, "Courier New", monospace; font-size: 8pt; font-weight: 700; line-height: 1; letter-spacing: 0; white-space: nowrap; }
+.qty { width: 10mm; flex-shrink: 0; border-left: 1px solid #bbb; }
 .pair.blank .cell { min-height: 7mm; }
 .sec { font-size: 7.5pt; font-weight: bold; margin: 2.5mm 0 1mm; break-after: avoid; }
 .print-btn { position: fixed; top: 8px; right: 8px; padding: 10px 18px; font-size: 12pt; cursor: pointer; z-index: 10; }
@@ -3430,8 +3492,11 @@ ${pagesHtml}
     const decodeSalonQr = async (scanner, file) => {
         try {
             const decoded = await scanner.scanFile(file, false);
-            if (decoded && decoded.indexOf(IMPORT_QR_PREFIX) === 0) {
-                return decoded.slice(IMPORT_QR_PREFIX.length).trim();
+            const prefixes = [IMPORT_QR_PREFIX, 'B2B_ORDER:']; // 旧OCRテスト発注書も標準書式として扱う
+            for (const prefix of prefixes) {
+                if (decoded && decoded.indexOf(prefix) === 0) {
+                    return decoded.slice(prefix.length).trim();
+                }
             }
             return null;
         } catch (e) {
@@ -3503,16 +3568,20 @@ ${pagesHtml}
             try { scanner = new Html5Qrcode('batch-qr-scratch'); } catch (e) { console.error(e); }
             for (const f of files) {
                 if (batchPhotos.length >= BATCH_MAX_PHOTOS) { alert(`写真は${BATCH_MAX_PHOTOS}枚までです。`); break; }
-                let salon = scanner ? await decodeSalonQr(scanner, f) : null;
-                if (salon && !validNames.has(salon)) salon = null; // 登録サロン名と一致しないQRは不採用
-                let manual = false;
-                if (!salon && batchPhotos.length > 0) {
-                    // QRなし＝発注書の裏面（2ページ目）の可能性が高い → 直前の写真のサロンを引き継ぐ（変更可）
-                    const prev = batchPhotos[batchPhotos.length - 1];
-                    if (prev.salon) { salon = prev.salon; manual = true; }
-                }
                 try {
                     const resized = await resizeImportPhoto(f);
+                    let salon = scanner ? await decodeSalonQr(scanner, f) : null;
+                    if (!salon && scanner) {
+                        const qrFile = await importDataUrlToFile(resized.preview, `qr-${Date.now()}.jpg`);
+                        salon = await decodeSalonQr(scanner, qrFile);
+                    }
+                    if (salon && !validNames.has(salon)) salon = null; // 登録サロン名と一致しないQRは不採用
+                    let manual = false;
+                    if (!salon && batchPhotos.length > 0) {
+                        // QRなし＝発注書の裏面（2ページ目）の可能性が高い → 直前の写真のサロンを引き継ぐ（変更可）
+                        const prev = batchPhotos[batchPhotos.length - 1];
+                        if (prev.salon) { salon = prev.salon; manual = true; }
+                    }
                     batchPhotos.push({ salon: salon, manual: manual, data: resized.data, preview: resized.preview });
                 } catch (err) {
                     console.error('[Batch] resize error:', err);
@@ -3579,7 +3648,9 @@ ${pagesHtml}
                         action: 'parse_order',
                         clientName: salon,
                         text: '',
-                        images: groups[salon].images
+                        images: groups[salon].images,
+                        standardSheet: true,
+                        forceImageModel: ''
                     })
                 });
                 const result = await response.json();
@@ -3587,7 +3658,8 @@ ${pagesHtml}
                     const d = result.data;
                     d.savedAt = Date.now();
                     localStorage.setItem(importDraftKey(salon), JSON.stringify(d));
-                    setRowResult(`✅ ${d.items.length}件マッチ／未マッチ${d.unmatched.length}件（入室すると開きます）`);
+                    const cost = Number((d.debug && d.debug.estimatedCostUsd) || 0);
+                    setRowResult(`✅ ${d.items.length}件マッチ／未マッチ${d.unmatched.length}件／約$${cost.toFixed(4)}（入室すると開きます）`);
                     ok++;
                 } else {
                     setRowResult('❌ ' + (result.message || '解析に失敗'));
@@ -3616,6 +3688,8 @@ ${pagesHtml}
         try {
             const draft = JSON.parse(raw);
             if (!draft.items || (draft.items.length === 0 && (!draft.unmatched || draft.unmatched.length === 0))) return;
+            importImages = []; // 一括取り込みの画像は保存しない。別サロンの残存画像で再解析させない。
+            if (importText) importText.value = '';
             importModal.classList.remove('hidden');
             importOverlay.classList.remove('hidden');
             renderImportPreview(draft);

@@ -9,13 +9,13 @@
 // 必要な Script Property:
 //   ANTHROPIC_API_KEY … Claude APIキー（プロジェクトの設定 → スクリプト プロパティ）
 //
-// コスト設計（二段階方式）:
-//   テキスト解析 … 文面の語で候補を事前フィルタ＋Haikuでマッチング → 1回2〜3円目安
-//   写メ解析     … ①Opusで文字起こし（画像だけ・候補リストなし＝安い）
-//                  ②起こしたテキストをHaikuでマッチング（事前フィルタ有効）
-//                  → 合計1枚5円前後。読みの品質はOpus、照合コストはHaiku
-const PARSE_MODEL_TEXT = 'claude-haiku-4-5';   // マッチング（商品コード特定）
-const PARSE_MODEL_IMAGE = 'claude-opus-4-8';   // 写メの文字起こし（手書きOCR。ここはケチらない）
+// コスト設計:
+//   QR付き標準発注書 … HaikuでCODEと数量をOCR。未解決行だけHaiku照合。
+//   自由手書き写真       … 文字起こしはOpus、照合はHaiku。
+//   標準発注書で精度が必要な時だけ、フロントの手動再解析からOpusを指定する。
+const PARSE_MODEL_TEXT = 'claude-haiku-4-5';
+const PARSE_MODEL_IMAGE_STANDARD = 'claude-haiku-4-5';
+const PARSE_MODEL_IMAGE_FREEFORM = 'claude-opus-4-8';
 
 const PARSE_MAX_INPUT_CHARS = 4000;    // LINE文面の上限
 const PARSE_MAX_IMAGES = 3;            // 写メの上限枚数
@@ -46,6 +46,8 @@ function handleParseOrder(data) {
   const clientName = String(data.clientName || '').trim();
   const text = String(data.text || '').trim();
   const images = Array.isArray(data.images) ? data.images : [];
+  const standardSheet = data.standardSheet === true;
+  const forceHighAccuracy = String(data.forceImageModel || '') === 'opus';
 
   if (!clientName) return parseOrderError_('clientName がありません。');
   if (!text && images.length === 0) return parseOrderError_('文面か写真のどちらかを入れてください。');
@@ -73,29 +75,43 @@ function handleParseOrder(data) {
     directUnresolved: 0,
     candidateCount: 0,
     matched: 0,
-    unmatched: 0
+    unmatched: 0,
+    standardSheet: standardSheet,
+    highAccuracy: forceHighAccuracy,
+    imageModel: '',
+    apiUsage: [],
+    estimatedCostUsd: 0
   };
   logParseStage_(requestId, 'start', {
     clientName: clientName,
     imageCount: images.length,
-    inputTextLength: text.length
+    inputTextLength: text.length,
+    standardSheet: standardSheet,
+    highAccuracy: forceHighAccuracy
   });
 
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const master = loadMasterForParse_(ss);
 
-  // 写メがある場合はまずOpusで文字起こしし、以降はテキストとして扱う（二段階方式）
+  // 標準発注書はHaiku、自由手書きはOpusで文字起こしする。
   let effectiveText = text;
   let transcript = '';
   if (images.length > 0) {
-    const ocr = transcribeOrderImages_(apiKey, images);
+    const ocr = transcribeOrderImages_(apiKey, images, {
+      standardSheet: standardSheet,
+      forceHighAccuracy: forceHighAccuracy
+    });
     if (ocr.error) {
       logParseStage_(requestId, 'ocr_error', { error: ocr.error });
       return parseOrderError_(ocr.error + '（ログID: ' + requestId + '）');
     }
     transcript = ocr.text;
+    debug.imageModel = ocr.model || '';
+    addParseUsage_(debug, 'ocr', ocr.model, ocr.usage);
     debug.transcriptLines = countNonEmptyLines_(transcript);
     logParseStage_(requestId, 'ocr_complete', {
+      model: debug.imageModel,
+      usage: debug.apiUsage[debug.apiUsage.length - 1] || {},
       transcriptLength: transcript.length,
       transcriptLines: debug.transcriptLines,
       transcript: transcript.slice(0, 30000)
@@ -144,6 +160,7 @@ function handleParseOrder(data) {
     logParseStage_(requestId, 'match_error', { error: result.error });
     return parseOrderError_(result.error + '（ログID: ' + requestId + '）');
   }
+  addParseUsage_(debug, 'match', result.model, result.usage);
 
   // 候補リストの「正規化した商品名 → 商品」索引（コード転記ミスの自動補正に使う）
   const candByName = {};
@@ -253,8 +270,49 @@ function logParseStage_(requestId, stage, details) {
   }
 }
 
-// --- 写メ→文字起こし（Opus。候補リストを渡さないので画像枚数分だけの低コスト） ---
-function transcribeOrderImages_(apiKey, images) {
+function addParseUsage_(debug, phase, model, usage) {
+  if (!debug || !model || !usage) return;
+  const inputTokens = Number(usage.input_tokens || 0);
+  const outputTokens = Number(usage.output_tokens || 0);
+  const cacheWriteTokens = Number(usage.cache_creation_input_tokens || 0);
+  const cacheReadTokens = Number(usage.cache_read_input_tokens || 0);
+  const costUsd = estimateClaudeCostUsd_(model, inputTokens, outputTokens, cacheWriteTokens, cacheReadTokens);
+  debug.apiUsage.push({
+    phase: phase,
+    model: model,
+    inputTokens: inputTokens,
+    outputTokens: outputTokens,
+    cacheWriteTokens: cacheWriteTokens,
+    cacheReadTokens: cacheReadTokens,
+    estimatedCostUsd: costUsd
+  });
+  debug.estimatedCostUsd = Math.round(debug.apiUsage.reduce(function (sum, entry) {
+    return sum + Number(entry.estimatedCostUsd || 0);
+  }, 0) * 1000000) / 1000000;
+}
+
+function estimateClaudeCostUsd_(model, inputTokens, outputTokens, cacheWriteTokens, cacheReadTokens) {
+  const name = String(model || '').toLowerCase();
+  let inputRate = 0;
+  let outputRate = 0;
+  if (name.indexOf('haiku-4-5') !== -1) {
+    inputRate = 1;
+    outputRate = 5;
+  } else if (name.indexOf('opus-4-8') !== -1) {
+    inputRate = 5;
+    outputRate = 25;
+  }
+  if (!inputRate || !outputRate) return 0;
+  const total = inputTokens * inputRate + outputTokens * outputRate +
+    cacheWriteTokens * inputRate * 1.25 + cacheReadTokens * inputRate * 0.1;
+  return Math.round(total) / 1000000;
+}
+
+// --- 写メ→文字起こし（標準発注書=Haiku、自由手書き=Opus） ---
+function transcribeOrderImages_(apiKey, images, settings) {
+  settings = settings || {};
+  const useStandardModel = settings.standardSheet && !settings.forceHighAccuracy;
+  const imageModel = useStandardModel ? PARSE_MODEL_IMAGE_STANDARD : PARSE_MODEL_IMAGE_FREEFORM;
   const systemPrompt = [
     'あなたは美容ディーラーの発注書読み取り係。手書きの発注書・メモの写真から、発注内容だけを書き起こす。',
     '',
@@ -282,7 +340,7 @@ function transcribeOrderImages_(apiKey, images) {
   content.push({ type: 'text', text: 'この発注書の発注内容を書き起こしてください。' });
 
   const payload = {
-    model: PARSE_MODEL_IMAGE,
+    model: imageModel,
     // OCRは推理より転記量を優先。thinkingは出力枠を消費するため使わない。
     max_tokens: PARSE_MAX_IMAGE_OUTPUT_TOKENS,
     system: systemPrompt,
@@ -291,7 +349,7 @@ function transcribeOrderImages_(apiKey, images) {
 
   const res = fetchClaude_(apiKey, payload);
   if (res.error) return res;
-  return { text: res.text.trim() };
+  return { text: res.text.trim(), model: res.model, usage: res.usage };
 }
 
 function parseOrderError_(message) {
@@ -731,7 +789,7 @@ function callClaudeForParse_(apiKey, text, candidates) {
   const res = fetchClaude_(apiKey, payload);
   if (res.error) return res;
   try {
-    return { parsed: JSON.parse(res.text) };
+    return { parsed: JSON.parse(res.text), model: res.model, usage: res.usage };
   } catch (e) {
     return { error: 'AI応答の解析に失敗しました: ' + e };
   }
@@ -773,7 +831,12 @@ function fetchClaude_(apiKey, payload) {
         if (!textBlock) {
           return { error: 'AI応答が空でした（終了理由: ' + (json.stop_reason || '不明') + '）。もう一度試してください。' };
         }
-        return { text: textBlock };
+        return {
+          text: textBlock,
+          model: String(json.model || payload.model || ''),
+          usage: json.usage || {},
+          stopReason: json.stop_reason || ''
+        };
       } catch (e) {
         return { error: 'AI応答の解析に失敗しました: ' + e };
       }
