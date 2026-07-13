@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="robots" content="noindex">
     <title>AI Beauty Dealer - B2B Order System</title>
-    <link rel="stylesheet" href="style.css?v=2.33.0">
+    <link rel="stylesheet" href="style.css?v=2.34.0">
 
     <!-- PWA -->
     <link rel="manifest" href="manifest.json?v=2.18.0">
@@ -241,7 +241,7 @@
     <script src="lib/html5-qrcode.min.js"></script>
     <script src="lib/qrcode-generator.js"></script>
     <script src="config.js?v=2.18.0"></script>
-    <script src="app.js?v=2.33.0"></script>
+    <script src="app.js?v=2.34.0"></script>
 
     <!-- Service Worker 登録（PWA） -->
     <script>
@@ -334,19 +334,30 @@
             <button id="code-entry-close-btn" class="cart-close-btn" type="button" aria-label="閉じる">&times;</button>
         </div>
         <form id="code-entry-form" autocomplete="off">
-            <div class="code-entry-fields">
-                <label>
-                    <span>商品CODE</span>
-                    <input id="code-entry-code" type="text" inputmode="numeric" enterkeyhint="next" maxlength="16" placeholder="商品CODE">
-                </label>
-                <label>
-                    <span>数量</span>
-                    <input id="code-entry-qty" type="number" inputmode="numeric" enterkeyhint="done" min="1" max="999" value="1" disabled>
-                </label>
+            <div class="code-entry-table" role="table" aria-label="CODE入力商品一覧">
+                <div class="code-entry-table-row code-entry-table-head" role="row">
+                    <span role="columnheader">No.</span>
+                    <span role="columnheader">商品CODE</span>
+                    <span role="columnheader">商品名</span>
+                    <span role="columnheader">数量</span>
+                    <span role="columnheader" aria-label="操作"></span>
+                </div>
+                <div id="code-entry-rows" role="rowgroup"></div>
+                <div class="code-entry-table-row code-entry-active-row" role="row">
+                    <span id="code-entry-next-no" class="code-entry-no" role="cell">01</span>
+                    <label class="code-entry-cell" role="cell">
+                        <span class="sr-only">商品CODE</span>
+                        <input id="code-entry-code" type="text" inputmode="numeric" enterkeyhint="next" maxlength="16" placeholder="CODE">
+                    </label>
+                    <div id="code-entry-product" class="code-entry-product" role="cell">CODEを入力</div>
+                    <label class="code-entry-cell" role="cell">
+                        <span class="sr-only">数量</span>
+                        <input id="code-entry-qty" type="number" inputmode="numeric" enterkeyhint="next" min="1" max="999" value="1" disabled>
+                    </label>
+                    <button id="code-entry-add-btn" class="code-entry-row-action code-entry-add-btn" type="submit" aria-label="商品を追加" title="商品を追加" disabled>+</button>
+                </div>
             </div>
-            <div id="code-entry-product" class="code-entry-product hidden"></div>
             <p id="code-entry-status" class="code-entry-status" aria-live="polite"></p>
-            <button id="code-entry-add-btn" class="btn-primary code-entry-add-btn" type="submit">カートに追加</button>
         </form>
     </div>
 

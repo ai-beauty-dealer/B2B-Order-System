@@ -1,8 +1,8 @@
-// v2.33.0 (MASTER-CODE-ENTRY)
+// v2.34.0 (MASTER-CODE-ENTRY-TABLE)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.33.0 (MASTER-CODE-ENTRY) Loaded ---');
+    console.log('--- B2B Order System v2.34.0 (MASTER-CODE-ENTRY-TABLE) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -512,8 +512,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const codeEntryQty = document.getElementById('code-entry-qty');
     const codeEntryProduct = document.getElementById('code-entry-product');
     const codeEntryStatus = document.getElementById('code-entry-status');
+    const codeEntryRowsEl = document.getElementById('code-entry-rows');
+    const codeEntryNextNo = document.getElementById('code-entry-next-no');
+    const codeEntryAddBtn = document.getElementById('code-entry-add-btn');
     let resolvedCodeEntryItem = null;
     let codeEntryItemIndex = new Map();
+    let codeEntryRows = [];
+    let codeEntryRowsOwner = '';
+    let codeEntryRowSequence = 0;
 
     const normalizeCodeEntry = (value) => String(value || '')
         .trim()
@@ -527,6 +533,75 @@ document.addEventListener('DOMContentLoaded', () => {
         codeEntryStatus.classList.toggle('is-error', isError);
     };
 
+    const getCodeEntryCanonicalCode = (item) => String(item && item.code || '')
+        .replace(/^'/, '')
+        .trim();
+
+    const updateCodeEntryNextNo = () => {
+        if (codeEntryNextNo) {
+            codeEntryNextNo.textContent = String(codeEntryRows.length + 1).padStart(2, '0');
+        }
+    };
+
+    const renderCodeEntryRows = () => {
+        if (!codeEntryRowsEl) return;
+        codeEntryRowsEl.innerHTML = '';
+
+        codeEntryRows.forEach((entry, index) => {
+            const row = document.createElement('div');
+            row.className = 'code-entry-table-row code-entry-saved-row';
+            row.setAttribute('role', 'row');
+
+            const no = document.createElement('span');
+            no.className = 'code-entry-no';
+            no.setAttribute('role', 'cell');
+            no.textContent = String(index + 1).padStart(2, '0');
+
+            const code = document.createElement('span');
+            code.className = 'code-entry-saved-code';
+            code.setAttribute('role', 'cell');
+            code.textContent = entry.code;
+
+            const name = document.createElement('span');
+            name.className = 'code-entry-saved-name';
+            name.setAttribute('role', 'cell');
+            name.textContent = entry.name;
+
+            const qty = document.createElement('input');
+            qty.className = 'code-entry-row-qty';
+            qty.type = 'number';
+            qty.inputMode = 'numeric';
+            qty.min = '1';
+            qty.max = '999';
+            qty.value = String(entry.qty);
+            qty.dataset.rowId = String(entry.id);
+            qty.setAttribute('aria-label', `${entry.name}の数量`);
+            qty.setAttribute('role', 'cell');
+
+            const remove = document.createElement('button');
+            remove.className = 'code-entry-row-action code-entry-delete-btn';
+            remove.type = 'button';
+            remove.dataset.rowId = String(entry.id);
+            remove.setAttribute('aria-label', `${entry.name}を削除`);
+            remove.title = '削除';
+            remove.textContent = '×';
+
+            row.append(no, code, name, qty, remove);
+            codeEntryRowsEl.appendChild(row);
+        });
+
+        updateCodeEntryNextNo();
+    };
+
+    const resetCodeEntryRows = () => {
+        codeEntryRows = [];
+        codeEntryRowsOwner = '';
+        codeEntryRowSequence = 0;
+        if (codeEntryCode) codeEntryCode.value = '';
+        renderCodeEntryRows();
+        clearResolvedCodeEntry();
+    };
+
     const clearResolvedCodeEntry = () => {
         resolvedCodeEntryItem = null;
         if (codeEntryQty) {
@@ -534,9 +609,10 @@ document.addEventListener('DOMContentLoaded', () => {
             codeEntryQty.disabled = true;
         }
         if (codeEntryProduct) {
-            codeEntryProduct.textContent = '';
-            codeEntryProduct.classList.add('hidden');
+            codeEntryProduct.textContent = 'CODEを入力';
+            codeEntryProduct.classList.remove('is-resolved');
         }
+        if (codeEntryAddBtn) codeEntryAddBtn.disabled = true;
     };
 
     const resolveCodeEntry = () => {
@@ -556,10 +632,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         resolvedCodeEntryItem = item;
-        if (codeEntryCode) codeEntryCode.value = code;
+        const canonicalCode = getCodeEntryCanonicalCode(item);
+        if (codeEntryCode) codeEntryCode.value = canonicalCode;
         if (codeEntryProduct) {
-            codeEntryProduct.textContent = `${item.name} ／ CODE ${code}`;
-            codeEntryProduct.classList.remove('hidden');
+            codeEntryProduct.textContent = item.name;
+            codeEntryProduct.classList.add('is-resolved');
         }
         if (codeEntryQty) {
             codeEntryQty.disabled = false;
@@ -567,6 +644,7 @@ document.addEventListener('DOMContentLoaded', () => {
             codeEntryQty.focus();
             codeEntryQty.select();
         }
+        if (codeEntryAddBtn) codeEntryAddBtn.disabled = false;
         setCodeEntryStatus('数量を入力してEnter');
         return true;
     };
@@ -580,10 +658,17 @@ document.addEventListener('DOMContentLoaded', () => {
             return false;
         }
         const qty = rawQty;
-        const code = String(resolvedCodeEntryItem.code).replace(/^'/, '').trim();
+        const code = getCodeEntryCanonicalCode(resolvedCodeEntryItem);
         const name = resolvedCodeEntryItem.name;
         const existingQty = (currentCart[code] && currentCart[code].qty) || 0;
         updateFromCart(code, name, existingQty + qty);
+        codeEntryRows.push({
+            id: ++codeEntryRowSequence,
+            code,
+            name,
+            qty
+        });
+        renderCodeEntryRows();
 
         if (codeEntryCode) codeEntryCode.value = '';
         clearResolvedCodeEntry();
@@ -598,7 +683,29 @@ document.addEventListener('DOMContentLoaded', () => {
             alert('商品マスタを読み込み中です。少し待ってからもう一度開いてください。');
             return;
         }
-        codeEntryItemIndex = new Map(itemsData.map((item) => [String(item.code || '').replace(/^'/, '').trim(), item]));
+        const owner = `${currentUsername}|${currentClientName}`;
+        if (owner !== codeEntryRowsOwner) {
+            codeEntryRows = [];
+            codeEntryRowSequence = 0;
+            codeEntryRowsOwner = owner;
+        }
+
+        codeEntryItemIndex = new Map();
+        itemsData.forEach((item) => {
+            const code = getCodeEntryCanonicalCode(item);
+            if (code) codeEntryItemIndex.set(code, item);
+        });
+        itemsData.forEach((item) => {
+            const code = getCodeEntryCanonicalCode(item);
+            if (/^\d{6}$/.test(code)) {
+                const leadingZeroAlias = `0${code}`;
+                if (!codeEntryItemIndex.has(leadingZeroAlias)) {
+                    codeEntryItemIndex.set(leadingZeroAlias, item);
+                }
+            }
+        });
+
+        renderCodeEntryRows();
         if (codeEntryCode) codeEntryCode.value = '';
         clearResolvedCodeEntry();
         setCodeEntryStatus('商品CODEを入力してEnter');
@@ -618,7 +725,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (codeEntryCloseBtn) codeEntryCloseBtn.addEventListener('click', closeCodeEntryModal);
     if (codeEntryOverlay) codeEntryOverlay.addEventListener('click', closeCodeEntryModal);
     if (codeEntryCode) {
-        codeEntryCode.addEventListener('input', clearResolvedCodeEntry);
+        codeEntryCode.addEventListener('input', () => {
+            clearResolvedCodeEntry();
+            setCodeEntryStatus('商品CODEを入力してEnter');
+        });
         codeEntryCode.addEventListener('keydown', (event) => {
             if (event.key !== 'Enter') return;
             event.preventDefault();
@@ -630,6 +740,55 @@ document.addEventListener('DOMContentLoaded', () => {
             if (event.key !== 'Enter') return;
             event.preventDefault();
             addResolvedCodeEntry();
+        });
+    }
+    if (codeEntryRowsEl) {
+        codeEntryRowsEl.addEventListener('keydown', (event) => {
+            const input = event.target.closest('.code-entry-row-qty');
+            if (!input || event.key !== 'Enter') return;
+            event.preventDefault();
+            input.blur();
+            const qty = parseInt(input.value, 10);
+            if (Number.isFinite(qty) && qty >= 1 && qty <= 999 && codeEntryCode) {
+                codeEntryCode.focus();
+            }
+        });
+
+        codeEntryRowsEl.addEventListener('change', (event) => {
+            const input = event.target.closest('.code-entry-row-qty');
+            if (!input) return;
+            const rowId = Number(input.dataset.rowId);
+            const entry = codeEntryRows.find((row) => row.id === rowId);
+            if (!entry) return;
+
+            const nextQty = parseInt(input.value, 10);
+            if (!Number.isFinite(nextQty) || nextQty < 1 || nextQty > 999) {
+                input.value = String(entry.qty);
+                setCodeEntryStatus('数量は1〜999で入力してください。', true);
+                input.focus();
+                input.select();
+                return;
+            }
+
+            const currentQty = (currentCart[entry.code] && currentCart[entry.code].qty) || 0;
+            updateFromCart(entry.code, entry.name, Math.max(0, currentQty + nextQty - entry.qty));
+            entry.qty = nextQty;
+            setCodeEntryStatus(`${entry.name}の数量を${nextQty}に変更しました。`);
+        });
+
+        codeEntryRowsEl.addEventListener('click', (event) => {
+            const button = event.target.closest('.code-entry-delete-btn');
+            if (!button) return;
+            const rowId = Number(button.dataset.rowId);
+            const rowIndex = codeEntryRows.findIndex((row) => row.id === rowId);
+            if (rowIndex < 0) return;
+
+            const [entry] = codeEntryRows.splice(rowIndex, 1);
+            const currentQty = (currentCart[entry.code] && currentCart[entry.code].qty) || 0;
+            updateFromCart(entry.code, entry.name, Math.max(0, currentQty - entry.qty));
+            renderCodeEntryRows();
+            setCodeEntryStatus(`${entry.name}を削除しました。`);
+            if (codeEntryCode) codeEntryCode.focus();
         });
     }
     if (codeEntryForm) {
@@ -1371,6 +1530,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Start Editing Order ---
     const startEditingOrder = (orderId, items) => {
         editingOrderId = orderId;
+        resetCodeEntryRows();
         currentCart = {}; // Reset cart for editing
         cartOrder = []; // Reset cart order
 
@@ -1415,6 +1575,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const resetEditMode = () => {
         editingOrderId = null;
+        resetCodeEntryRows();
         currentCart = {};
         cartOrder = [];
         restoreCartFromStorage(); // Restore draft cart (no-op if cleared by successful submit)
@@ -2129,6 +2290,7 @@ document.addEventListener('DOMContentLoaded', () => {
             favoriteItems = [];
             currentCart = {};
             cartOrder = [];
+            resetCodeEntryRows();
         });
     }
 
@@ -2200,6 +2362,7 @@ document.addEventListener('DOMContentLoaded', () => {
         favoriteItems = [];
         currentCart = {};
         cartOrder = [];
+        resetCodeEntryRows();
         loggedUnknownJans.clear(); // 未登録JANの送信済みSetをリセット
 
         if (customItemsList) customItemsList.innerHTML = '';
