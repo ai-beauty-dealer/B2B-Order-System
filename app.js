@@ -1,8 +1,8 @@
-// v2.15.3 (JAN-TAIL-SEARCH)
+// v2.28.8 (PRINT-SHEET-NO-CLIP-PAGINATION)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.15.3 (JAN-TAIL-SEARCH) Loaded ---');
+    console.log('--- B2B Order System v2.28.8 (PRINT-SHEET-NO-CLIP-PAGINATION) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -3227,39 +3227,120 @@ document.addEventListener('DOMContentLoaded', () => {
         const today = new Date();
         const dateStr = `${today.getFullYear()}/${today.getMonth() + 1}/${today.getDate()}`;
 
-        // 縦4列・列優先方式（コード順が縦に流れる。行単位のDOMなので複数ページでも崩れず、
-        // ページをまたいでも各列の連番は途切れない）
+        // 縦4列・列優先方式（コード順が縦に流れる）
         const PRINT_COLS = 4;
         const cell = (it) => it
             ? `<div class="cell"><span class="nm">${escImportHtml(it.name)}<span class="cd">${escImportHtml(it.code)}</span></span><span class="qty"></span></div>`
             : '<div class="cell empty"></div>';
-        let pairsHtml = '';
+        const estimateCellWeight = (it) => {
+            if (!it || !it.name) return 1;
+            const visualWidth = Array.from(String(it.name)).reduce((sum, ch) => {
+                return sum + (/^[\x20-\x7eｦ-ﾟ]$/.test(ch) ? 0.56 : 1);
+            }, 0);
+            const lines = Math.max(1, Math.ceil(visualWidth / 18));
+            return Math.min(2.4, 1 + (lines - 1) * 0.58);
+        };
+        const printBlocks = [];
         categoryKeys.forEach((cat) => {
-            pairsHtml += `<div class="cat">${escImportHtml(cat)}</div>`;
+            printBlocks.push({ type: 'cat', html: `<div class="cat">${escImportHtml(cat)}</div>` });
             const arr = byCategory[cat];
             const rows = Math.ceil(arr.length / PRINT_COLS);
             for (let i = 0; i < rows; i++) {
                 let row = '';
-                for (let k = 0; k < PRINT_COLS; k++) row += cell(arr[i + k * rows]);
-                pairsHtml += `<div class="pair">${row}</div>`;
+                const rowItems = [];
+                for (let k = 0; k < PRINT_COLS; k++) {
+                    const rowItem = arr[i + k * rows];
+                    rowItems.push(rowItem);
+                    row += cell(rowItem);
+                }
+                printBlocks.push({
+                    type: 'row',
+                    weight: Math.max(...rowItems.map(estimateCellWeight)),
+                    html: `<div class="pair">${row}</div>`
+                });
             }
         });
         const blankCell = '<div class="cell"><span class="nm"></span><span class="qty"></span></div>';
-        let blankPairs = '';
+        let freeWriteHtml = '<p class="sec">▼ 表にない商品はこちらへ（商品名・サイズ・数量）</p>';
         for (let i = 0; i < 4; i++) {
-            blankPairs += `<div class="pair blank">${blankCell.repeat(PRINT_COLS)}</div>`;
+            freeWriteHtml += `<div class="pair blank">${blankCell.repeat(PRINT_COLS)}</div>`;
         }
+        printBlocks.push({ type: 'free', weight: 6.8, html: freeWriteHtml });
+
+        const blockWeight = (block) => {
+            if (block.weight) return block.weight;
+            if (block.type === 'cat') return 1.2;
+            return 1;
+        };
+        const paginatePrintBlocks = (blocks) => {
+            const pages = [];
+            let page = [];
+            let used = 0;
+            let limit = 36; // 1枚目はタイトル・説明・大きいQRぶん本文を少なめにする
+            const pushPage = () => {
+                if (page.length) pages.push(page);
+                page = [];
+                used = 0;
+                limit = 42; // 2枚目以降は小さいQRヘッダーぶんだけ確保
+            };
+            blocks.forEach((block) => {
+                const weight = blockWeight(block);
+                if (block.type === 'cat' && page.length && used + 2.1 > limit) pushPage();
+                if (page.length && used + weight > limit) pushPage();
+                page.push(block);
+                used += weight;
+            });
+            pushPage();
+            return pages;
+        };
+
+        const printPages = paginatePrintBlocks(printBlocks);
+        const renderPage = (blocks, idx) => {
+            const bodyHtml = blocks.map((block) => block.html).join('');
+            if (idx === 0) {
+                return `<section class="print-page first-page">
+<div class="first-head">
+  <div class="htxt">
+    <h1>アクティム発注書</h1>
+    <div class="salon">${escImportHtml(currentClientName)} 様</div>
+    <div class="meta">発行日: ${dateStr} ／ 掲載 ${sheetItems.length}商品（お取引履歴より）</div>
+  </div>
+  <img class="qr-main" src="${qrDataUrl}" alt="QR">
+</div>
+<p class="note">✏️ ご注文の商品の右枠に<b>数量</b>をご記入ください。表にない商品は最後の空欄にご記入ください。記入したページを全て写真に撮ってお送りください。</p>
+${bodyHtml}
+</section>`;
+            }
+            return `<section class="print-page cont-page">
+<div class="cont-head">
+  <div class="cont-title">
+    <strong>アクティム発注書</strong>
+    <span>${escImportHtml(currentClientName)} 様</span>
+    <span>発注商品 続き ${idx + 1}/${printPages.length}</span>
+  </div>
+  <img class="qr-small" src="${qrDataUrl}" alt="QR">
+</div>
+${bodyHtml}
+</section>`;
+        };
+        const pagesHtml = printPages.map(renderPage).join('');
 
         const html = `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>発注書 - ${escImportHtml(currentClientName)}様</title>
 <style>
-/* 上余白をQR分（24mm+α）だけ広く取る。@pageの余白は全ページ共通で効くため、
-   これで毎ページ・被りなくQRの置き場所を確保できる（bodyのpaddingは最終ページにしか効かないため使わない） */
-@page { size: A4; margin: 27mm 9mm 6mm 9mm; }
+@page { size: A4; margin: 8mm 9mm 6mm 9mm; }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: "Hiragino Sans", "Yu Gothic", sans-serif; color: #111; font-size: 7pt; }
-.head h1 { font-size: 12pt; }
-.head .salon { font-size: 11pt; font-weight: bold; margin-top: 1mm; }
-.head .meta { font-size: 7pt; color: #444; margin-top: 0.8mm; }
+.print-page { position: relative; min-height: 280mm; break-after: page; page-break-after: always; }
+.print-page:last-child { break-after: auto; page-break-after: auto; }
+.first-head { position: relative; min-height: 25mm; border-bottom: 2px solid #111; padding: 0 28mm 2mm 0; margin-bottom: 1.6mm; }
+.first-head h1 { font-size: 12pt; line-height: 1.1; }
+.first-head .salon { font-size: 11pt; font-weight: bold; margin-top: 1mm; }
+.meta { font-size: 7pt; color: #444; margin-top: 0.8mm; }
+.qr-main { position: absolute; top: 1mm; right: 0; width: 23mm; height: 23mm; display: block; }
+.cont-head { position: relative; height: 13mm; border-bottom: 1.5px solid #111; margin-bottom: 1.4mm; padding-right: 15mm; }
+.cont-title { display: flex; align-items: baseline; gap: 3mm; flex-wrap: wrap; font-size: 7pt; line-height: 1.2; }
+.cont-title strong { font-size: 8pt; }
+.qr-small { position: absolute; top: 0; right: 0; width: 12mm; height: 12mm; display: block; }
 .note { font-size: 7pt; color: #333; margin-bottom: 1.6mm; }
 .cat { font-size: 7.5pt; font-weight: bold; background: #ececec; padding: 0.7mm 1.2mm; margin-top: 1.4mm; break-after: avoid; page-break-after: avoid; }
 .pair { display: flex; gap: 2.8mm; break-inside: avoid; page-break-inside: avoid; }
@@ -3270,24 +3351,11 @@ body { font-family: "Hiragino Sans", "Yu Gothic", sans-serif; color: #111; font-
 .qty { width: 9mm; flex-shrink: 0; border-left: 1px solid #bbb; }
 .pair.blank .cell { min-height: 7mm; }
 .sec { font-size: 7.5pt; font-weight: bold; margin: 2.5mm 0 1mm; break-after: avoid; }
-.head { border-bottom: 2px solid #111; padding-bottom: 2mm; margin-bottom: 2mm; }
-/* 毎ページ右上の余白帯に印字されるQR（@pageの上余白27mm内に収まるため本文と被らない） */
-.qrbox { position: fixed; top: 1mm; right: 0; width: 23mm; text-align: center; }
-.qrbox img { width: 23mm; height: 23mm; display: block; }
 .print-btn { position: fixed; top: 8px; right: 8px; padding: 10px 18px; font-size: 12pt; cursor: pointer; z-index: 10; }
 @media print { .print-btn { display: none; } }
 </style></head><body>
 <button class="print-btn" onclick="window.print()">🖨 印刷</button>
-<div class="qrbox"><img src="${qrDataUrl}" alt="QR"></div>
-<div class="head">
-  <h1>アクティム発注書</h1>
-  <div class="salon">${escImportHtml(currentClientName)} 様</div>
-  <div class="meta">発行日: ${dateStr} ／ 掲載 ${sheetItems.length}商品（お取引履歴より）</div>
-</div>
-<p class="note">✏️ ご注文の商品の右枠に<b>数量</b>をご記入ください。表にない商品は最後の空欄にご記入ください。記入したページを全て写真に撮ってお送りください。</p>
-${pairsHtml}
-<p class="sec">▼ 表にない商品はこちらへ（商品名・サイズ・数量）</p>
-${blankPairs}
+${pagesHtml}
 </body></html>`;
 
         const win = window.open('', '_blank');
