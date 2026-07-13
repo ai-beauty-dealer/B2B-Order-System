@@ -421,7 +421,7 @@ function extractMatchTokens_(text) {
 }
 
 // 「CODE 704999 | 商品名×1」の行を、商品マスタで直接解決する。
-// 数量・コード・商品名の3点が揃わない行はHaiku側へ残す。
+// 商品名が崩れていてもCODEが実在すれば要確認商品として残す。
 function resolvePrintedCodeLines_(text, master) {
   const items = [];
   const unresolved = [];
@@ -431,8 +431,8 @@ function resolvePrintedCodeLines_(text, master) {
     }).trim();
     if (!line) return;
 
-    const codeMatch = line.match(/(?:^|[\s|\uFF5C])CODE\s*[:\uFF1A#-]?\s*([0-9]{5,10})(?=$|[\s|\uFF5C])/i);
-    const qtyMatch = line.match(/[xX\xD7\u2715*\uFF0A]\s*([0-9?\uFF1F]+)\s*(?:\u672C|\u500B|\u7BB1|\u888B)?\s*$/i);
+    const codeMatch = line.match(/CODE\s*[:\uFF1A#-]?\s*([0-9]{5,10})(?=$|[\s|\uFF5C\u300D\u300F\u3011])/i);
+    const qtyMatch = line.match(/[xX\xD7\u2715*\uFF0A]\s*([0-9?\uFF1F]+)\s*(?:\u672C|\u500B|\u7BB1|\u888B)?\s*[\u300D\u300F\u3011\uFF09)\]]*\s*$/i);
     if (!codeMatch || !qtyMatch || !master || !master.byCode) {
       unresolved.push(line);
       return;
@@ -442,7 +442,7 @@ function resolvePrintedCodeLines_(text, master) {
     const printedName = line
       .replace(codeMatch[0], ' ')
       .replace(qtyMatch[0], ' ')
-      .replace(/[|\uFF5C]/g, ' ')
+      .replace(/[|\uFF5C\u300C\u300D\u300E\u300F\u3010\u3011]/g, ' ')
       .trim();
     const resolved = findPrintedCodeCandidate_(code, printedName, master.byCode);
     if (!resolved) {
@@ -456,6 +456,7 @@ function resolvePrintedCodeLines_(text, master) {
     const qty = qtyUnknown ? 1 : Math.max(1, Math.min(999, parseInt(qtyMatch[1], 10) || 1));
     let note = '印字商品コードで照合';
     if (resolved.codeCorrected) note = '印字コード1桁誤読を商品名で補正';
+    else if (resolved.codeOnlyFallback) note = '印字商品コードで照合（商品名不一致・要確認）';
     else if (!exactName) note = '印字商品コードで照合（商品名表記ゆれ）';
     if (qtyUnknown) note += '・数量未記載';
     items.push({
@@ -463,7 +464,7 @@ function resolvePrintedCodeLines_(text, master) {
       code: masterItem.code,
       name: masterItem.name,
       qty: qty,
-      confidence: qtyUnknown ? 'low' : (exactName && !resolved.codeCorrected ? 'high' : 'medium'),
+      confidence: (qtyUnknown || resolved.codeOnlyFallback) ? 'low' : (exactName && !resolved.codeCorrected ? 'high' : 'medium'),
       note: note
     });
   });
@@ -474,6 +475,7 @@ function resolvePrintedCodeLines_(text, master) {
 // 容量や濃度が合わない候補はfuzzyProductScore_側で0点になる。
 function findPrintedCodeCandidate_(readCode, printedName, byCode) {
   if (!readCode || !byCode) return null;
+  const exactCodeItem = byCode[readCode] || null;
   const candidateCodes = {};
   candidateCodes[readCode] = true;
   for (let i = 0; i < readCode.length; i++) {
@@ -495,13 +497,27 @@ function findPrintedCodeCandidate_(readCode, printedName, byCode) {
     if (score > 0) ranked.push({ item: item, score: score });
   });
   ranked.sort(function (a, b) { return b.score - a.score; });
-  if (!ranked.length || ranked[0].score < 0.52) return null;
-  if (ranked.length > 1 && ranked[0].score - ranked[1].score < 0.10) return null;
-  return {
-    item: ranked[0].item,
-    score: ranked[0].score,
-    codeCorrected: ranked[0].item.code !== readCode
-  };
+  if (ranked.length && ranked[0].score >= 0.52 &&
+      !(ranked.length > 1 && ranked[0].score - ranked[1].score < 0.10)) {
+    return {
+      item: ranked[0].item,
+      score: ranked[0].score,
+      codeCorrected: ranked[0].item.code !== readCode,
+      codeOnlyFallback: false
+    };
+  }
+
+  // 商品名が大きく崩れても、印字CODEがマスタに実在すれば取りこぼさない。
+  // プレビューではlow（要確認）として表示し、利用者が元写真と照合できるようにする。
+  if (exactCodeItem) {
+    return {
+      item: exactCodeItem,
+      score: 0,
+      codeCorrected: false,
+      codeOnlyFallback: true
+    };
+  }
+  return null;
 }
 
 function haveSameNumberTokens_(a, b) {

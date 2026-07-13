@@ -1,8 +1,8 @@
-// v2.30.1 (THREE-COLUMN-SONNET-OCR)
+// v2.30.2 (CODE-FIRST-SONNET-OCR)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.30.1 (THREE-COLUMN-SONNET-OCR) Loaded ---');
+    console.log('--- B2B Order System v2.30.2 (CODE-FIRST-SONNET-OCR) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
