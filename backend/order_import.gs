@@ -20,6 +20,7 @@ const PARSE_MODEL_IMAGE = 'claude-opus-4-8';   // 写メの文字起こし（手
 const PARSE_MAX_INPUT_CHARS = 4000;    // LINE文面の上限
 const PARSE_MAX_IMAGES = 3;            // 写メの上限枚数
 const PARSE_MAX_IMAGE_B64 = 6000000;   // 1枚あたりbase64上限（約4.5MB実体）
+const PARSE_MAX_IMAGE_OUTPUT_TOKENS = 16000; // 標準発注書の大量行を途中で切らない
 const PARSE_MAX_CANDIDATES_TEXT = 600;  // テキスト解析時の候補上限（事前フィルタ後）
 const PARSE_MAX_CANDIDATES_IMAGE = 1200; // 写メ解析時の候補上限
 const PARSE_HISTORY_LOOKBACK_DAYS = 62; // 履歴を遡る日数（発注サイト未使用サロンも拾えるよう広め）
@@ -214,8 +215,8 @@ function transcribeOrderImages_(apiKey, images) {
 
   const payload = {
     model: PARSE_MODEL_IMAGE,
-    max_tokens: 4000,
-    thinking: { type: 'adaptive' },
+    // OCRは推理より転記量を優先。thinkingは出力枠を消費するため使わない。
+    max_tokens: PARSE_MAX_IMAGE_OUTPUT_TOKENS,
     system: systemPrompt,
     messages: [{ role: 'user', content: content }]
   };
@@ -649,9 +650,14 @@ function fetchClaude_(apiKey, payload) {
       try {
         const json = JSON.parse(body);
         if (json.stop_reason === 'refusal') return { error: 'AIが解析を拒否しました。内容を確認してください。' };
+        if (json.stop_reason === 'max_tokens') {
+          return { error: 'AIの出力上限に達しました。写真を1枚ずつ分けて読み込んでください。' };
+        }
         let textBlock = '';
         (json.content || []).forEach(function (b) { if (b.type === 'text' && !textBlock) textBlock = b.text; });
-        if (!textBlock) return { error: 'AI応答が空でした。もう一度試してください。' };
+        if (!textBlock) {
+          return { error: 'AI応答が空でした（終了理由: ' + (json.stop_reason || '不明') + '）。もう一度試してください。' };
+        }
         return { text: textBlock };
       } catch (e) {
         return { error: 'AI応答の解析に失敗しました: ' + e };
