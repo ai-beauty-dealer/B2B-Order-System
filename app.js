@@ -1,8 +1,8 @@
-// v2.29.0 (PRINT-CODE-FIRST-OCR)
+// v2.29.1 (IMPORT-OCR-DIAGNOSTICS)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.29.0 (PRINT-CODE-FIRST-OCR) Loaded ---');
+    console.log('--- B2B Order System v2.29.1 (IMPORT-OCR-DIAGNOSTICS) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -3016,6 +3016,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const renderImportPreview = (data) => {
         importParsedItems = data.items || [];
         const unmatched = data.unmatched || [];
+        const debug = data.debug || {};
+        console.info('[ImportDebug]', {
+            ...debug,
+            transcript: data.transcript || ''
+        });
 
         importPreviewList.innerHTML = '';
         importParsedItems.forEach((it, idx) => {
@@ -3036,6 +3041,25 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         if (importParsedItems.length === 0) {
             importPreviewList.innerHTML = '<p class="import-empty">カートに入れられる商品が見つかりませんでした。</p>';
+            const details = document.createElement('details');
+            details.className = 'import-debug';
+            details.open = true;
+            const summary = document.createElement('summary');
+            summary.textContent = '解析ログ' + (debug.requestId ? '（' + debug.requestId + '）' : '');
+            const pre = document.createElement('pre');
+            pre.textContent = [
+                'OCR行数: ' + (debug.transcriptLines ?? '不明'),
+                'コード直接照合: ' + (debug.directResolved ?? '不明'),
+                'コード未解決: ' + (debug.directUnresolved ?? '不明'),
+                '照合候補数: ' + (debug.candidateCount ?? data.candidateCount ?? '不明'),
+                '最終一致: ' + (debug.matched ?? 0),
+                '未一致: ' + (debug.unmatched ?? unmatched.length),
+                '',
+                '--- OCR文字起こし ---',
+                data.transcript || '（文字起こしなし）'
+            ].join('\n');
+            details.append(summary, pre);
+            importPreviewList.appendChild(details);
         }
 
         importUnmatchedList.innerHTML = '';

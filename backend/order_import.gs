@@ -63,6 +63,24 @@ function handleParseOrder(data) {
   const apiKey = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
   if (!apiKey) return parseOrderError_('ANTHROPIC_API_KEY が未設定です（スクリプト プロパティに追加してください）。');
 
+  const requestId = Utilities.getUuid().replace(/-/g, '').slice(0, 10);
+  const debug = {
+    requestId: requestId,
+    imageCount: images.length,
+    inputTextLength: text.length,
+    transcriptLines: 0,
+    directResolved: 0,
+    directUnresolved: 0,
+    candidateCount: 0,
+    matched: 0,
+    unmatched: 0
+  };
+  logParseStage_(requestId, 'start', {
+    clientName: clientName,
+    imageCount: images.length,
+    inputTextLength: text.length
+  });
+
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const master = loadMasterForParse_(ss);
 
@@ -71,10 +89,22 @@ function handleParseOrder(data) {
   let transcript = '';
   if (images.length > 0) {
     const ocr = transcribeOrderImages_(apiKey, images);
-    if (ocr.error) return parseOrderError_(ocr.error);
+    if (ocr.error) {
+      logParseStage_(requestId, 'ocr_error', { error: ocr.error });
+      return parseOrderError_(ocr.error + '（ログID: ' + requestId + '）');
+    }
     transcript = ocr.text;
+    debug.transcriptLines = countNonEmptyLines_(transcript);
+    logParseStage_(requestId, 'ocr_complete', {
+      transcriptLength: transcript.length,
+      transcriptLines: debug.transcriptLines,
+      transcript: transcript.slice(0, 30000)
+    });
     effectiveText = (text ? text + '\n' : '') + transcript;
-    if (!effectiveText.trim()) return parseOrderError_('写真から発注内容を読み取れませんでした。撮り直すか、文面を貼り付けてください。');
+    if (!effectiveText.trim()) {
+      logParseStage_(requestId, 'ocr_empty', {});
+      return parseOrderError_('写真から発注内容を読み取れませんでした。撮り直すか、文面を貼り付けてください。（ログID: ' + requestId + '）');
+    }
   }
 
   // 標準発注書の「CODE 商品コード」はAIマッチングより先に商品マスタへ直接照合する。
@@ -82,20 +112,38 @@ function handleParseOrder(data) {
   const direct = resolvePrintedCodeLines_(effectiveText, master);
   const directItems = direct.items;
   effectiveText = direct.unresolvedText;
+  debug.directResolved = directItems.length;
+  debug.directUnresolved = countNonEmptyLines_(effectiveText);
+  logParseStage_(requestId, 'direct_match', {
+    resolved: debug.directResolved,
+    unresolved: debug.directUnresolved,
+    unresolvedText: effectiveText.slice(0, 30000)
+  });
 
   // 全行をコードで確定できた場合はHaikuを呼ばず、画像OCRの1回だけで返す。
   if (!effectiveText.trim()) {
+    debug.matched = directItems.length;
+    logParseStage_(requestId, 'complete', debug);
     return ContentService.createTextOutput(JSON.stringify({
       status: 'success',
-      data: { items: directItems, unmatched: [], candidateCount: 0, transcript: transcript }
+      data: { items: directItems, unmatched: [], candidateCount: 0, transcript: transcript, debug: debug }
     })).setMimeType(ContentService.MimeType.JSON);
   }
 
   // 文字起こし済みテキストの語で色番候補を事前フィルタしてトークンを節約する
   const candidates = buildParseCandidates_(ss, clientName, master, effectiveText);
+  debug.candidateCount = candidates.base.length + candidates.expanded.length;
+  logParseStage_(requestId, 'candidates', {
+    base: candidates.base.length,
+    expanded: candidates.expanded.length,
+    total: debug.candidateCount
+  });
 
   const result = callClaudeForParse_(apiKey, effectiveText, candidates);
-  if (result.error) return parseOrderError_(result.error);
+  if (result.error) {
+    logParseStage_(requestId, 'match_error', { error: result.error });
+    return parseOrderError_(result.error + '（ログID: ' + requestId + '）');
+  }
 
   // 候補リストの「正規化した商品名 → 商品」索引（コード転記ミスの自動補正に使う）
   const candByName = {};
@@ -179,10 +227,30 @@ function handleParseOrder(data) {
     }
   });
 
+  debug.matched = items.length;
+  debug.unmatched = unmatched.length;
+  logParseStage_(requestId, 'complete', debug);
+
   return ContentService.createTextOutput(JSON.stringify({
     status: 'success',
-    data: { items: items, unmatched: unmatched, candidateCount: candidates.length, transcript: transcript }
+    data: { items: items, unmatched: unmatched, candidateCount: debug.candidateCount, transcript: transcript, debug: debug }
   })).setMimeType(ContentService.MimeType.JSON);
+}
+
+function countNonEmptyLines_(text) {
+  return String(text || '').split(/\r?\n/).filter(function (line) { return line.trim(); }).length;
+}
+
+function logParseStage_(requestId, stage, details) {
+  try {
+    console.log('[OrderImportDebug] ' + JSON.stringify({
+      requestId: requestId,
+      stage: stage,
+      details: details || {}
+    }));
+  } catch (e) {
+    console.log('[OrderImportDebug] ' + requestId + ' ' + stage);
+  }
 }
 
 // --- 写メ→文字起こし（Opus。候補リストを渡さないので画像枚数分だけの低コスト） ---
