@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="robots" content="noindex">
     <title>AI Beauty Dealer - B2B Order System</title>
-    <link rel="stylesheet" href="style.css?v=2.30.2">
+    <link rel="stylesheet" href="style.css?v=2.31.0">
 
     <!-- PWA -->
     <link rel="manifest" href="manifest.json?v=2.18.0">
@@ -235,13 +235,13 @@
     <script src="lib/html5-qrcode.min.js"></script>
     <script src="lib/qrcode-generator.js"></script>
     <script src="config.js?v=2.18.0"></script>
-    <script src="app.js?v=2.30.2"></script>
+    <script src="app.js?v=2.31.0"></script>
 
     <!-- Service Worker 登録（PWA） -->
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function () {
-                navigator.serviceWorker.register('sw.js?v=2.30.2')
+                navigator.serviceWorker.register('sw.js?v=2.31.0')
                     .catch(function (err) {
                         console.warn('SW登録に失敗（通常サイトとして続行）:', err);
                     });
@@ -305,6 +305,30 @@
                 </div>
             </div>
         </div>
+    </div>
+
+    <!-- Print Layout Modal -->
+    <div id="print-layout-overlay" class="cart-overlay hidden"></div>
+    <div id="print-layout-modal" class="import-modal print-layout-modal hidden" role="dialog" aria-modal="true" aria-labelledby="print-layout-title">
+        <div class="import-header">
+            <h3 id="print-layout-title">発注書の列数</h3>
+            <button id="print-layout-close-btn" class="cart-close-btn" type="button" aria-label="閉じる">&times;</button>
+        </div>
+        <div class="print-column-segments" role="radiogroup" aria-label="発注書の列数">
+            <label>
+                <input type="radio" name="print-columns" value="2">
+                <span><strong>2列</strong><small>大きい</small></span>
+            </label>
+            <label>
+                <input type="radio" name="print-columns" value="3" checked>
+                <span><strong>3列</strong><small>標準</small></span>
+            </label>
+            <label>
+                <input type="radio" name="print-columns" value="4">
+                <span><strong>4列</strong><small>コンパクト</small></span>
+            </label>
+        </div>
+        <button id="print-layout-create-btn" class="btn-primary print-layout-create-btn" type="button">発注書を作成</button>
     </div>
 
     <!-- Batch Import Modal（発注書の束を一括取り込み・MASTER限定） -->

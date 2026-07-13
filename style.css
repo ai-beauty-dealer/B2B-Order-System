@@ -1418,6 +1418,66 @@ input[type=number]::-webkit-outer-spin-button {
 
 .import-header h3 { margin: 0; }
 
+.print-layout-modal {
+    max-height: none;
+}
+
+.print-column-segments {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+}
+
+.print-column-segments label {
+    min-width: 0;
+    cursor: pointer;
+}
+
+.print-column-segments input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.print-column-segments span {
+    min-height: 58px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #fff;
+    color: #334155;
+}
+
+.print-column-segments strong {
+    font-size: 1rem;
+}
+
+.print-column-segments small {
+    margin-top: 2px;
+    font-size: 0.7rem;
+    color: #64748b;
+}
+
+.print-column-segments input:checked + span {
+    border-color: var(--primary);
+    background: #eff6ff;
+    color: var(--primary);
+    box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+.print-column-segments input:focus-visible + span {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+}
+
+.print-layout-create-btn {
+    width: 100%;
+    margin-top: 14px;
+}
+
 .import-desc {
     font-size: 0.85rem;
     color: #475569;

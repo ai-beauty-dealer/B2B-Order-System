@@ -1,8 +1,8 @@
-// v2.30.2 (CODE-FIRST-SONNET-OCR)
+// v2.31.0 (SELECTABLE-PRINT-COLUMNS)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.30.2 (CODE-FIRST-SONNET-OCR) Loaded ---');
+    console.log('--- B2B Order System v2.31.0 (SELECTABLE-PRINT-COLUMNS) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -3221,11 +3221,20 @@ document.addEventListener('DOMContentLoaded', () => {
     // 🖨 発注書ジェネレーター（QR付き・MASTERログイン限定）
     // ==========================================
     const printSheetBtn = document.getElementById('print-sheet-btn');
+    const printLayoutOverlay = document.getElementById('print-layout-overlay');
+    const printLayoutModal = document.getElementById('print-layout-modal');
+    const printLayoutCloseBtn = document.getElementById('print-layout-close-btn');
+    const printLayoutCreateBtn = document.getElementById('print-layout-create-btn');
     const IMPORT_QR_PREFIX = 'B2BORDER|'; // QRの中身: B2BORDER|サロン名（一括取り込みのサロン判定に使う）
     const importDraftKey = (salonName) => 'b2b_import_draft_' + salonName;
 
-    const PRINT_SHEET_MAX_ITEMS = 240;      // 最大240商品。実測最多の170商品は3列で2ページに収める
+    const PRINT_SHEET_MAX_ITEMS = 240;
     const PRINT_ARCHIVE_MAX_PAGES = 6;      // アーカイブ履歴を遡る最大ページ数（50件×6）
+    const PRINT_LAYOUTS = {
+        2: { cols: 2, namePt: 9, codePt: 10, qtyMm: 12, cellMinMm: 8, blankMinMm: 9, visualChars: 30, baseWeight: 1.35, lineWeight: 0.78, maxWeight: 3.7, freeWeight: 8.4 },
+        3: { cols: 3, namePt: 7.5, codePt: 8, qtyMm: 10, cellMinMm: 6, blankMinMm: 7, visualChars: 24, baseWeight: 1.05, lineWeight: 0.62, maxWeight: 2.6, freeWeight: 6.8 },
+        4: { cols: 4, namePt: 7, codePt: 7, qtyMm: 9, cellMinMm: 5.6, blankMinMm: 7, visualChars: 18, baseWeight: 1, lineWeight: 0.58, maxWeight: 2.4, freeWeight: 6.8 }
+    };
     // 印刷時のカテゴリ掲載順（この順でセクション化し、各セクション内は商品名あいうえお順）
     const PRINT_CATEGORY_ORDER = ['カラー関連', '2剤/ブリーチ', 'パーマ関連', 'ストレート関連', 'シャンプー', 'トリートメント', 'スキャルプ関連', '業務用商品', 'コスメ関連'];
 
@@ -3250,8 +3259,10 @@ document.addEventListener('DOMContentLoaded', () => {
         return codes;
     };
 
-    const printOrderSheet = async () => {
+    const printOrderSheet = async (requestedColumns) => {
         if (!isMasterSession || !currentClientName) return;
+        const layout = PRINT_LAYOUTS[requestedColumns] || PRINT_LAYOUTS[3];
+        const printCols = layout.cols;
 
         showLoading('全履歴を集めています...');
         const archiveCodes = await collectArchiveCodes();
@@ -3317,8 +3328,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const today = new Date();
         const dateStr = `${today.getFullYear()}/${today.getMonth() + 1}/${today.getDate()}`;
 
-        // 縦3列・列優先方式。写真OCR用に商品名とCODEを大きく保つ。
-        const PRINT_COLS = 3;
+        // 選択した列数で列優先配置する。列数ごとに文字サイズと改ページ見積もりを変える。
         const cell = (it) => it
             ? `<div class="cell"><span class="nm">${escImportHtml(it.name)}<span class="cd">CODE ${escImportHtml(it.code)}</span></span><span class="qty"></span></div>`
             : '<div class="cell empty"></div>';
@@ -3327,18 +3337,18 @@ document.addEventListener('DOMContentLoaded', () => {
             const visualWidth = Array.from(String(it.name)).reduce((sum, ch) => {
                 return sum + (/^[\x20-\x7eｦ-ﾟ]$/.test(ch) ? 0.56 : 1);
             }, 0);
-            const lines = Math.max(1, Math.ceil(visualWidth / 24));
-            return Math.min(2.6, 1.05 + (lines - 1) * 0.62);
+            const lines = Math.max(1, Math.ceil(visualWidth / layout.visualChars));
+            return Math.min(layout.maxWeight, layout.baseWeight + (lines - 1) * layout.lineWeight);
         };
         const printBlocks = [];
         categoryKeys.forEach((cat) => {
             printBlocks.push({ type: 'cat', html: `<div class="cat">${escImportHtml(cat)}</div>` });
             const arr = byCategory[cat];
-            const rows = Math.ceil(arr.length / PRINT_COLS);
+            const rows = Math.ceil(arr.length / printCols);
             for (let i = 0; i < rows; i++) {
                 let row = '';
                 const rowItems = [];
-                for (let k = 0; k < PRINT_COLS; k++) {
+                for (let k = 0; k < printCols; k++) {
                     const rowItem = arr[i + k * rows];
                     rowItems.push(rowItem);
                     row += cell(rowItem);
@@ -3353,9 +3363,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const blankCell = '<div class="cell"><span class="nm"></span><span class="qty"></span></div>';
         let freeWriteHtml = '<p class="sec">▼ 表にない商品はこちらへ（商品名・サイズ・数量）</p>';
         for (let i = 0; i < 4; i++) {
-            freeWriteHtml += `<div class="pair blank">${blankCell.repeat(PRINT_COLS)}</div>`;
+            freeWriteHtml += `<div class="pair blank">${blankCell.repeat(printCols)}</div>`;
         }
-        printBlocks.push({ type: 'free', weight: 6.8, html: freeWriteHtml });
+        printBlocks.push({ type: 'free', weight: layout.freeWeight, html: freeWriteHtml });
 
         const blockWeight = (block) => {
             if (block.weight) return block.weight;
@@ -3434,12 +3444,12 @@ body { font-family: "Hiragino Sans", "Yu Gothic", sans-serif; color: #111; font-
 .note { font-size: 7pt; color: #333; margin-bottom: 1.6mm; }
 .cat { font-size: 7.5pt; font-weight: bold; background: #ececec; padding: 0.7mm 1.2mm; margin-top: 1.4mm; break-after: avoid; page-break-after: avoid; }
 .pair { display: flex; gap: 2.8mm; break-inside: avoid; page-break-inside: avoid; }
-.cell { flex: 1; min-width: 0; display: flex; align-items: stretch; border-bottom: 1px solid #bbb; min-height: 6mm; }
+.cell { flex: 1; min-width: 0; display: flex; align-items: stretch; border-bottom: 1px solid #bbb; min-height: ${layout.cellMinMm}mm; }
 .cell.empty { border-bottom: none; }
-.nm { flex: 1; min-width: 0; padding: 0.2mm 0.8mm 0.2mm 0; font-size: 7.5pt; line-height: 1.02; overflow-wrap: anywhere; }
-.cd { display: block; margin-top: 0.05mm; color: #111; font-family: Menlo, Monaco, "Courier New", monospace; font-size: 8pt; font-weight: 700; line-height: 1; letter-spacing: 0; white-space: nowrap; }
-.qty { width: 10mm; flex-shrink: 0; border-left: 1px solid #bbb; }
-.pair.blank .cell { min-height: 7mm; }
+.nm { flex: 1; min-width: 0; padding: 0.2mm 0.8mm 0.2mm 0; font-size: ${layout.namePt}pt; line-height: 1.02; overflow-wrap: anywhere; }
+.cd { display: block; margin-top: 0.05mm; color: #111; font-family: Menlo, Monaco, "Courier New", monospace; font-size: ${layout.codePt}pt; font-weight: 700; line-height: 1; letter-spacing: 0; white-space: nowrap; }
+.qty { width: ${layout.qtyMm}mm; flex-shrink: 0; border-left: 1px solid #bbb; }
+.pair.blank .cell { min-height: ${layout.blankMinMm}mm; }
 .sec { font-size: 7.5pt; font-weight: bold; margin: 2.5mm 0 1mm; break-after: avoid; }
 .print-btn { position: fixed; top: 8px; right: 8px; padding: 10px 18px; font-size: 12pt; cursor: pointer; z-index: 10; }
 @media print { .print-btn { display: none; } }
@@ -3454,7 +3464,27 @@ ${pagesHtml}
         win.document.close();
     };
 
-    if (printSheetBtn) printSheetBtn.addEventListener('click', printOrderSheet);
+    const openPrintLayoutModal = () => {
+        if (!isMasterSession || !currentClientName || !printLayoutModal || !printLayoutOverlay) return;
+        const defaultOption = printLayoutModal.querySelector('input[name="print-columns"][value="3"]');
+        if (defaultOption) defaultOption.checked = true;
+        printLayoutModal.classList.remove('hidden');
+        printLayoutOverlay.classList.remove('hidden');
+    };
+    const closePrintLayoutModal = () => {
+        if (printLayoutModal) printLayoutModal.classList.add('hidden');
+        if (printLayoutOverlay) printLayoutOverlay.classList.add('hidden');
+    };
+
+    if (printSheetBtn) printSheetBtn.addEventListener('click', openPrintLayoutModal);
+    if (printLayoutCloseBtn) printLayoutCloseBtn.addEventListener('click', closePrintLayoutModal);
+    if (printLayoutOverlay) printLayoutOverlay.addEventListener('click', closePrintLayoutModal);
+    if (printLayoutCreateBtn) printLayoutCreateBtn.addEventListener('click', () => {
+        const selected = printLayoutModal && printLayoutModal.querySelector('input[name="print-columns"]:checked');
+        const columns = selected ? Number(selected.value) : 3;
+        closePrintLayoutModal();
+        printOrderSheet(columns);
+    });
 
     // ==========================================
     // 📥 一括取り込み（発注書の束 → QRでサロン自動仕分け・MASTER限定）
