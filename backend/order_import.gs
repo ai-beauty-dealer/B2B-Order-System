@@ -10,11 +10,11 @@
 //   ANTHROPIC_API_KEY … Claude APIキー（プロジェクトの設定 → スクリプト プロパティ）
 //
 // コスト設計:
-//   QR付き標準発注書 … HaikuでCODEと数量をOCR。未解決行だけHaiku照合。
+//   QR付き標準発注書 … SonnetでCODEと数量をOCR。未解決行だけHaiku照合。
 //   自由手書き写真       … 文字起こしはOpus、照合はHaiku。
 //   標準発注書で精度が必要な時だけ、フロントの手動再解析からOpusを指定する。
 const PARSE_MODEL_TEXT = 'claude-haiku-4-5';
-const PARSE_MODEL_IMAGE_STANDARD = 'claude-haiku-4-5';
+const PARSE_MODEL_IMAGE_STANDARD = 'claude-sonnet-4-6';
 const PARSE_MODEL_IMAGE_FREEFORM = 'claude-opus-4-8';
 
 const PARSE_MAX_INPUT_CHARS = 4000;    // LINE文面の上限
@@ -93,7 +93,7 @@ function handleParseOrder(data) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const master = loadMasterForParse_(ss);
 
-  // 標準発注書はHaiku、自由手書きはOpusで文字起こしする。
+  // 標準発注書はSonnet、自由手書きはOpusで文字起こしする。
   let effectiveText = text;
   let transcript = '';
   if (images.length > 0) {
@@ -298,6 +298,9 @@ function estimateClaudeCostUsd_(model, inputTokens, outputTokens, cacheWriteToke
   if (name.indexOf('haiku-4-5') !== -1) {
     inputRate = 1;
     outputRate = 5;
+  } else if (name.indexOf('sonnet-4-6') !== -1) {
+    inputRate = 3;
+    outputRate = 15;
   } else if (name.indexOf('opus-4-8') !== -1) {
     inputRate = 5;
     outputRate = 25;
@@ -308,7 +311,7 @@ function estimateClaudeCostUsd_(model, inputTokens, outputTokens, cacheWriteToke
   return Math.round(total) / 1000000;
 }
 
-// --- 写メ→文字起こし（標準発注書=Haiku、自由手書き=Opus） ---
+// --- 写メ→文字起こし（標準発注書=Sonnet、自由手書き=Opus） ---
 function transcribeOrderImages_(apiKey, images, settings) {
   settings = settings || {};
   const useStandardModel = settings.standardSheet && !settings.forceHighAccuracy;

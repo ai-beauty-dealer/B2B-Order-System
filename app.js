@@ -1,8 +1,8 @@
-// v2.30.0 (THREE-COLUMN-HAIKU-OCR)
+// v2.30.1 (THREE-COLUMN-SONNET-OCR)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.30.0 (THREE-COLUMN-HAIKU-OCR) Loaded ---');
+    console.log('--- B2B Order System v2.30.1 (THREE-COLUMN-SONNET-OCR) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -3106,6 +3106,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const modelNames = usage.map((entry) => {
                 const model = String(entry.model || '');
                 if (model.includes('haiku')) return 'Haiku';
+                if (model.includes('sonnet')) return 'Sonnet';
                 if (model.includes('opus')) return 'Opus';
                 return model || 'AI';
             }).filter((name, idx, arr) => arr.indexOf(name) === idx);
@@ -3116,8 +3117,8 @@ document.addEventListener('DOMContentLoaded', () => {
             importUsageSummary.classList.toggle('hidden', !modelNames.length);
         }
         if (importHighAccuracyBtn) {
-            const usedHaikuForImage = debug.standardSheet && String(debug.imageModel || '').includes('haiku');
-            importHighAccuracyBtn.classList.toggle('hidden', !(usedHaikuForImage && importImages.length > 0));
+            const usedSonnetForImage = debug.standardSheet && String(debug.imageModel || '').includes('sonnet');
+            importHighAccuracyBtn.classList.toggle('hidden', !(usedSonnetForImage && importImages.length > 0));
         }
 
         importInputStep.classList.add('hidden');
