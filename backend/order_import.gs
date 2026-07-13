@@ -378,31 +378,78 @@ function resolvePrintedCodeLines_(text, master) {
     }
 
     const code = String(codeMatch[1]);
-    const masterItem = master.byCode[code];
     const printedName = line
       .replace(codeMatch[0], ' ')
       .replace(qtyMatch[0], ' ')
       .replace(/[|\uFF5C]/g, ' ')
       .trim();
-    const exactName = masterItem && normalizeForMatch_(printedName) === normalizeForMatch_(masterItem.name);
-    const nameScore = exactName ? 1 : (masterItem ? fuzzyProductScore_(printedName, masterItem.name) : 0);
-    if (!masterItem || nameScore < 0.72) {
+    const resolved = findPrintedCodeCandidate_(code, printedName, master.byCode);
+    if (!resolved) {
       unresolved.push(line);
       return;
     }
+    const masterItem = resolved.item;
+    const exactName = normalizeForMatch_(printedName) === normalizeForMatch_(masterItem.name);
 
     const qtyUnknown = /[?\uFF1F]/.test(qtyMatch[1]);
     const qty = qtyUnknown ? 1 : Math.max(1, Math.min(999, parseInt(qtyMatch[1], 10) || 1));
+    let note = '印字商品コードで照合';
+    if (resolved.codeCorrected) note = '印字コード1桁誤読を商品名で補正';
+    else if (!exactName) note = '印字商品コードで照合（商品名表記ゆれ）';
+    if (qtyUnknown) note += '・数量未記載';
     items.push({
       source_text: line,
-      code: code,
+      code: masterItem.code,
       name: masterItem.name,
       qty: qty,
-      confidence: qtyUnknown ? 'low' : (exactName ? 'high' : 'medium'),
-      note: qtyUnknown ? '商品コード照合済み・数量未記載' : '印字商品コードで照合'
+      confidence: qtyUnknown ? 'low' : (exactName && !resolved.codeCorrected ? 'high' : 'medium'),
+      note: note
     });
   });
   return { items: items, unresolvedText: unresolved.join('\n') };
+}
+
+// 読み取ったコード自身と1桁だけ違うコードを比較し、商品名で一意に決める。
+// 容量や濃度が合わない候補はfuzzyProductScore_側で0点になる。
+function findPrintedCodeCandidate_(readCode, printedName, byCode) {
+  if (!readCode || !byCode) return null;
+  const candidateCodes = {};
+  candidateCodes[readCode] = true;
+  for (let i = 0; i < readCode.length; i++) {
+    for (let digit = 0; digit <= 9; digit++) {
+      const value = String(digit);
+      if (value === readCode[i]) continue;
+      candidateCodes[readCode.slice(0, i) + value + readCode.slice(i + 1)] = true;
+    }
+  }
+
+  const ranked = [];
+  Object.keys(candidateCodes).forEach(function (code) {
+    const item = byCode[code];
+    if (!item) return;
+    // コードを書き換える場合は、容量・濃度・色番などの全数値が合う候補だけに限る。
+    if (code !== readCode && !haveSameNumberTokens_(printedName, item.name)) return;
+    const exactName = normalizeForMatch_(printedName) === normalizeForMatch_(item.name);
+    const score = exactName ? 1 : fuzzyProductScore_(printedName, item.name);
+    if (score > 0) ranked.push({ item: item, score: score });
+  });
+  ranked.sort(function (a, b) { return b.score - a.score; });
+  if (!ranked.length || ranked[0].score < 0.52) return null;
+  if (ranked.length > 1 && ranked[0].score - ranked[1].score < 0.10) return null;
+  return {
+    item: ranked[0].item,
+    score: ranked[0].score,
+    codeCorrected: ranked[0].item.code !== readCode
+  };
+}
+
+function haveSameNumberTokens_(a, b) {
+  const numbers = function (value) {
+    return (normalizeForMatch_(value).match(/[0-9]+(?:\.[0-9]+)?/g) || []).sort().join('|');
+  };
+  const left = numbers(a);
+  const right = numbers(b);
+  return left && right && left === right;
 }
 
 // 写真OCRで数文字だけ崩れた商品名を、追加APIなしで候補へ戻す。
