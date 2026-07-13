@@ -1,8 +1,8 @@
-// v2.28.8 (PRINT-SHEET-NO-CLIP-PAGINATION)
+// v2.29.0 (PRINT-CODE-FIRST-OCR)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.28.8 (PRINT-SHEET-NO-CLIP-PAGINATION) Loaded ---');
+    console.log('--- B2B Order System v2.29.0 (PRINT-CODE-FIRST-OCR) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -2928,8 +2928,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const canvas = document.createElement('canvas');
             canvas.width = Math.round(img.width * scale);
             canvas.height = Math.round(img.height * scale);
-            canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+            const ctx = canvas.getContext('2d');
+            // 細い印字を保ちつつ紙面の影を弱める。画像寸法は据え置きなのでAIコストは増えない。
+            ctx.filter = 'contrast(1.12) saturate(0.92)';
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
             resolve({ data: dataUrl.split(',')[1], preview: dataUrl });
         };
         img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('画像を読み込めませんでした')); };
@@ -3134,7 +3137,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const IMPORT_QR_PREFIX = 'B2BORDER|'; // QRの中身: B2BORDER|サロン名（一括取り込みのサロン判定に使う）
     const importDraftKey = (salonName) => 'b2b_import_draft_' + salonName;
 
-    const PRINT_SHEET_MAX_ITEMS = 240;      // A4両面（2ページ・3列）に収まる上限。超えた分は頼む頻度が低い順に落とす
+    const PRINT_SHEET_MAX_ITEMS = 240;      // 最大240商品。170商品程度までは2ページ、商品名の長さにより3ページへ続く
     const PRINT_ARCHIVE_MAX_PAGES = 6;      // アーカイブ履歴を遡る最大ページ数（50件×6）
     // 印刷時のカテゴリ掲載順（この順でセクション化し、各セクション内は商品名あいうえお順）
     const PRINT_CATEGORY_ORDER = ['カラー関連', '2剤/ブリーチ', 'パーマ関連', 'ストレート関連', 'シャンプー', 'トリートメント', 'スキャルプ関連', '業務用商品', 'コスメ関連'];
@@ -3230,7 +3233,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // 縦4列・列優先方式（コード順が縦に流れる）
         const PRINT_COLS = 4;
         const cell = (it) => it
-            ? `<div class="cell"><span class="nm">${escImportHtml(it.name)}<span class="cd">${escImportHtml(it.code)}</span></span><span class="qty"></span></div>`
+            ? `<div class="cell"><span class="nm">${escImportHtml(it.name)}<span class="cd">CODE ${escImportHtml(it.code)}</span></span><span class="qty"></span></div>`
             : '<div class="cell empty"></div>';
         const estimateCellWeight = (it) => {
             if (!it || !it.name) return 1;
@@ -3276,12 +3279,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const pages = [];
             let page = [];
             let used = 0;
-            let limit = 36; // 1枚目はタイトル・説明・大きいQRぶん本文を少なめにする
+            let limit = 42; // 1枚目はタイトル・説明・大きいQRを除いた実寸に合わせる
             const pushPage = () => {
                 if (page.length) pages.push(page);
                 page = [];
                 used = 0;
-                limit = 42; // 2枚目以降は小さいQRヘッダーぶんだけ確保
+                limit = 47; // 2枚目以降は小さいQRヘッダーぶんだけ確保
             };
             blocks.forEach((block) => {
                 const weight = blockWeight(block);
@@ -3344,10 +3347,10 @@ body { font-family: "Hiragino Sans", "Yu Gothic", sans-serif; color: #111; font-
 .note { font-size: 7pt; color: #333; margin-bottom: 1.6mm; }
 .cat { font-size: 7.5pt; font-weight: bold; background: #ececec; padding: 0.7mm 1.2mm; margin-top: 1.4mm; break-after: avoid; page-break-after: avoid; }
 .pair { display: flex; gap: 2.8mm; break-inside: avoid; page-break-inside: avoid; }
-.cell { flex: 1; min-width: 0; display: flex; align-items: stretch; border-bottom: 1px solid #bbb; min-height: 5.2mm; }
+.cell { flex: 1; min-width: 0; display: flex; align-items: stretch; border-bottom: 1px solid #bbb; min-height: 5.6mm; }
 .cell.empty { border-bottom: none; }
-.nm { flex: 1; min-width: 0; padding: 0.5mm 0.8mm 0.4mm 0; line-height: 1.15; overflow-wrap: anywhere; }
-.cd { display: block; font-size: 5pt; color: #999; }
+.nm { flex: 1; min-width: 0; padding: 0.2mm 0.8mm 0.2mm 0; line-height: 1.02; overflow-wrap: anywhere; }
+.cd { display: block; margin-top: 0.05mm; color: #111; font-family: Menlo, Monaco, "Courier New", monospace; font-size: 7pt; font-weight: 700; line-height: 1; letter-spacing: 0; white-space: nowrap; }
 .qty { width: 9mm; flex-shrink: 0; border-left: 1px solid #bbb; }
 .pair.blank .cell { min-height: 7mm; }
 .sec { font-size: 7.5pt; font-weight: bold; margin: 2.5mm 0 1mm; break-after: avoid; }

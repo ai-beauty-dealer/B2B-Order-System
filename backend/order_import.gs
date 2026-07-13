@@ -37,7 +37,8 @@ const PARSE_ALIAS_HINTS = [
   'OX6/BLオキシ6% = BLカラー OX 6% 2000 パウチ。OX3=3%、OX2=2%',
   'プリフィカ = F.Aidプリフィカ（フィヨーレ）',
   'CD = クリエイティブデザイン（フィヨーレ）',
-  'アイスモス[n] = アドミオ [n]アイスモス 90（アリミノ）'
+  'アイスモス[n] = アドミオ [n]アイスモス 90（アリミノ）',
+  'クオルシア パイプリーチ/パイブリーチ = クオルシア ハイブリーチ（フィヨーレ。写真OCRの誤読）'
 ].join('\n');
 
 function handleParseOrder(data) {
@@ -75,6 +76,20 @@ function handleParseOrder(data) {
     if (!effectiveText.trim()) return parseOrderError_('写真から発注内容を読み取れませんでした。撮り直すか、文面を貼り付けてください。');
   }
 
+  // 標準発注書の「CODE 商品コード」はAIマッチングより先に商品マスタへ直接照合する。
+  // コードだけで決めず、同じ行の商品名も近い場合だけ確定して誤読コードを防ぐ。
+  const direct = resolvePrintedCodeLines_(effectiveText, master);
+  const directItems = direct.items;
+  effectiveText = direct.unresolvedText;
+
+  // 全行をコードで確定できた場合はHaikuを呼ばず、画像OCRの1回だけで返す。
+  if (!effectiveText.trim()) {
+    return ContentService.createTextOutput(JSON.stringify({
+      status: 'success',
+      data: { items: directItems, unmatched: [], candidateCount: 0, transcript: transcript }
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+
   // 文字起こし済みテキストの語で色番候補を事前フィルタしてトークンを節約する
   const candidates = buildParseCandidates_(ss, clientName, master, effectiveText);
 
@@ -93,8 +108,10 @@ function handleParseOrder(data) {
   //  1. コードがマスタに実在するか
   //  2. AIが答えた商品名とコードが一致しているか（小型モデルは隣の行のコードを書き写すことがある）
   //     不一致なら「商品名」を信じて候補からコードを自動補正。補正先が特定できなければ low に落とす
-  const items = [];
-  const unmatched = (result.parsed.unmatched || []).slice();
+  const items = directItems.slice();
+  const unmatched = [];
+  const rawUnmatched = (result.parsed.unmatched || []).slice();
+  const allCandidates = candidates.base.concat(candidates.expanded);
   (result.parsed.items || []).forEach(function (it) {
     let code = String(it.code || '').trim();
     const qty = Math.max(1, Math.min(999, parseInt(it.qty, 10) || 1));
@@ -143,6 +160,24 @@ function handleParseOrder(data) {
     }
   });
 
+  // Haikuが未マッチにしても、容量・型番が一致する十分近い候補が1件だけなら救済する。
+  rawUnmatched.forEach(function (it) {
+    const sourceText = String(it.source_text || '');
+    const fix = findUniqueFuzzyCandidate_(sourceText, allCandidates);
+    if (fix) {
+      items.push({
+        source_text: sourceText,
+        code: fix.code,
+        name: fix.name,
+        qty: Math.max(1, Math.min(999, parseInt(it.qty, 10) || 1)),
+        confidence: 'medium',
+        note: '写真OCRの誤読を商品候補から自動補正（要確認）'
+      });
+    } else {
+      unmatched.push(it);
+    }
+  });
+
   return ContentService.createTextOutput(JSON.stringify({
     status: 'success',
     data: { items: items, unmatched: unmatched, candidateCount: candidates.length, transcript: transcript }
@@ -155,7 +190,11 @@ function transcribeOrderImages_(apiKey, images) {
     'あなたは美容ディーラーの発注書読み取り係。手書きの発注書・メモの写真から、発注内容だけを書き起こす。',
     '',
     '## 厳守ルール',
-    '- 出力は「商品名（書いてあるまま）×数量」を1行1商品で。例: 8GA×2',
+    '- 通常の手書きメモは「商品名（書いてあるまま）×数量」を1行1商品で。例: 8GA×2',
+    '- QR付き標準発注書では、右の数量欄に手書き数字がある商品行だけを出力する。数量欄が空の行は出力しない',
+    '- 標準発注書の商品名の下にある「CODE 704999」は商品コード。旧版で数字だけの場合も、商品名直下の5〜10桁数字は商品コードとして扱う',
+    '- 商品コードがある行は必ず「CODE 704999 | 商品名×数量」の形式で出力する。コードは商品名より優先して一桁ずつ正確に読む',
+    '- コードが判読できない場合は「CODE ? | 商品名×数量」とし、推測した数字を書かない',
     '- ブランド名・メーカー名の行があれば、続く色番の行頭に付ける。例: BLカラー 9CB×5',
     '- 「〃」「同上」は直前の行の商品系列を引き継いで展開する',
     '- 取消線（横線・ぐしゃぐしゃ）で消された行は出力しない',
@@ -251,6 +290,122 @@ function extractMatchTokens_(text) {
   return Object.keys(tokens);
 }
 
+// 「CODE 704999 | 商品名×1」の行を、商品マスタで直接解決する。
+// 数量・コード・商品名の3点が揃わない行はHaiku側へ残す。
+function resolvePrintedCodeLines_(text, master) {
+  const items = [];
+  const unresolved = [];
+  String(text || '').split(/\r?\n/).forEach(function (rawLine) {
+    const line = String(rawLine || '').replace(/[\uFF10-\uFF19\uFF21-\uFF3A\uFF41-\uFF5A]/g, function (c) {
+      return String.fromCharCode(c.charCodeAt(0) - 0xFEE0);
+    }).trim();
+    if (!line) return;
+
+    const codeMatch = line.match(/(?:^|[\s|\uFF5C])CODE\s*[:\uFF1A#-]?\s*([0-9]{5,10})(?=$|[\s|\uFF5C])/i);
+    const qtyMatch = line.match(/[xX\xD7\u2715*\uFF0A]\s*([0-9?\uFF1F]+)\s*(?:\u672C|\u500B|\u7BB1|\u888B)?\s*$/i);
+    if (!codeMatch || !qtyMatch || !master || !master.byCode) {
+      unresolved.push(line);
+      return;
+    }
+
+    const code = String(codeMatch[1]);
+    const masterItem = master.byCode[code];
+    const printedName = line
+      .replace(codeMatch[0], ' ')
+      .replace(qtyMatch[0], ' ')
+      .replace(/[|\uFF5C]/g, ' ')
+      .trim();
+    const exactName = masterItem && normalizeForMatch_(printedName) === normalizeForMatch_(masterItem.name);
+    const nameScore = exactName ? 1 : (masterItem ? fuzzyProductScore_(printedName, masterItem.name) : 0);
+    if (!masterItem || nameScore < 0.72) {
+      unresolved.push(line);
+      return;
+    }
+
+    const qtyUnknown = /[?\uFF1F]/.test(qtyMatch[1]);
+    const qty = qtyUnknown ? 1 : Math.max(1, Math.min(999, parseInt(qtyMatch[1], 10) || 1));
+    items.push({
+      source_text: line,
+      code: code,
+      name: masterItem.name,
+      qty: qty,
+      confidence: qtyUnknown ? 'low' : (exactName ? 'high' : 'medium'),
+      note: qtyUnknown ? '商品コード照合済み・数量未記載' : '印字商品コードで照合'
+    });
+  });
+  return { items: items, unresolvedText: unresolved.join('\n') };
+}
+
+// 写真OCRで数文字だけ崩れた商品名を、追加APIなしで候補へ戻す。
+// 数量は比較から外し、型番・容量の数字が食い違う商品は対象にしない。
+function stripQuantityForFuzzyMatch_(line) {
+  return normalizeForMatch_(String(line || '').replace(/[xX\xD7\u2715*\uFF0A]\s*[0-9?\uFF1F]+\s*(?:\u672C|\u500B|\u7BB1|\u888B)?\s*$/i, ''));
+}
+
+function bigramDiceScore_(a, b) {
+  if (a === b) return 1;
+  if (a.length < 2 || b.length < 2) return 0;
+  const counts = {};
+  for (let i = 0; i < a.length - 1; i++) {
+    const gram = a.slice(i, i + 2);
+    counts[gram] = (counts[gram] || 0) + 1;
+  }
+  let overlap = 0;
+  for (let j = 0; j < b.length - 1; j++) {
+    const gram = b.slice(j, j + 2);
+    if (counts[gram]) { overlap++; counts[gram]--; }
+  }
+  return (2 * overlap) / (a.length + b.length - 2);
+}
+
+function foldKanaMarksForFuzzy_(str) {
+  const map = {
+    '\u30AC': '\u30AB', '\u30AE': '\u30AD', '\u30B0': '\u30AF', '\u30B2': '\u30B1', '\u30B4': '\u30B3',
+    '\u30B6': '\u30B5', '\u30B8': '\u30B7', '\u30BA': '\u30B9', '\u30BC': '\u30BB', '\u30BE': '\u30BD',
+    '\u30C0': '\u30BF', '\u30C2': '\u30C1', '\u30C5': '\u30C4', '\u30C7': '\u30C6', '\u30C9': '\u30C8',
+    '\u30D0': '\u30CF', '\u30D3': '\u30D2', '\u30D6': '\u30D5', '\u30D9': '\u30D8', '\u30DC': '\u30DB',
+    '\u30D1': '\u30CF', '\u30D4': '\u30D2', '\u30D7': '\u30D5', '\u30DA': '\u30D8', '\u30DD': '\u30DB',
+    '\u30F4': '\u30A6'
+  };
+  return String(str || '').replace(/[\u30AC-\u30F4]/g, function (c) { return map[c] || c; });
+}
+
+function isFuzzyProductMatch_(sourceLine, productName) {
+  return fuzzyProductScore_(sourceLine, productName) >= 0.72;
+}
+
+function fuzzyProductScore_(sourceLine, productName) {
+  const source = stripQuantityForFuzzyMatch_(sourceLine);
+  const product = normalizeForMatch_(productName);
+  if (source.length < 8 || product.length < 8) return 0;
+
+  const sourceNums = source.match(/[0-9]+(?:\.[0-9]+)?/g) || [];
+  const productNums = product.match(/[0-9]+(?:\.[0-9]+)?/g) || [];
+  if (sourceNums.length && productNums.length) {
+    const hasSameNumber = sourceNums.some(function (n) { return productNums.indexOf(n) !== -1; });
+    if (!hasSameNumber) return 0;
+  }
+
+  return bigramDiceScore_(foldKanaMarksForFuzzy_(source), foldKanaMarksForFuzzy_(product));
+}
+
+function findUniqueFuzzyCandidate_(sourceLine, candidates) {
+  let best = null;
+  let bestScore = 0;
+  let secondScore = 0;
+  (candidates || []).forEach(function (item) {
+    const score = fuzzyProductScore_(sourceLine, item.name);
+    if (score > bestScore) {
+      secondScore = bestScore;
+      bestScore = score;
+      best = item;
+    } else if (score > secondScore) {
+      secondScore = score;
+    }
+  });
+  return bestScore >= 0.86 && bestScore - secondScore >= 0.08 ? best : null;
+}
+
 // --- 候補リスト生成: 履歴 + お気に入り + 履歴メーカーのカラー剤色番 ---
 // filterText が渡されたら（テキスト解析時）、色番展開分は文面に出てくる語を含む商品だけに絞る
 function buildParseCandidates_(ss, clientName, master, filterText) {
@@ -287,6 +442,9 @@ function buildParseCandidates_(ss, clientName, master, filterText) {
   const rankedMfrs = Object.keys(mfrCount).sort(function (a, b) { return mfrCount[b] - mfrCount[a]; });
 
   const tokens = filterText ? extractMatchTokens_(filterText) : null;
+  const fuzzyLines = filterText ? String(filterText).split(/\r?\n/).filter(function (line) {
+    return stripQuantityForFuzzyMatch_(line).length >= 8;
+  }) : [];
   const maxTotal = filterText ? PARSE_MAX_CANDIDATES_TEXT : PARSE_MAX_CANDIDATES_IMAGE;
 
   rankedMfrs.forEach(function (mfr) {
@@ -300,12 +458,35 @@ function buildParseCandidates_(ss, clientName, master, filterText) {
         for (let i = 0; i < tokens.length; i++) {
           if (normName.indexOf(tokens[i]) !== -1) { hit = true; break; }
         }
+        if (!hit) {
+          for (let j = 0; j < fuzzyLines.length; j++) {
+            if (isFuzzyProductMatch_(fuzzyLines[j], item.name)) { hit = true; break; }
+          }
+        }
         if (!hit) return;
       }
       seen[item.code] = true;
       expanded.push(item);
     });
   });
+
+  // 履歴にないメーカーの初回注文も、長い商品名と容量が近ければ補欠候補へ入れる。
+  // 色番だけの短い記載は対象外なので、別メーカーの同色番を広げすぎない。
+  if (filterText && base.length + expanded.length < maxTotal) {
+    Object.keys(master.colorByMfr).forEach(function (mfr) {
+      if (base.length + expanded.length >= maxTotal) return;
+      (master.colorByMfr[mfr] || []).forEach(function (item) {
+        if (seen[item.code] || base.length + expanded.length >= maxTotal) return;
+        let hit = false;
+        for (let i = 0; i < fuzzyLines.length; i++) {
+          if (isFuzzyProductMatch_(fuzzyLines[i], item.name)) { hit = true; break; }
+        }
+        if (!hit) return;
+        seen[item.code] = true;
+        expanded.push(item);
+      });
+    });
+  }
 
   return { base: base, expanded: expanded, length: base.length + expanded.length };
 }
@@ -366,7 +547,8 @@ function callClaudeForParse_(apiKey, text, candidates) {
     '- 1行に複数商品（「8と10を一本ずつ」等）があれば商品ごとに分解する',
     '- source_text には元の記載を一字一句そのまま入れる（照合用）',
     '- confidence: high=候補と表記がほぼ一致 / medium=別名・略記からの推定 / low=推測を含む',
-    '- 似た名前の別商品（グレーとグレージュ等）に注意。文字列が完全一致しない推定は high にしない'
+    '- 似た名前の別商品（グレーとグレージュ等）に注意。文字列が完全一致しない推定は high にしない',
+    '- 写真OCRでは「ハ/パ」「ブ/プ」「リ/ソ」など数文字だけ誤ることがある。容量・型番が一致し、候補名との違いが数文字だけならOCR誤読として medium で照合する'
   ];
 
   const systemPrompt = [
