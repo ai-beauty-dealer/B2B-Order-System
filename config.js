@@ -18,6 +18,9 @@ const DEALER_API_URLS = {
     // ぶんちゃん（本店）。パラメータなしはここに接続される
     'default': 'https://script.google.com/macros/s/AKfycbwkR588NKOrW4lvb2qa9stPdkQIyso2flRcVSZt6HyxLAqc8pLiSqMpuWeh1RPxV2RD/exec'
 
+    // 社員1（2026-07-16追加）
+    ,'8732': 'https://script.google.com/macros/s/AKfycbysvKUpgDxKkXjY1LB__T--QzhNSc8tz7H9PUHL5rYsywvV92_lzWCgzQpBdsFJYHg7Hg/exec'
+
     // ▼ 社員を追加するときは上の行末にカンマを付けて、ここに1行追加
     // ,'tanaka': 'https://script.google.com/macros/s/XXXXXXXX/exec'
 };
