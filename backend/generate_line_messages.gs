@@ -4,8 +4,8 @@
  * Googleドキュメントとして自動生成します。
  */
 function generateLineMessages() {
-  const SPREADSHEET_ID = '1dpMtNXhwRRPObS42bJ9BuGL4vMsOkYkQgyeTP1rG_i4';
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  // エディタから手動実行する前提。紐づいているシート自身を使う
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName('ClientMaster');
   
   if (!sheet) {
@@ -18,13 +18,13 @@ function generateLineMessages() {
   let output = "";
   
   const template = `お世話になります。
-この度web発注システムをリリースしましたので連絡させていただきました。
+この度web発注システムをリリースしましたのでご連絡させていただきました。
 現在LINEでご注文をいただいておりましたが、今月中にweb発注システムへの移行をお願い致します。
 使い方のマニュアルに関しましては別途PDFで送らせていただきます。
 1番簡単な注文の仕方はバーコード発注になります。
 商品名で検索のタブの横にカメラマークがありますのでこちらを起動していただいて、商品のバーコードを読み込んでいただくと発注カートに追加される仕組みとなります。
 同一商品を複数発注したい時はバーコードを読んでいただくと下に商品の個数を変更出来るタブがありますので、そちらで数量変更をお願い致します。
-発注スケジュールに関しては現在と同じになりますので、今まで通りこちからご連絡させていただきますのでwebでのご発注をお願い致します。
+発注スケジュールに関しては現在と同じになりますので、今まで通りこちらからご連絡させていただきますのでwebでのご発注をお願い致します。
 ご不明点ございましたら、いつでもご連絡いただければと思います。
 
 【ログイン情報】

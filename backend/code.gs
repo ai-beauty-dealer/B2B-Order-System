@@ -2,8 +2,26 @@
 // 🛠️ B2B Order System - Backend (GAS)
 // ==========================================
 
-const SPREADSHEET_ID = '1dpMtNXhwRRPObS42bJ9BuGL4vMsOkYkQgyeTP1rG_i4'; // ★ここにご自身のスプレッドシートIDを貼り付けてください！
-// スプレッドシートのIDは、URLの「/d/」と「/edit」の間の文字列（例: 1abc...xyz）です。
+// 対象スプレッドシートの決め方（全社員共通コードのため、IDは直書きしない）:
+//   ① スクリプトプロパティ SPREADSHEET_ID があればそれを使う
+//   ② 無ければ、このGASが紐づいているスプレッドシート自身を使う
+// 一括配信で全員に同じコードを配っても、各自のシートで動く。
+const SPREADSHEET_ID = (function () {
+  const fromProperty = PropertiesService
+    .getScriptProperties()
+    .getProperty('SPREADSHEET_ID');
+
+  if (fromProperty) return fromProperty.trim();
+
+  const container = SpreadsheetApp.getActiveSpreadsheet();
+
+  if (container) return container.getId();
+
+  throw new Error(
+    'SPREADSHEET_ID を解決できません。スクリプトプロパティに ' +
+    'SPREADSHEET_ID を設定してください。'
+  );
+})();
 
 // --- 設定 ---
 const SHEET_NAMES = {
@@ -891,13 +909,14 @@ function handleSaveFavorites(data) {
 }
 
 // ------------------------------------------
-// 通知処理（LINE & Discord）
+// 通知処理（LINE A〜D）
 // ------------------------------------------
 
 const LINE_FALLBACK_THRESHOLD_DEFAULT = 20;
+const LINE_ACCOUNT_SUFFIXES = ['', '_B', '_C', '_D'];
 
 /**
- * 汎用通知関数: LINEのみ。残数に応じてA/Bを切り替える
+ * 汎用通知関数: LINEのみ。残数に応じてA〜Dを切り替える
  */
 function sendNotification(message) {
     // LINE通知のみ（Discord通知は2026-07-12に停止。今はLINEしか見ていないため）
@@ -910,71 +929,39 @@ function sendNotification(message) {
 function sendLineNotification(message) {
     try {
         const props = PropertiesService.getScriptProperties();
-        const primary = getLineAccountConfig(props, '');
-        const secondary = getLineAccountConfig(props, '_B');
+        const accounts = getLineAccountConfigs(props);
 
-        if (!primary && !secondary) {
+        if (accounts.length === 0) {
             console.log("LINE Notification skipped: LINE credentials not found.");
             return false;
         }
 
         const threshold = getLineFallbackThreshold(props);
-        // 残数の事前チェックはA/B両方が構成されている時だけ意味を持つ。
-        // 毎回4本のAPI往復（quota+consumption×2アカウント）は重いので30分キャッシュ。
-        // 実送信でquotaエラーが出た時はキャッシュを破棄する（下のフォールバック参照）。
-        let primaryRemaining = null;
-        let secondaryRemaining = null;
-        if (primary && secondary) {
-            const quotas = getLineQuotaRemainingCached(primary, secondary);
-            primaryRemaining = quotas.primaryRemaining;
-            secondaryRemaining = quotas.secondaryRemaining;
-        }
-        const shouldUseSecondaryFirst = primary && secondary && primaryRemaining !== null && primaryRemaining <= threshold && (secondaryRemaining === null || secondaryRemaining > threshold);
-        const shouldReturnToPrimary = primary && secondary && primaryRemaining !== null && primaryRemaining <= threshold && secondaryRemaining !== null && secondaryRemaining <= threshold;
-
-        if (shouldUseSecondaryFirst) {
-            console.log(`LINE primary remaining quota is ${primaryRemaining}. Switching to secondary LINE account.`);
-            const secondaryResult = pushLineMessage(secondary, message);
-            if (secondaryResult.success) return true;
-
-            console.error(`Secondary LINE API Error: ${secondaryResult.code} - ${secondaryResult.body}`);
-            if (primary) {
-                console.log("Secondary LINE account failed. Trying primary LINE account as final fallback.");
-                const primaryResult = pushLineMessage(primary, message);
-                if (primaryResult.success) return true;
-
-                console.error(`Primary LINE API Error: ${primaryResult.code} - ${primaryResult.body}`);
-            }
-            return false;
+        // 2体以上ある時だけ残数を確認する。quota+consumptionのAPI結果は30分キャッシュ。
+        // 残数がしきい値より多いアカウントをA→B→C→Dの順で使う。
+        // 全アカウントがしきい値以下なら、残数が多いものから最後まで使い切る。
+        let remainingBySuffix = {};
+        if (accounts.length > 1) {
+            remainingBySuffix = getLineQuotaRemainingCached(accounts).remainingBySuffix;
         }
 
-        if (shouldReturnToPrimary) {
-            console.log(`Both LINE accounts are near threshold. Returning to primary LINE account. primary=${primaryRemaining}, secondary=${secondaryRemaining}`);
-        }
+        const orderedAccounts = orderLineAccountsForDelivery(accounts, remainingBySuffix, threshold);
+        for (let i = 0; i < orderedAccounts.length; i++) {
+            const account = orderedAccounts[i];
+            const remaining = Object.prototype.hasOwnProperty.call(remainingBySuffix, account.suffix)
+                ? remainingBySuffix[account.suffix]
+                : null;
+            console.log(`Trying LINE ${account.label}. remaining=${remaining === null ? 'unknown' : remaining}`);
 
-        if (primary) {
-            const primaryResult = pushLineMessage(primary, message);
-            if (primaryResult.success) return true;
+            const result = pushLineMessage(account, message);
+            if (result.success) return true;
 
-            console.error(`Primary LINE API Error: ${primaryResult.code} - ${primaryResult.body}`);
-
-            if (secondary && isLineQuotaError(primaryResult.code, primaryResult.body)) {
-                console.log("Primary LINE account reached its limit. Falling back to secondary LINE account.");
-                invalidateLineQuotaCache(); // 実態と乖離したので次回は再取得
-                const secondaryResult = pushLineMessage(secondary, message);
-                if (secondaryResult.success) return true;
-
-                console.error(`Secondary LINE API Error: ${secondaryResult.code} - ${secondaryResult.body}`);
+            console.error(`LINE ${account.label} API Error: ${result.code} - ${result.body}`);
+            if (isLineQuotaError(result.code, result.body)) {
+                // キャッシュ上は残数ありでも実際には上限到達している場合がある。
+                invalidateLineQuotaCache();
             }
         }
-
-        if (!primary && secondary) {
-            const secondaryResult = pushLineMessage(secondary, message);
-            if (secondaryResult.success) return true;
-
-            console.error(`Secondary LINE API Error: ${secondaryResult.code} - ${secondaryResult.body}`);
-        }
-
         return false;
     } catch (error) {
         console.error("Failed to send LINE Notification: " + error.toString());
@@ -983,22 +970,22 @@ function sendLineNotification(message) {
 }
 
 // --- LINE残数の30分キャッシュ（速度改善フェーズ2） ---
-const LINE_QUOTA_CACHE_KEY = 'LINE_QUOTA_REMAINING_V1';
+const LINE_QUOTA_CACHE_KEY = 'LINE_QUOTA_REMAINING_V2';
 const LINE_QUOTA_CACHE_SECONDS = 1800; // 30分
 
-function getLineQuotaRemainingCached(primary, secondary) {
+function getLineQuotaRemainingCached(accounts) {
     const cache = CacheService.getScriptCache();
     try {
         const hit = cache.get(LINE_QUOTA_CACHE_KEY);
         if (hit) return JSON.parse(hit);
     } catch (e) { /* キャッシュ不調でも続行 */ }
 
-    const primaryQuota = getLineQuotaStatus(primary.token);
-    const secondaryQuota = getLineQuotaStatus(secondary.token);
-    const result = {
-        primaryRemaining: primaryQuota ? primaryQuota.remaining : null,
-        secondaryRemaining: secondaryQuota ? secondaryQuota.remaining : null
-    };
+    const remainingBySuffix = {};
+    accounts.forEach(account => {
+        const quota = getLineQuotaStatus(account.token);
+        remainingBySuffix[account.suffix] = quota ? quota.remaining : null;
+    });
+    const result = { remainingBySuffix: remainingBySuffix };
     try { cache.put(LINE_QUOTA_CACHE_KEY, JSON.stringify(result), LINE_QUOTA_CACHE_SECONDS); } catch (e) {}
     return result;
 }
@@ -1018,8 +1005,40 @@ function getLineAccountConfig(props, suffix) {
     return {
         token: token,
         groupId: groupId,
-        label: suffix ? 'secondary' : 'primary'
+        suffix: suffix,
+        label: suffix ? suffix.substring(1) : 'A'
     };
+}
+
+function getLineAccountConfigs(props) {
+    return LINE_ACCOUNT_SUFFIXES
+        .map(suffix => getLineAccountConfig(props, suffix))
+        .filter(account => account !== null);
+}
+
+function orderLineAccountsForDelivery(accounts, remainingBySuffix, threshold) {
+    if (accounts.length <= 1) return accounts.slice();
+
+    const preferred = [];
+    const low = [];
+    accounts.forEach(account => {
+        const hasValue = Object.prototype.hasOwnProperty.call(remainingBySuffix, account.suffix);
+        const remaining = hasValue ? remainingBySuffix[account.suffix] : null;
+        if (remaining === null || remaining > threshold) {
+            preferred.push(account);
+        } else {
+            low.push(account);
+        }
+    });
+
+    if (preferred.length > 0) return preferred.concat(low);
+
+    // 全部がしきい値以下なら、残数が多いアカウントから使って通知停止を遅らせる。
+    return accounts.slice().sort((a, b) => {
+        const aRemaining = Number(remainingBySuffix[a.suffix] || 0);
+        const bRemaining = Number(remainingBySuffix[b.suffix] || 0);
+        return bRemaining - aRemaining;
+    });
 }
 
 function getLineFallbackThreshold(props) {
@@ -1125,41 +1144,59 @@ function testSecondaryLineNotification() {
     console.log("LINE B test notification sent successfully.");
 }
 
+function testAllLineNotifications() {
+    const props = PropertiesService.getScriptProperties();
+    const accounts = getLineAccountConfigs(props);
+    if (accounts.length === 0) {
+        throw new Error("LINE credentials not found. Set LINE_CHANNEL_ACCESS_TOKEN and GROUP_ID in Script Properties.");
+    }
+
+    const failures = [];
+    accounts.forEach(account => {
+        const result = pushLineMessage(
+            account,
+            `【B2B発注アラート】LINE ${account.label} 通知テスト\nこのメッセージが届けば、LINE ${account.label}の接続は成功。`
+        );
+        if (!result.success) failures.push(`${account.label}: ${result.code} - ${result.body}`);
+    });
+
+    if (failures.length > 0) {
+        throw new Error("LINE notification test failed. " + failures.join(" / "));
+    }
+    console.log(`All configured LINE notification tests succeeded. accounts=${accounts.length}`);
+}
+
 function testLineFallbackSwitchNotification() {
     const props = PropertiesService.getScriptProperties();
-    const primary = getLineAccountConfig(props, '');
-    const secondary = getLineAccountConfig(props, '_B');
+    const accounts = getLineAccountConfigs(props);
+    const primary = accounts.find(account => account.suffix === '');
+    const fallbackAccounts = accounts.filter(account => account.suffix !== '');
 
     if (!primary) {
         throw new Error("LINE A credentials not found. Set LINE_CHANNEL_ACCESS_TOKEN and GROUP_ID in Script Properties.");
     }
-    if (!secondary) {
-        throw new Error("LINE B credentials not found. Set LINE_CHANNEL_ACCESS_TOKEN_B and GROUP_ID_B in Script Properties.");
+    if (fallbackAccounts.length === 0) {
+        throw new Error("LINE fallback credentials not found. Set LINE B, C, or D credentials in Script Properties.");
     }
 
-    const primaryQuota = getLineQuotaStatus(primary.token);
-    if (!primaryQuota || primaryQuota.remaining === null) {
-        throw new Error("Could not read LINE A remaining quota. Fallback switch test was stopped.");
+    // 実残数やScript Propertiesを書き換えず、A=20・予備=200の模擬残数で
+    // 本番と同じ並び替え関数が予備アカウントを選ぶことを確認する。
+    const simulatedRemaining = { '': LINE_FALLBACK_THRESHOLD_DEFAULT };
+    fallbackAccounts.forEach(account => {
+        simulatedRemaining[account.suffix] = 200;
+    });
+    const ordered = orderLineAccountsForDelivery(accounts, simulatedRemaining, LINE_FALLBACK_THRESHOLD_DEFAULT);
+    const selected = ordered[0];
+    if (!selected || selected.suffix === '') {
+        throw new Error("Fallback switch selection failed. LINE A was selected in the simulated low-quota state.");
     }
 
-    const previousThreshold = props.getProperty('LINE_FALLBACK_THRESHOLD');
-    const temporaryThreshold = primaryQuota.remaining + 1;
-
-    try {
-        props.setProperty('LINE_FALLBACK_THRESHOLD', String(temporaryThreshold));
-        const message = `【B2B発注アラート】A残数しきい値切替テスト\nA残数: ${primaryQuota.remaining}\n一時しきい値: ${temporaryThreshold}\nこの通知がBから届けば、A残数20以下時の自動切替ロジックは成功。`;
-        const success = sendLineNotification(message);
-        if (!success) {
-            throw new Error("Fallback switch test failed. LINE notification was not sent.");
-        }
-        console.log(`Fallback switch test sent. A remaining=${primaryQuota.remaining}, temporaryThreshold=${temporaryThreshold}`);
-    } finally {
-        if (previousThreshold === null) {
-            props.deleteProperty('LINE_FALLBACK_THRESHOLD');
-        } else {
-            props.setProperty('LINE_FALLBACK_THRESHOLD', previousThreshold);
-        }
+    const message = `【B2B発注アラート】A残数しきい値切替テスト\n模擬状態: A残数20以下\nLINE ${selected.label}から届けば、自動切替ロジックは成功。`;
+    const result = pushLineMessage(selected, message);
+    if (!result.success) {
+        throw new Error(`Fallback switch test failed on LINE ${selected.label}: ${result.code} - ${result.body}`);
     }
+    console.log(`Fallback switch test succeeded. selected=LINE ${selected.label}`);
 }
 
 // 【未使用】2026-07-12にDiscord通知を停止（LINE通知のみ運用）。
@@ -1519,7 +1556,7 @@ function syncAllHistoryToFavorites(introHistory = null) {
 /**
  * バーコードスキャンでItemMasterに存在しないJANコードが検出された際にログを記録。
  * 同一JANは1行のみ。サロン名はSet方式で追記（重複なし）。
- * 新規JAN検出時のみDiscord/LINE通知を送信。
+ * 新規JAN検出時のみLINE通知を送信。
  */
 function handleLogUnknownJan(data) {
     const janCode = String(data.janCode || '').trim();
