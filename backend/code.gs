@@ -913,7 +913,9 @@ function handleSaveFavorites(data) {
 // ------------------------------------------
 
 const LINE_FALLBACK_THRESHOLD_DEFAULT = 20;
-const LINE_ACCOUNT_SUFFIXES = ['', '_B', '_C', '_D'];
+// 5体目以降は Script Properties に LINE_CHANNEL_ACCESS_TOKEN_E 等を
+// 追加するだけで有効になる（無い接尾辞は自動スキップ。コード改修不要）
+const LINE_ACCOUNT_SUFFIXES = ['', '_B', '_C', '_D', '_E', '_F'];
 
 /**
  * 汎用通知関数: LINEのみ。残数に応じてA〜Dを切り替える
