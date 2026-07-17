@@ -21,6 +21,9 @@ const DEALER_API_URLS = {
     // 社員1（2026-07-16追加）
     ,'8732': 'https://script.google.com/macros/s/AKfycbysvKUpgDxKkXjY1LB__T--QzhNSc8tz7H9PUHL5rYsywvV92_lzWCgzQpBdsFJYHg7Hg/exec'
 
+    // サブアカウント導入テスト（2026-07-18追加）
+    ,'test-sub': 'https://script.google.com/macros/s/AKfycbzFFSKVcYi5Sel5MhJ7gf_2fq5UCtIALYuC0QM29hmQp12GyQcoqctG1mse_vxgNfeM/exec'
+
     // ▼ 社員を追加するときは上の行末にカンマを付けて、ここに1行追加
     // ,'tanaka': 'https://script.google.com/macros/s/XXXXXXXX/exec'
 };
