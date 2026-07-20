@@ -24,6 +24,9 @@ const DEALER_API_URLS = {
     // サブアカウント導入テスト（2026-07-18追加）
     ,'test-sub': 'https://script.google.com/macros/s/AKfycbzFFSKVcYi5Sel5MhJ7gf_2fq5UCtIALYuC0QM29hmQp12GyQcoqctG1mse_vxgNfeM/exec'
 
+    // 社員2 花光（社員名義・2026-07-20追加）
+    ,'755': 'https://script.google.com/macros/s/AKfycbyGmlJg4dIpqjd8r8C5GugKSRo3N34ebnHvEnKxmFCYHEpbdnYzMy-brBuNm1Mt75s/exec'
+
     // ▼ 社員を追加するときは上の行末にカンマを付けて、ここに1行追加
     // ,'tanaka': 'https://script.google.com/macros/s/XXXXXXXX/exec'
 };
