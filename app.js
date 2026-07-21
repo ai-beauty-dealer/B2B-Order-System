@@ -1,8 +1,8 @@
-// v2.34.0 (MASTER-CODE-ENTRY-TABLE)
+// v2.35.0 (MASTER-SALON-SEARCH + CODE-FILTER-ORDER)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.34.0 (MASTER-CODE-ENTRY-TABLE) Loaded ---');
+    console.log('--- B2B Order System v2.35.0 (MASTER-SALON-SEARCH + CODE-FILTER-ORDER) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -29,6 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const logoutBtn = document.getElementById('logout-btn');
     const masterReturnBtn = document.getElementById('master-return-btn');
     const codeEntryBtn = document.getElementById('code-entry-btn');
+    const codeFilterBtn = document.getElementById('code-filter-btn');
     const totalQtySpan = document.getElementById('total-qty');
     const orderSubmitBtn = document.getElementById('order-submit-btn');
     const searchInput = document.getElementById('search-input');
@@ -91,6 +92,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const masterLoginBtn = document.getElementById('master-login-btn');
     const masterCancelBtn = document.getElementById('master-cancel-btn');
     const masterSalonSelect = document.getElementById('master-salon-select');
+    const masterSalonSearch = document.getElementById('master-salon-search');
+    const masterSalonList = document.getElementById('master-salon-list');
+    const masterSalonCount = document.getElementById('master-salon-count');
 
     // Load saved ID if exists
     const savedId = localStorage.getItem('b2b_saved_username');
@@ -220,6 +224,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let cartOrder = []; // Track the order in which items are added to the cart
     let isSubmitting = false;
     let isMasterSession = false; // MASTERアカウントでログイン中か（サロン切替後もtrueを維持。取り込みモードの表示制御に使う）
+    let masterAllClients = []; // MASTERログイン時の全サロン一覧（サロン検索の絞り込み元）
+    let masterSalonSearchTimeout = null; // サロン検索のデバウンス（メイン検索の searchTimeout とは別管理）
 
     const setSubmittingState = (submitting, isEditing = false) => {
         isSubmitting = submitting;
@@ -795,6 +801,173 @@ document.addEventListener('DOMContentLoaded', () => {
         codeEntryForm.addEventListener('submit', (event) => {
             event.preventDefault();
             addResolvedCodeEntry();
+        });
+    }
+
+    // ============================================================
+    // 分類コード発注（MASTER限定）
+    //   コード頭4桁で該当商品を一覧 → 各数量を上書きでカート反映。
+    //   既存「CODE入力」(code-entry) とは別物。送信は既存「発注する」。
+    // ============================================================
+    const codeFilterOverlay = document.getElementById('code-filter-overlay');
+    const codeFilterModal = document.getElementById('code-filter-modal');
+    const codeFilterCloseBtn = document.getElementById('code-filter-close-btn');
+    const codeFilterPrefix = document.getElementById('code-filter-prefix');
+    const codeFilterStatus = document.getElementById('code-filter-status');
+    const codeFilterRowsEl = document.getElementById('code-filter-rows');
+    let codeFilterTimeout = null;
+
+    // 全角数字→半角、数字以外を除去
+    const normalizeDigits = (value) => String(value || '')
+        .replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xFEE0))
+        .replace(/[^0-9]/g, '');
+
+    const codeFilterCanonical = (item) => String(item && item.code || '')
+        .replace(/^'/, '')
+        .trim();
+
+    // マッチ用のコード候補：素のcanonicalと、6桁数値なら先頭0補完形の両方。
+    //   ItemMasterは6桁保存で先頭0が落ちるため、これを外すと 0704 がヒットしない。
+    const codeFilterVariants = (item) => {
+        const canonical = codeFilterCanonical(item);
+        const variants = [canonical];
+        if (/^\d{6}$/.test(canonical)) variants.push('0' + canonical);
+        return variants;
+    };
+
+    // 表示用コード：6桁数値なら先頭0を補って7桁表示
+    const codeFilterDisplay = (item) => {
+        const canonical = codeFilterCanonical(item);
+        return /^\d{6}$/.test(canonical) ? '0' + canonical : canonical;
+    };
+
+    const setCodeFilterStatus = (message, isError = false) => {
+        if (!codeFilterStatus) return;
+        codeFilterStatus.textContent = message;
+        codeFilterStatus.classList.toggle('is-error', isError);
+    };
+
+    const renderCodeFilterRows = () => {
+        if (!codeFilterRowsEl || !codeFilterPrefix) return;
+        const prefix = normalizeDigits(codeFilterPrefix.value).slice(0, 4);
+        // 入力欄も正規化後の値に合わせる（全角で打っても半角に）
+        if (codeFilterPrefix.value !== prefix) codeFilterPrefix.value = prefix;
+
+        codeFilterRowsEl.innerHTML = '';
+
+        if (prefix.length < 4) {
+            setCodeFilterStatus(`コードの頭4桁を入力してください（あと${4 - prefix.length}桁）。`);
+            return;
+        }
+
+        const matches = itemsData.filter((item) =>
+            isValidCode(item.code) &&
+            codeFilterVariants(item).some((v) => v.startsWith(prefix))
+        );
+        matches.sort((a, b) => codeFilterDisplay(a).localeCompare(codeFilterDisplay(b)));
+
+        if (!matches.length) {
+            setCodeFilterStatus(`頭4桁「${prefix}」に該当する商品はありません。`, true);
+            return;
+        }
+
+        setCodeFilterStatus(`${matches.length}件ヒット。数量を入れると即カートに反映されます。`);
+
+        matches.forEach((item) => {
+            const cartKey = String(item.code); // カタログ・syncCardQtyと同じキーで合流
+            const currentQty = (currentCart[cartKey] && currentCart[cartKey].qty) || 0;
+
+            const row = document.createElement('div');
+            row.className = 'code-filter-row';
+            row.setAttribute('role', 'listitem');
+
+            const code = document.createElement('span');
+            code.className = 'code-filter-code';
+            code.textContent = codeFilterDisplay(item);
+
+            const name = document.createElement('span');
+            name.className = 'code-filter-name';
+            name.textContent = item.name;
+
+            const qty = document.createElement('input');
+            qty.className = 'code-filter-qty';
+            qty.type = 'number';
+            qty.inputMode = 'numeric';
+            qty.min = '0';
+            qty.max = '999';
+            qty.value = String(currentQty);
+            qty.dataset.code = cartKey;
+            qty.dataset.name = item.name;
+
+            row.appendChild(code);
+            row.appendChild(name);
+            row.appendChild(qty);
+            codeFilterRowsEl.appendChild(row);
+        });
+    };
+
+    // 数量変更＝上書きでカート反映（現在値を表示しているので上書きが自然・二重加算しない）
+    const applyCodeFilterQty = (input) => {
+        if (!input) return;
+        const cartKey = input.dataset.code;
+        const name = input.dataset.name || '';
+        let qty = parseInt(input.value, 10);
+        if (!Number.isFinite(qty) || qty < 0) qty = 0;
+        if (qty > 999) qty = 999;
+        input.value = String(qty);
+        updateFromCart(cartKey, name, qty); // 絶対値で上書き
+    };
+
+    const openCodeFilterModal = () => {
+        if (!isMasterSession || !currentClientName || !codeFilterModal || !codeFilterOverlay) return;
+        if (!itemsData.length) {
+            alert('商品マスタを読み込み中です。少し待ってからもう一度開いてください。');
+            return;
+        }
+        if (codeFilterPrefix) codeFilterPrefix.value = '';
+        if (codeFilterRowsEl) codeFilterRowsEl.innerHTML = '';
+        setCodeFilterStatus('コードの頭4桁を入力してください。');
+        codeFilterModal.classList.remove('hidden');
+        codeFilterOverlay.classList.remove('hidden');
+        requestAnimationFrame(() => { if (codeFilterPrefix) codeFilterPrefix.focus(); });
+    };
+
+    const closeCodeFilterModal = () => {
+        if (codeFilterModal) codeFilterModal.classList.add('hidden');
+        if (codeFilterOverlay) codeFilterOverlay.classList.add('hidden');
+    };
+
+    if (codeFilterBtn) codeFilterBtn.addEventListener('click', openCodeFilterModal);
+    if (codeFilterCloseBtn) codeFilterCloseBtn.addEventListener('click', closeCodeFilterModal);
+    if (codeFilterOverlay) codeFilterOverlay.addEventListener('click', closeCodeFilterModal);
+    if (codeFilterPrefix) {
+        codeFilterPrefix.addEventListener('input', () => {
+            if (codeFilterTimeout) clearTimeout(codeFilterTimeout);
+            codeFilterTimeout = setTimeout(renderCodeFilterRows, 150);
+        });
+        codeFilterPrefix.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            if (codeFilterTimeout) clearTimeout(codeFilterTimeout);
+            renderCodeFilterRows();
+            const firstQty = codeFilterRowsEl && codeFilterRowsEl.querySelector('.code-filter-qty');
+            if (firstQty) { firstQty.focus(); firstQty.select(); }
+        });
+    }
+    if (codeFilterRowsEl) {
+        codeFilterRowsEl.addEventListener('change', (event) => {
+            const input = event.target.closest('.code-filter-qty');
+            if (input) applyCodeFilterQty(input);
+        });
+        codeFilterRowsEl.addEventListener('keydown', (event) => {
+            const input = event.target.closest('.code-filter-qty');
+            if (!input || event.key !== 'Enter') return;
+            event.preventDefault();
+            applyCodeFilterQty(input);
+            const inputs = [...codeFilterRowsEl.querySelectorAll('.code-filter-qty')];
+            const next = inputs[inputs.indexOf(input) + 1];
+            if (next) { next.focus(); next.select(); }
+            else input.blur();
         });
     }
 
@@ -2102,6 +2275,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (codeEntryBtn) {
             codeEntryBtn.classList.toggle('hidden', !isMasterSession);
         }
+        if (codeFilterBtn) {
+            codeFilterBtn.classList.toggle('hidden', !isMasterSession);
+        }
         if (importModeBtn) {
             importModeBtn.classList.toggle('hidden', !isMasterSession);
         }
@@ -2183,7 +2359,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (result.isMaster || result.isGroup) {
                     currentClientType = result.isMaster ? 'MASTER' : 'GROUP';
                     console.log(`[DEBUG] ${result.isMaster ? 'Master' : 'Group'} Account detected`);
-                    const masterAllClients = result.allClients || [];
+                    masterAllClients = result.allClients || [];
                     const selectEl = document.getElementById('master-salon-select');
                     if (selectEl) {
                         selectEl.innerHTML = '';
@@ -2194,6 +2370,9 @@ document.addEventListener('DOMContentLoaded', () => {
                             option.textContent = c.name + typeLabel;
                             selectEl.appendChild(option);
                         });
+                        // サロン検索の初期表示（全件）。検索欄はクリア。
+                        if (masterSalonSearch) masterSalonSearch.value = '';
+                        renderMasterSalonList('');
                         loginForm.classList.add('hidden');
                         document.getElementById('master-salon-selector').classList.remove('hidden');
                         
@@ -2245,6 +2424,70 @@ document.addEventListener('DOMContentLoaded', () => {
             hideLoading();
         }
     });
+
+    // --- マスター：サロン検索（インクリメンタル絞り込み） ---
+    // 入室は従来どおり「入室する」ボタン。リストは選択（select.value設定）まで。
+    const selectMasterSalon = (clientJson, liEl) => {
+        if (masterSalonSelect) masterSalonSelect.value = clientJson;
+        if (masterSalonList) {
+            masterSalonList.querySelectorAll('.master-salon-item').forEach(el => el.classList.remove('is-selected'));
+        }
+        if (liEl) liEl.classList.add('is-selected');
+    };
+
+    const renderMasterSalonList = (query) => {
+        if (!masterSalonList) return;
+        const q = normalizeForSearch(query || '');
+        // 半角全角・大小文字・ひらがな/カタカナは normalizeForSearch が吸収する
+        const matches = q
+            ? masterAllClients.filter(c => normalizeForSearch(c.name).includes(q))
+            : masterAllClients.slice();
+
+        masterSalonList.innerHTML = '';
+        if (masterSalonCount) {
+            masterSalonCount.textContent = matches.length + '件'
+                + (q ? '（絞り込み中）' : '');
+        }
+
+        if (!matches.length) {
+            const empty = document.createElement('li');
+            empty.className = 'master-salon-empty';
+            empty.textContent = '該当するサロンがありません';
+            masterSalonList.appendChild(empty);
+            if (masterSalonSelect) masterSalonSelect.value = '';
+            return;
+        }
+
+        matches.forEach(c => {
+            const li = document.createElement('li');
+            li.className = 'master-salon-item';
+            li.setAttribute('role', 'option');
+            const json = JSON.stringify(c);
+            li.dataset.client = json;
+            const typeLabel = c.type === '直送' ? ' [直送]' : '';
+            li.textContent = c.name + typeLabel;
+            li.addEventListener('click', () => selectMasterSalon(json, li));
+            masterSalonList.appendChild(li);
+        });
+
+        // 先頭を選択状態に（1件のときは実質確定。入室は「入室する」ボタン）
+        const first = masterSalonList.querySelector('.master-salon-item');
+        if (first) selectMasterSalon(first.dataset.client, first);
+    };
+
+    if (masterSalonSearch) {
+        masterSalonSearch.addEventListener('input', () => {
+            if (masterSalonSearchTimeout) clearTimeout(masterSalonSearchTimeout);
+            const val = masterSalonSearch.value;
+            masterSalonSearchTimeout = setTimeout(() => renderMasterSalonList(val), 150);
+        });
+        masterSalonSearch.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter') return;
+            e.preventDefault(); // ログインフォームのsubmit暴発を防ぐ
+            if (masterSalonSearchTimeout) clearTimeout(masterSalonSearchTimeout);
+            renderMasterSalonList(masterSalonSearch.value);
+        });
+    }
 
     if (masterLoginBtn) {
         masterLoginBtn.addEventListener('click', async () => {
@@ -2307,6 +2550,7 @@ document.addEventListener('DOMContentLoaded', () => {
             saveCartToStorage();
             closeCartSidebar();
             closeCodeEntryModal();
+            closeCodeFilterModal();
 
             currentClientName = '';
             currentClientType = 'MASTER';
@@ -2335,12 +2579,16 @@ document.addEventListener('DOMContentLoaded', () => {
             loginContainer.classList.remove('hidden');
             loginForm.classList.add('hidden');
             document.getElementById('master-salon-selector').classList.remove('hidden');
+            // サロン検索を初期状態（全件・検索欄クリア）へ戻す
+            if (masterSalonSearch) masterSalonSearch.value = '';
+            renderMasterSalonList('');
             if (globalSyncBtn) globalSyncBtn.classList.remove('hidden');
             const batchBtnEl = document.getElementById('batch-import-btn');
             if (batchBtnEl) batchBtnEl.classList.remove('hidden');
 
             if (masterReturnBtn) masterReturnBtn.classList.add('hidden');
             if (codeEntryBtn) codeEntryBtn.classList.add('hidden');
+            if (codeFilterBtn) codeFilterBtn.classList.add('hidden');
             if (importModeBtn) importModeBtn.classList.add('hidden');
             if (printSheetBtn) printSheetBtn.classList.add('hidden');
             switchTab('tab-all');
@@ -2357,6 +2605,7 @@ document.addEventListener('DOMContentLoaded', () => {
         isMasterSession = false;
         if (masterReturnBtn) masterReturnBtn.classList.add('hidden');
         if (codeEntryBtn) codeEntryBtn.classList.add('hidden');
+        if (codeFilterBtn) codeFilterBtn.classList.add('hidden');
         if (importModeBtn) importModeBtn.classList.add('hidden');
         if (printSheetBtn) printSheetBtn.classList.add('hidden');
         favoriteItems = [];

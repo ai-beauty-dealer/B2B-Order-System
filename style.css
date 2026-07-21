@@ -2030,3 +2030,93 @@ input[type=number]::-webkit-outer-spin-button {
     background: #fff;
     margin: 2px 0;
 }
+
+/* ===== マスター：サロン検索リスト ===== */
+.master-salon-item {
+    padding: 10px 12px;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    cursor: pointer;
+    border: 1px solid transparent;
+}
+.master-salon-item:hover {
+    background: #f1f5f9;
+}
+.master-salon-item.is-selected {
+    background: #e0e7ff;
+    border-color: var(--primary, #4338ca);
+    font-weight: 600;
+}
+.master-salon-empty {
+    padding: 12px;
+    text-align: center;
+    color: #94a3b8;
+    font-size: 0.85rem;
+}
+
+/* ===== コードでまとめ発注 モーダル ===== */
+.code-filter-prefix-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+.code-filter-prefix-label input {
+    flex: 0 0 auto;
+    width: 120px;
+    padding: 10px 12px;
+    border: 2px solid #cbd5e1;
+    border-radius: 8px;
+    font-size: 1.1rem;
+    letter-spacing: 0.15em;
+    text-align: center;
+}
+.code-filter-prefix-label input:focus {
+    outline: none;
+    border-color: var(--primary, #4338ca);
+}
+.code-filter-status {
+    font-size: 0.82rem;
+    color: #475569;
+    margin: 6px 0 10px;
+}
+.code-filter-status.is-error {
+    color: #b91c1c;
+}
+.code-filter-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.code-filter-row {
+    display: grid;
+    grid-template-columns: 78px 1fr 72px;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 6px;
+    border-bottom: 1px solid #eef2f7;
+}
+.code-filter-code {
+    font-family: "SFMono-Regular", Consolas, monospace;
+    font-size: 0.82rem;
+    color: #64748b;
+    white-space: nowrap;
+}
+.code-filter-name {
+    font-size: 0.9rem;
+    overflow-wrap: anywhere;
+}
+.code-filter-qty {
+    width: 72px;
+    padding: 8px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    font-size: 1rem;
+    text-align: center;
+}
+.code-filter-qty:focus {
+    outline: none;
+    border-color: var(--primary, #4338ca);
+}

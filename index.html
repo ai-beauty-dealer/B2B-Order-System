@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="robots" content="noindex">
     <title>AI Beauty Dealer - B2B Order System</title>
-    <link rel="stylesheet" href="style.css?v=2.34.0">
+    <link rel="stylesheet" href="style.css?v=2.35.0">
 
     <!-- PWA -->
     <link rel="manifest" href="manifest.json?v=2.18.0">
@@ -48,10 +48,18 @@
             style="margin-top: 16px; padding-top: 16px; border-top: 1px solid #eee;">
             <p style="font-size: 0.875rem; font-weight: bold; margin-bottom: 8px; color: var(--primary);">【マスターアカウント】
             </p>
-            <label for="master-salon-select"
+            <label for="master-salon-search"
                 style="font-size: 0.875rem; margin-bottom: 4px; display: block;">ログインするサロンを選択</label>
-            <select id="master-salon-select"
-                style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #cbd5e1; margin-bottom: 12px;">
+            <input id="master-salon-search" type="search" inputmode="search" autocomplete="off"
+                placeholder="サロン名・ローマ字・カナで絞り込み"
+                style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #cbd5e1; margin-bottom: 8px;">
+            <div id="master-salon-count" style="font-size: 0.8rem; color: #64748b; margin-bottom: 6px;"></div>
+            <ul id="master-salon-list" role="listbox" aria-label="サロン一覧"
+                style="list-style: none; margin: 0 0 12px; padding: 4px; max-height: 240px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 6px;">
+                <!-- Items injected by JS -->
+            </ul>
+            <!-- 状態保持用（表示はリスト側。入室処理はこのvalueを読む） -->
+            <select id="master-salon-select" style="display: none;">
                 <!-- Options injected by JS -->
             </select>
             <button type="button" id="master-login-btn" class="btn-primary" style="margin-bottom: 8px;">入室する</button>
@@ -96,6 +104,9 @@
             </button>
             <button id="code-entry-btn" class="btn-secondary hidden" title="商品コードと数量を連続入力">
                 CODE入力
+            </button>
+            <button id="code-filter-btn" class="btn-secondary hidden" title="分類コード（頭4桁）でまとめて発注">
+                分類コード発注
             </button>
             <button id="import-mode-btn" class="btn-secondary hidden" title="LINE文面・写メから取り込み">
                 📥 取り込み
@@ -241,13 +252,13 @@
     <script src="lib/html5-qrcode.min.js"></script>
     <script src="lib/qrcode-generator.js"></script>
     <script src="config.js?v=2.18.0"></script>
-    <script src="app.js?v=2.34.0"></script>
+    <script src="app.js?v=2.35.0"></script>
 
     <!-- Service Worker 登録（PWA） -->
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function () {
-                navigator.serviceWorker.register('sw.js?v=2.33.0')
+                navigator.serviceWorker.register('sw.js?v=2.35.0')
                     .catch(function (err) {
                         console.warn('SW登録に失敗（通常サイトとして続行）:', err);
                     });
@@ -359,6 +370,23 @@
             </div>
             <p id="code-entry-status" class="code-entry-status" aria-live="polite"></p>
         </form>
+    </div>
+
+    <!-- 分類コード発注 Modal（MASTER限定） -->
+    <div id="code-filter-overlay" class="cart-overlay hidden"></div>
+    <div id="code-filter-modal" class="import-modal code-filter-modal hidden" role="dialog" aria-modal="true" aria-labelledby="code-filter-title">
+        <div class="import-header">
+            <h3 id="code-filter-title">分類コード発注</h3>
+            <button id="code-filter-close-btn" class="cart-close-btn" type="button" aria-label="閉じる">&times;</button>
+        </div>
+        <div class="code-filter-body">
+            <label class="code-filter-prefix-label">
+                <span>頭4桁</span>
+                <input id="code-filter-prefix" type="text" inputmode="numeric" enterkeyhint="search" maxlength="4" placeholder="例: 0704" autocomplete="off">
+            </label>
+            <p id="code-filter-status" class="code-filter-status" aria-live="polite">コードの頭4桁を入力してください。</p>
+            <div id="code-filter-rows" class="code-filter-rows" role="list"></div>
+        </div>
     </div>
 
     <!-- Print Layout Modal -->
