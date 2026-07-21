@@ -1,8 +1,8 @@
-// v2.35.0 (MASTER-SALON-SEARCH + CODE-FILTER-ORDER)
+// v2.35.1 (LOGIN-STUCK-LOADING-FIX)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.35.0 (MASTER-SALON-SEARCH + CODE-FILTER-ORDER) Loaded ---');
+    console.log('--- B2B Order System v2.35.1 (LOGIN-STUCK-LOADING-FIX) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -2408,13 +2408,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 await processLoginSuccess(result.announcement, result.isMaintenance, result.maintenanceMessage, result.dataVersion, result.favorites);
             } else {
                 console.error('[DEBUG] Login Failed result:', result);
-                // 自動ログインが認証エラーで失敗したら、
-                // 記憶を消して手動ログインへ（無限ループ防止）
+                // ★重要: 失敗時もローディングを必ず解除する。
+                //   これが無いとログインボタンが「読み込み中…」のまま無効化され、
+                //   再入力できず固まる（＝パスワード変更後に自動ログインが古いPWで
+                //   失敗した端末が二度とログインできなくなる不具合の原因だった）。
+                hideLoading();
                 if (autoLoginInProgress) {
+                    // 自動ログインの失敗はユーザー操作ではない。記憶を消して
+                    // 手動ログイン画面に静かに戻すだけ（驚かせるアラートは出さない）。
                     clearResumeSession();
                     autoLoginInProgress = false;
+                } else {
+                    alert('ログインに失敗しました: ' + result.message);
                 }
-                alert('ログインに失敗しました: ' + result.message);
             }
         } catch (error) {
             console.error(error);
