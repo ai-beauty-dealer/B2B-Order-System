@@ -1,0 +1,264 @@
+<script>
+(function(root, factory) {
+  const api = factory();
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  root.ShippingPdfParser = api;
+})(typeof globalThis !== 'undefined' ? globalThis : this, function() {
+  'use strict';
+
+  const REFERENCE_PAGE_WIDTH = 841.92;
+  const ROW_TOLERANCE = 2.2;
+
+  function parsePages(pages, metadata) {
+    const groups = [];
+    let currentGroup = null;
+    let printedDate = '';
+    let detailDate = '';
+    let rowOrder = 0;
+
+    pages.forEach(function(page) {
+      if (!printedDate) printedDate = findDocumentDate(page.items);
+
+      const rows = groupItemsIntoRows(page.items);
+      const anchors = findColumnAnchors(rows, page.width);
+
+      rows.forEach(function(row) {
+        const product = extractProductFromRow(row, anchors);
+        const code = product.code;
+        const shippedText = rangeText(row, anchors.shipped - 8, anchors.input - 8);
+        const inputText = rangeText(row, anchors.input - 8, anchors.check - 2);
+        const shippedQty = firstInteger(shippedText);
+        const inputQty = firstInteger(inputText);
+
+        if (!/^\d{5,13}$/.test(code) || shippedQty === null || inputQty === null) return;
+
+        const category = cleanText(rangeText(row, anchors.category - 6, anchors.slip - 6));
+        const slipNumber = digitsOnly(rangeText(row, anchors.slip - 6, anchors.instruction - 6));
+        const instructionNumber = digitsOnly(rangeText(row, anchors.instruction - 6, anchors.salon - 6));
+        const salonName = cleanText(rangeText(row, anchors.salon - 6, anchors.productCode - 6));
+        const sendAt = normalizeSendAt(rangeText(row, anchors.send - 8, page.width + 1));
+        const rowDate = findDocumentDate(row.items);
+        const startsNewGroup = Boolean(category || slipNumber || instructionNumber);
+        // 期間指定PDFでは先頭に前日分が混ざることがある。
+        // 最初の日付ではなく、明細内で最も新しい日付（期間終了日）を対象日にする。
+        if (rowDate && (!detailDate || rowDate > detailDate)) detailDate = rowDate;
+
+        if (startsNewGroup || !currentGroup) {
+          currentGroup = {
+            category: category,
+            slipNumber: slipNumber,
+            instructionNumber: instructionNumber,
+            salonName: salonName,
+            sendAt: sendAt,
+            sourceDate: rowDate,
+            items: []
+          };
+          groups.push(currentGroup);
+        } else {
+          if (!currentGroup.sendAt && sendAt) currentGroup.sendAt = sendAt;
+          if (!currentGroup.sourceDate && rowDate) currentGroup.sourceDate = rowDate;
+        }
+
+        const name = product.name;
+        if (!name) return;
+
+        currentGroup.items.push({
+          code: code,
+          name: name,
+          shippedQty: shippedQty,
+          inputQty: inputQty,
+          page: page.pageNumber,
+          rowOrder: rowOrder++
+        });
+      });
+    });
+
+    return {
+      // 左上の印刷日ではなく、明細の日付列を対象シートの日付として優先する。
+      documentDate: detailDate || printedDate,
+      fileName: metadata && metadata.fileName ? metadata.fileName : '',
+      fileHash: metadata && metadata.fileHash ? metadata.fileHash : '',
+      groups: groups.filter(function(group) { return group.items.length > 0; })
+    };
+  }
+
+  function groupItemsIntoRows(items) {
+    const sorted = (items || []).filter(function(item) {
+      return cleanText(item.text || item.str);
+    }).map(function(item) {
+      return {
+        text: String(item.text !== undefined ? item.text : item.str),
+        x: Number(item.x !== undefined ? item.x : item.transform && item.transform[4]) || 0,
+        y: Number(item.y !== undefined ? item.y : item.transform && item.transform[5]) || 0,
+        width: Number(item.width) || 0
+      };
+    }).sort(function(a, b) {
+      if (Math.abs(a.y - b.y) > ROW_TOLERANCE) return b.y - a.y;
+      return a.x - b.x;
+    });
+
+    const rows = [];
+    sorted.forEach(function(item) {
+      let row = rows.find(function(candidate) {
+        return Math.abs(candidate.y - item.y) <= ROW_TOLERANCE;
+      });
+      if (!row) {
+        row = { y: item.y, items: [] };
+        rows.push(row);
+      }
+      row.items.push(item);
+      row.y = (row.y * (row.items.length - 1) + item.y) / row.items.length;
+    });
+
+    rows.forEach(function(row) {
+      row.items.sort(function(a, b) { return a.x - b.x; });
+    });
+    return rows.sort(function(a, b) { return b.y - a.y; });
+  }
+
+  function findColumnAnchors(rows, pageWidth) {
+    const scale = pageWidth / REFERENCE_PAGE_WIDTH;
+    const fallback = {
+      category: 250.6 * scale,
+      slip: 304.6 * scale,
+      instruction: 356.1 * scale,
+      salon: 390 * scale,
+      productCode: 525.3 * scale,
+      productName: 561 * scale,
+      shipped: 719.6 * scale,
+      input: 753.6 * scale,
+      check: 764 * scale,
+      send: 777 * scale
+    };
+
+    const headerRow = rows.find(function(row) {
+      const joined = cleanText(row.items.map(function(item) { return item.text; }).join(' '));
+      return joined.indexOf('商品名') >= 0 && joined.indexOf('出荷数') >= 0 && joined.indexOf('入力数') >= 0;
+    });
+    if (!headerRow) return fallback;
+
+    const codeItems = findItemsContaining(headerRow.items, 'コード');
+    const productCodeItem = codeItems.length > 0
+      ? codeItems.sort(function(a, b) { return b.x - a.x; })[0]
+      : null;
+    const inputX = itemX(headerRow.items, '入力数', fallback.input);
+    const rawCheckX = itemX(headerRow.items, '検', fallback.check);
+
+    return {
+      category: itemX(headerRow.items, '区分', fallback.category),
+      slip: itemX(headerRow.items, '伝票番号', fallback.slip),
+      instruction: itemX(headerRow.items, '指示番号', fallback.instruction),
+      salon: itemX(headerRow.items, 'サロン名', fallback.salon),
+      productCode: productCodeItem ? productCodeItem.x : fallback.productCode,
+      productName: itemX(headerRow.items, '商品名', fallback.productName),
+      shipped: itemX(headerRow.items, '出荷数', fallback.shipped),
+      input: inputX,
+      check: rawCheckX <= inputX + 5 ? fallback.check : rawCheckX,
+      send: itemX(headerRow.items, '送信日時', fallback.send)
+    };
+  }
+
+  function extractProductFromRow(row, anchors) {
+    const productItem = row.items.find(function(item) {
+      if (item.x < anchors.productCode - 8 || item.x >= anchors.shipped - 8) return false;
+      return /^\d{5,13}(?:\s|$)/.test(cleanText(item.text));
+    });
+
+    if (!productItem) return { code: '', name: '' };
+
+    const match = cleanText(productItem.text).match(/^(\d{5,13})(?:\s+(.*))?$/);
+    if (!match) return { code: '', name: '' };
+
+    const nameParts = [];
+    if (match[2]) nameParts.push(match[2]);
+
+    row.items.forEach(function(item) {
+      if (item === productItem) return;
+      const center = item.x + item.width / 2;
+      if (center >= anchors.productName - 6 && center < anchors.shipped - 8) {
+        nameParts.push(item.text);
+      }
+    });
+
+    return {
+      code: match[1],
+      name: cleanText(nameParts.join(' '))
+    };
+  }
+
+  function itemX(items, label, fallback) {
+    const matches = findItemsContaining(items, label);
+    return matches.length > 0 ? matches[0].x : fallback;
+  }
+
+  function findItemsContaining(items, label) {
+    return items.filter(function(item) {
+      return cleanText(item.text).indexOf(label) >= 0;
+    });
+  }
+
+  function rangeText(row, startX, endX) {
+    return row.items.filter(function(item) {
+      const center = item.x + item.width / 2;
+      return center >= startX && center < endX;
+    }).map(function(item) {
+      return item.text;
+    }).join(' ');
+  }
+
+  function findDocumentDate(items) {
+    const text = cleanText((items || []).map(function(item) {
+      return item.text !== undefined ? item.text : item.str;
+    }).join(' '));
+    const dates = [];
+    const patterns = [
+      /(20\d{2})年\s*(\d{1,2})月\s*(\d{1,2})日/g,
+      /(20\d{2})[\/-](\d{1,2})[\/-](\d{1,2})/g
+    ];
+    patterns.forEach(function(pattern) {
+      let match;
+      while ((match = pattern.exec(text)) !== null) {
+        dates.push(match[1] + '-' + pad2(match[2]) + '-' + pad2(match[3]));
+      }
+    });
+    if (dates.length === 0) return '';
+    // 「2026年06月28日 ～ 2026年06月29日」は終了日の06月29日を返す。
+    return dates.sort().pop();
+  }
+
+  function normalizeSendAt(value) {
+    const text = cleanText(value);
+    const match = text.match(/(\d{1,2})[\/-](\d{1,2})\s+(\d{1,2}):(\d{2})/);
+    if (!match) return '';
+    return pad2(match[1]) + '/' + pad2(match[2]) + ' ' + pad2(match[3]) + ':' + match[4];
+  }
+
+  function firstInteger(value) {
+    const match = cleanText(value).match(/\d+/);
+    return match ? Number(match[0]) : null;
+  }
+
+  function digitsOnly(value) {
+    return cleanText(value).replace(/\D/g, '');
+  }
+
+  function cleanText(value) {
+    return String(value === undefined || value === null ? '' : value)
+      .normalize('NFKC')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function pad2(value) {
+    return String(value).padStart(2, '0');
+  }
+
+  return {
+    parsePages: parsePages,
+    groupItemsIntoRows: groupItemsIntoRows,
+    findColumnAnchors: findColumnAnchors,
+    normalizeSendAt: normalizeSendAt,
+    findDocumentDate: findDocumentDate
+  };
+});
+</script>

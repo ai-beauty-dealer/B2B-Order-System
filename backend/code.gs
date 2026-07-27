@@ -2,14 +2,34 @@
 // 🛠️ B2B Order System - Backend (GAS)
 // ==========================================
 
-// 対象スプレッドシートの決め方（全社員共通コードのため、IDは直書きしない）:
-//   ① スクリプトプロパティ SPREADSHEET_ID があればそれを使う
-//   ② 無ければ、このGASが紐づいているスプレッドシート自身を使う
-// 一括配信で全員に同じコードを配っても、各自のシートで動く。
+// 一括配信時にprojects.jsonの社員別sheetIdへ置換する。
+// この値が未置換の場合だけ、スクリプトプロパティや
+// 紐づき先シートへフォールバックする。
+const DEPLOYMENT_SPREADSHEET_ID = '__PROJECT_SPREADSHEET_ID__';
+
 const SPREADSHEET_ID = (function () {
   const fromProperty = PropertiesService
     .getScriptProperties()
     .getProperty('SPREADSHEET_ID');
+
+  const deployedId = DEPLOYMENT_SPREADSHEET_ID.startsWith('__PROJECT_')
+    ? ''
+    : DEPLOYMENT_SPREADSHEET_ID.trim();
+
+  // 古いプロパティが別シートを指していたら、
+  // 勝手にどちらかを採用せず実行自体を止める。
+  if (
+    deployedId &&
+    fromProperty &&
+    fromProperty.trim() !== deployedId
+  ) {
+    throw new Error(
+      'SPREADSHEET_ID不一致: 配信台帳と' +
+      'スクリプトプロパティを確認してください。'
+    );
+  }
+
+  if (deployedId) return deployedId;
 
   if (fromProperty) return fromProperty.trim();
 
@@ -35,6 +55,40 @@ const SHEET_NAMES = {
 const CLIENT_TYPE_DIRECT = '直送'; // D列に入力するフラグ
 const DUPLICATE_ORDER_WINDOW_MS = 10 * 1000;
 const ORDER_HEADERS = ['タイムスタンプ', '商品コード', '個数', '商品名', '得意先名', 'ステータス', '備考', '別注'];
+
+// --- エラー通知（Discord #発注ツール-alerts へ即時送信） ---
+// 通知失敗・重複はここで握りつぶし、本処理には一切影響させない。
+// 同一エラーはCacheServiceで10分間抑制する。
+const ERROR_WEBHOOK_URL = 'https://discord.com/api/webhooks/1530932199736610969/SfTtaf0xhkmiL-KGp8jHjKkQrNe9FMaQtprl9kbrGyNWZDZ7G6PYgD8ZLXP34ztRyvJg';
+
+function reportErrorToDiscord_(where, error) {
+  try {
+    const message = (error && error.stack) ? String(error.stack) : String(error);
+    const cache = CacheService.getScriptCache();
+    const key = 'errnotify:' + Utilities.base64Encode(
+      Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, where + message)
+    );
+    if (cache.get(key)) return;
+    cache.put(key, '1', 600);
+
+    let dealer = 'sheet=' + SPREADSHEET_ID.slice(-6);
+    try {
+      dealer = SpreadsheetApp.openById(SPREADSHEET_ID).getName();
+    } catch (ignored) {}
+
+    UrlFetchApp.fetch(ERROR_WEBHOOK_URL, {
+      method: 'post',
+      contentType: 'application/json',
+      muteHttpExceptions: true,
+      payload: JSON.stringify({
+        content: '<@887824826985771078> 🚨 **発注サイトGASエラー**\n' +
+          '店: ' + dealer + '\n' +
+          '場所: ' + where + '\n' +
+          '```\n' + message.slice(0, 1500) + '\n```'
+      })
+    });
+  } catch (ignored) {}
+}
 
 // --- サブ関数: 締め時間に基づいた保存先の日付文字列を生成 ---
 function getTargetDateStr(date) {
@@ -195,6 +249,18 @@ function doGet(e) {
       const dataVersion = PropertiesService.getScriptProperties().getProperty('ITEMS_VERSION') || '0';
       return ContentService.createTextOutput(JSON.stringify({ status: 'success', dataVersion: dataVersion }))
         .setMimeType(ContentService.MimeType.JSON);
+    } else if (action === 'bump_items_version') {
+      // 管理者用：ITEMS_VERSIONを更新し、全サロン端末の商品キャッシュを
+      // 無効化する（1時間以内のバージョンチェックで再取得される）。
+      // マスタをシート直接編集した後の即時反映用。
+      // 鍵＝この店舗のスプレッドシートID（サイト側には出ない値）
+      if (String(e.parameter.key || '') !== String(SPREADSHEET_ID)) {
+        return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'invalid key' }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+      const bumped = bumpItemsVersionCore_();
+      return ContentService.createTextOutput(JSON.stringify({ status: 'success', dataVersion: bumped.version }))
+        .setMimeType(ContentService.MimeType.JSON);
     } else if (action === 'items') {
       const sheet = ss.getSheetByName(SHEET_NAMES.MASTER);
       if (!sheet) throw new Error(`Sheet '${SHEET_NAMES.MASTER}' not found.`);
@@ -321,6 +387,7 @@ function doGet(e) {
         throw new Error("Invalid action parameter for GET.");
     }
   } catch (error) {
+    reportErrorToDiscord_('doGet action=' + ((e && e.parameter && e.parameter.action) || 'items'), error);
     return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: error.toString() }))
       .setMimeType(ContentService.MimeType.JSON);
   }
@@ -328,10 +395,17 @@ function doGet(e) {
 
 // 2. POST リクエスト処理
 function doPost(e) {
+    let reportAction = '(parse前)';
     try {
         if (!e.postData || !e.postData.contents) throw new Error("No POST data received.");
         const postData = JSON.parse(e.postData.contents);
+
+        // LINE Messaging APIのWebhook。B2BサイトのPOSTとは形式が異なるため、
+        // action判定より先に安全な初回userId取得だけを処理する。
+        if (Array.isArray(postData.events)) return handleLineOnboardingWebhook_(postData);
+
         const action = postData.action;
+        reportAction = String(action || '(actionなし)');
 
         // ── ロック不要なアクション（先に処理） ──
         if (action === 'log_unknown_jan') return handleLogUnknownJan(postData);
@@ -362,9 +436,110 @@ function doPost(e) {
         }
 
     } catch (error) {
+        reportErrorToDiscord_('doPost action=' + reportAction, error);
         return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: error.toString() }))
             .setMimeType(ContentService.MimeType.JSON);
     }
+}
+
+// ------------------------------------------
+// LINE初回userId取得（管理者セットアップ用）
+// ------------------------------------------
+
+const LINE_USER_ID_CAPTURE_CODE_PROPERTY = 'LINE_USER_ID_CAPTURE_CODE';
+const LINE_USER_ID_PATTERN = /^U[0-9a-f]{32}$/;
+
+/**
+ * 初回取得用の一時コードを発行する。
+ * Apps Scriptの関数一覧から管理者が1回だけ実行し、戻り値を社員へ伝える。
+ * 既にGROUP_IDがある環境では誤上書きを防ぐため停止する。
+ */
+function prepareLineUserIdCapture() {
+    const props = PropertiesService.getScriptProperties();
+    if (props.getProperty('GROUP_ID')) {
+        throw new Error('GROUP_IDは設定済みです。初回取得は実行しません。');
+    }
+
+    const code = Utilities.getUuid().replace(/-/g, '');
+    props.setProperty(LINE_USER_ID_CAPTURE_CODE_PROPERTY, code);
+    console.log('社員へ送るLINE確認コード: ' + code);
+    return code;
+}
+
+/**
+ * 一時コードと一致する社員本人のテキストメッセージからuserIdだけを抽出する。
+ * グループ・ルーム・無関係な投稿・不正形式のIDは受け付けない。
+ */
+function extractLineOnboardingUserId_(postData, expectedCode) {
+    if (!expectedCode || !postData || !Array.isArray(postData.events)) return '';
+
+    for (let i = 0; i < postData.events.length; i++) {
+        const event = postData.events[i] || {};
+        const source = event.source || {};
+        const message = event.message || {};
+        const text = typeof message.text === 'string' ? message.text.trim() : '';
+
+        if (
+            event.type === 'message' &&
+            source.type === 'user' &&
+            message.type === 'text' &&
+            text === expectedCode &&
+            LINE_USER_ID_PATTERN.test(String(source.userId || ''))
+        ) {
+            return String(source.userId);
+        }
+    }
+
+    return '';
+}
+
+/**
+ * LINE Webhookを受け、初回コード一致時だけGROUP_IDを保存する。
+ * userIdはレスポンス・ログへ出さず、成功後は一時コードを即削除する。
+ */
+function handleLineOnboardingWebhook_(postData) {
+    const props = PropertiesService.getScriptProperties();
+    const expectedCode = props.getProperty(LINE_USER_ID_CAPTURE_CODE_PROPERTY);
+    const userId = extractLineOnboardingUserId_(postData, expectedCode);
+
+    if (!userId) {
+        return createLineWebhookResponse_();
+    }
+
+    if (props.getProperty('GROUP_ID')) {
+        props.deleteProperty(LINE_USER_ID_CAPTURE_CODE_PROPERTY);
+        return createLineWebhookResponse_();
+    }
+
+    props.setProperty('GROUP_ID', userId);
+    props.setProperty('LINE_USER_ID_CAPTURED_AT', new Date().toISOString());
+    props.deleteProperty(LINE_USER_ID_CAPTURE_CODE_PROPERTY);
+
+    return createLineWebhookResponse_();
+}
+
+function getLineUserIdCaptureStatus() {
+    const props = PropertiesService.getScriptProperties();
+    const status = {
+        waiting: Boolean(props.getProperty(LINE_USER_ID_CAPTURE_CODE_PROPERTY)),
+        captured: LINE_USER_ID_PATTERN.test(String(props.getProperty('GROUP_ID') || ''))
+    };
+    console.log(JSON.stringify(status));
+    return status;
+}
+
+function createJsonResponse_(data) {
+    return ContentService.createTextOutput(JSON.stringify(data))
+        .setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * LINEはWebhook検証時にHTTP 302を成功扱いしない。
+ * ContentServiceはApps Scriptの仕様でgoogleusercontent.comへ302転送するため、
+ * LINE WebhookだけはHtmlServiceで本文を直接返してHTTP 200にする。
+ */
+function createLineWebhookResponse_() {
+    return HtmlService.createHtmlOutput('OK');
 }
 
 // --- ログイン処理 ---
@@ -612,10 +787,8 @@ function handleMultiOrder(data) {
                      newValuesBeforeSpecial.push(row);
                  }
              }
-             sheetToClear.clearContents();
-             if (newValuesBeforeSpecial.length > 0) {
-                 sheetToClear.getRange(1, 1, newValuesBeforeSpecial.length, newValuesBeforeSpecial[0].length).setValues(newValuesBeforeSpecial);
-             }
+             // 空の中間状態を作らない安全な書き換え（途中断でも全消失しない）
+             rewriteSheetSafely_(sheetToClear, newValuesBeforeSpecial);
          }
      }
 
@@ -697,6 +870,31 @@ function handleMultiOrder(data) {
 }
 
 // --- 注文キャンセル処理 ---
+/**
+ * シートを安全に全書き換えする。
+ * clearContents()→setValues() の順だと、間でタイムアウト/例外が起きると
+ * シートが空のまま残り、その日の注文を丸ごと失う。
+ * 「先に新データで上書き→余った末尾行だけ内容クリア」にすることで、
+ * 空の中間状態を作らず、途中断でも全消失を防ぐ。
+ */
+function rewriteSheetSafely_(sheet, newValues) {
+     if (!newValues || newValues.length === 0) {
+          return;
+     }
+     const cols = newValues[0].length;
+     const oldLastRow = sheet.getLastRow();
+
+     // 1) 新データで上書き（この時点で全データが揃う。空にはならない）
+     sheet.getRange(1, 1, newValues.length, cols).setValues(newValues);
+
+     // 2) 余った末尾行だけ内容クリア
+     const extra = oldLastRow - newValues.length;
+     if (extra > 0) {
+          const clearCols = Math.max(cols, sheet.getLastColumn());
+          sheet.getRange(newValues.length + 1, 1, extra, clearCols).clearContent();
+     }
+}
+
 function handleCancelOrder(data) {
      const clientName = data.clientName;
      const orderId = data.orderId; // Epoch time
@@ -744,11 +942,10 @@ function handleCancelOrder(data) {
           }
      }
      
-     // 一括書き込み
+     // 一括書き込み（空の中間状態を作らない安全な書き換え）
      if (deletedCount > 0) {
-          sheet.clearContents();
-          sheet.getRange(1, 1, newValues.length, newValues[0].length).setValues(newValues);
-          
+          rewriteSheetSafely_(sheet, newValues);
+
           let message = `【キャンセル通知】\nサロン名: ${actualDisplayName}\n内容:\n${canceledItems.join('\n')}\n（注文ID: ${orderId}）`;
           sendNotification(message);
      }
@@ -810,11 +1007,9 @@ function handleUpdateOrder(data) {
           }
      }
 
-     // 2. Clear and rewrite sheet (except for new rows to be inserted)
-     sheet.clearContents();
-     if (newValuesBeforeSpecial.length > 0) {
-          sheet.getRange(1, 1, newValuesBeforeSpecial.length, newValuesBeforeSpecial[0].length).setValues(newValuesBeforeSpecial);
-     }
+     // 2. Rewrite sheet (except for new rows to be inserted).
+     //    空の中間状態を作らない安全な書き換え（途中断でも全消失しない）。
+     rewriteSheetSafely_(sheet, newValuesBeforeSpecial);
 
      // 2. Append new rows（絶対的末尾配置対応）
      // 別注判定（クライアント同梱のisSpecialが揃っていればマスタ全読みをスキップ）
@@ -1148,6 +1343,7 @@ function testSecondaryLineNotification() {
 
 function testAllLineNotifications() {
     const props = PropertiesService.getScriptProperties();
+    assertCanonicalLineATokenProperty_(props);
     const accounts = getLineAccountConfigs(props);
     if (accounts.length === 0) {
         throw new Error("LINE credentials not found. Set LINE_CHANNEL_ACCESS_TOKEN and GROUP_ID in Script Properties.");
@@ -1170,6 +1366,7 @@ function testAllLineNotifications() {
 
 function testLineFallbackSwitchNotification() {
     const props = PropertiesService.getScriptProperties();
+    assertCanonicalLineATokenProperty_(props);
     const accounts = getLineAccountConfigs(props);
     const primary = accounts.find(account => account.suffix === '');
     const fallbackAccounts = accounts.filter(account => account.suffix !== '');
@@ -1199,6 +1396,18 @@ function testLineFallbackSwitchNotification() {
         throw new Error(`Fallback switch test failed on LINE ${selected.label}: ${result.code} - ${result.body}`);
     }
     console.log(`Fallback switch test succeeded. selected=LINE ${selected.label}`);
+}
+
+function assertCanonicalLineATokenProperty_(props) {
+    if (
+        !props.getProperty('LINE_CHANNEL_ACCESS_TOKEN') &&
+        props.getProperty('LINE_CHANNEL_ACCESS_TOKEN_A')
+    ) {
+        throw new Error(
+            'LINE Aのプロパティ名が違います。' +
+            'LINE_CHANNEL_ACCESS_TOKEN_Aではなく、末尾なしのLINE_CHANNEL_ACCESS_TOKENへ変更してください。'
+        );
+    }
 }
 
 // 【未使用】2026-07-12にDiscord通知を停止（LINE通知のみ運用）。

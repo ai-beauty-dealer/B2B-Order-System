@@ -93,15 +93,33 @@ function syncMasterItems() {
  * この関数を単独で実行してください。
  */
 function forceGlobalCacheRefresh(addedCount = 0) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const bumped = bumpItemsVersionCore_();
+
+  const msg = addedCount > 0
+    ? `同期完了！\n未登録の新規データ ${addedCount} 件を追加しました。\n（システムバージョンも ${bumped.display} に更新されました）`
+    : `システムバージョンを ${bumped.display} に更新しました！\n得意先が次回アクセスした際、自動的に最新データが読み込まれます。`;
+
+  SpreadsheetApp.getUi().alert(msg);
+}
+
+/**
+ * 【バージョン更新の中核（UIなし）】
+ * Web API（doGet action=bump_items_version）からも呼べるよう、
+ * ポップアップを出さずにバージョン更新だけを行う。
+ * マスタをシート直接編集（サービスアカウント書き込み等）した
+ * 後の即時反映に使う。
+ */
+function bumpItemsVersionCore_() {
   const now = new Date();
   const timestampStr = now.getTime().toString();
   const displayDateStr = Utilities.formatDate(now, Session.getScriptTimeZone(), "yyyy/MM/dd HH:mm");
-  
+
   // システム内部（PropertiesService）にタイムスタンプを保存
   PropertiesService.getScriptProperties().setProperty('ITEMS_VERSION', timestampStr);
-  
+
   // 管理者目視用にSettingsシートにも書き出す
+  // （メニュー実行・Web API実行の両方で動くよう openById で開く）
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const settingsSheet = ss.getSheetByName('Settings');
   if (settingsSheet) {
     settingsSheet.getRange('E1').setValue('マスタ最終同期日時');
@@ -109,11 +127,7 @@ function forceGlobalCacheRefresh(addedCount = 0) {
     settingsSheet.getRange('F1').setValue(displayDateStr);
   }
 
-  const msg = addedCount > 0 
-    ? `同期完了！\n未登録の新規データ ${addedCount} 件を追加しました。\n（システムバージョンも ${displayDateStr} に更新されました）`
-    : `システムバージョンを ${displayDateStr} に更新しました！\n得意先が次回アクセスした際、自動的に最新データが読み込まれます。`;
-
-  SpreadsheetApp.getUi().alert(msg);
+  return { version: timestampStr, display: displayDateStr };
 }
 
 // ==========================================

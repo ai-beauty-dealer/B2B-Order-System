@@ -2,3 +2,5 @@
 backend/gas_deploy/projects.json
 backend/node_modules/
 自動入力ツール/
+__pycache__/
+*.pyc
