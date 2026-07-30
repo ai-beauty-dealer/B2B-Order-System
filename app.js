@@ -1,8 +1,8 @@
-// v2.35.3 (CODE-FILTER-ARROW-NAV)
+// v2.35.4 (EMPTY-CLIENTNAME-GUARD)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.35.3 (CODE-FILTER-ARROW-NAV) Loaded ---');
+    console.log('--- B2B Order System v2.35.4 (EMPTY-CLIENTNAME-GUARD) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -1776,6 +1776,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Fetch History from API ---
     // Optimization: Implement Caching in LocalStorage
     const fetchHistory = async (forceRefresh = false) => {
+        // 未ログイン等でサロン名が無いまま呼ばれたら通信しない
+        // （GAS側で "clientName parameter is required" エラーになるため）
+        if (!currentClientName) return;
+
         // 1. Check Cache first
         const cacheKey = `b2b_history_${currentClientName}`;
         const cachedHistory = localStorage.getItem(cacheKey);
@@ -2245,6 +2249,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             const favClientName = currentClientName;
             (async () => {
+                if (!favClientName) return; // 名前なしでGETするとGAS側でエラーになる
                 try {
                     const favRes = await fetch(`${CONFIG.API_URL}?action=get_favorites&clientName=${encodeURIComponent(favClientName)}`);
                     const favData = await favRes.json();
