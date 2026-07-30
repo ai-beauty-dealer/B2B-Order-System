@@ -1,8 +1,8 @@
-// v2.35.2 (CODE-FILTER-UX-FIX)
+// v2.35.3 (CODE-FILTER-ARROW-NAV)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.35.2 (CODE-FILTER-UX-FIX) Loaded ---');
+    console.log('--- B2B Order System v2.35.3 (CODE-FILTER-ARROW-NAV) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -966,15 +966,20 @@ document.addEventListener('DOMContentLoaded', () => {
             const input = event.target.closest('.code-filter-qty');
             if (input) applyCodeFilterQty(input);
         });
+        // Enter/↓＝次の行、↑＝前の行へ移動（type=numberの矢印増減はpreventDefaultで無効化）
         codeFilterRowsEl.addEventListener('keydown', (event) => {
             const input = event.target.closest('.code-filter-qty');
-            if (!input || event.key !== 'Enter') return;
+            if (!input) return;
+            const step = (event.key === 'Enter' || event.key === 'ArrowDown') ? 1
+                : (event.key === 'ArrowUp') ? -1
+                : 0;
+            if (!step) return;
             event.preventDefault();
             applyCodeFilterQty(input);
             const inputs = [...codeFilterRowsEl.querySelectorAll('.code-filter-qty')];
-            const next = inputs[inputs.indexOf(input) + 1];
+            const next = inputs[inputs.indexOf(input) + step];
             if (next) { next.focus(); next.select(); }
-            else input.blur();
+            else if (event.key === 'Enter') input.blur();
         });
     }
 
