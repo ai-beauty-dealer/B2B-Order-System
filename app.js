@@ -1,8 +1,8 @@
-// v2.35.1 (LOGIN-STUCK-LOADING-FIX)
+// v2.35.2 (CODE-FILTER-UX-FIX)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.35.1 (LOGIN-STUCK-LOADING-FIX) Loaded ---');
+    console.log('--- B2B Order System v2.35.2 (CODE-FILTER-UX-FIX) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -895,7 +895,9 @@ document.addEventListener('DOMContentLoaded', () => {
             qty.inputMode = 'numeric';
             qty.min = '0';
             qty.max = '999';
-            qty.value = String(currentQty);
+            // 0のときは空欄＋placeholderにする（「0」の左に1を打って10になる事故防止）
+            qty.value = currentQty > 0 ? String(currentQty) : '';
+            qty.placeholder = '0';
             qty.dataset.code = cartKey;
             qty.dataset.name = item.name;
 
@@ -914,7 +916,7 @@ document.addEventListener('DOMContentLoaded', () => {
         let qty = parseInt(input.value, 10);
         if (!Number.isFinite(qty) || qty < 0) qty = 0;
         if (qty > 999) qty = 999;
-        input.value = String(qty);
+        input.value = qty > 0 ? String(qty) : '';
         updateFromCart(cartKey, name, qty); // 絶対値で上書き
     };
 
@@ -955,6 +957,11 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
     if (codeFilterRowsEl) {
+        // 既存数量があるとき、タップ/クリックで全選択して上書きできるようにする
+        codeFilterRowsEl.addEventListener('focusin', (event) => {
+            const input = event.target.closest('.code-filter-qty');
+            if (input) input.select();
+        });
         codeFilterRowsEl.addEventListener('change', (event) => {
             const input = event.target.closest('.code-filter-qty');
             if (input) applyCodeFilterQty(input);
