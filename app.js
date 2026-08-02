@@ -30,6 +30,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const masterReturnBtn = document.getElementById('master-return-btn');
     const codeEntryBtn = document.getElementById('code-entry-btn');
     const codeFilterBtn = document.getElementById('code-filter-btn');
+    const directShipBtn = document.getElementById('direct-ship-btn');
+    const CLIENT_TYPE_DIRECT_LABEL = '直送'; // GAS側 CLIENT_TYPE_DIRECT と対
     const totalQtySpan = document.getElementById('total-qty');
     const orderSubmitBtn = document.getElementById('order-submit-btn');
     const searchInput = document.getElementById('search-input');
@@ -216,6 +218,63 @@ document.addEventListener('DOMContentLoaded', () => {
     // 再開するときは true に戻すだけ。UIもモーダルもコードは残してある。
     const ENABLE_IMPORT_MODE = false;
     let currentClientType = ''; // '直送' or ''
+    // ClientMaster D列に登録された本来の区分。直送トグルをOFFに戻すときここへ戻す。
+    // currentClientType は「今回の発注をどのシートへ送るか」で、こちらは登録値。
+    let registeredClientType = '';
+
+    // --- 直送トグル（MASTERログイン限定） ---
+    // 直送区分で登録していないサロンでも、その回の発注だけ直送シートへ送るための切替。
+    // currentClientType を書き換えるだけで、発注・内容変更・取消の送信箇所すべてに効く
+    // （バックエンドは data.clientType を見てシートを振り分けているため、GAS側の変更は不要）。
+    function isDirectShipOn() {
+        return currentClientType === CLIENT_TYPE_DIRECT_LABEL;
+    }
+
+    function renderDirectShipBtn() {
+        if (!directShipBtn) return;
+
+        const on = isDirectShipOn();
+        // 登録上すでに直送のサロンは切り替える意味がないので固定表示にする
+        const locked = registeredClientType === CLIENT_TYPE_DIRECT_LABEL;
+
+        directShipBtn.textContent = locked
+            ? '🚚 直送（登録済）'
+            : (on ? '🚚 直送: ON' : '🚚 直送: OFF');
+        directShipBtn.disabled = locked;
+        directShipBtn.title = locked
+            ? 'このサロンはClientMasterで直送に登録されています'
+            : 'この発注だけ直送シートへ送る（マスター限定）';
+        directShipBtn.style.background = on ? '#EF6B32' : '';
+        directShipBtn.style.color = on ? '#fff' : '';
+        directShipBtn.style.borderColor = on ? '#EF6B32' : '';
+
+        // サロン名の [直送] 表示も追随させる（誤送信に気づけるようにする）
+        if (clientNameDisplay && currentClientName) {
+            clientNameDisplay.textContent =
+                currentClientName + ' 様' + (on ? ' [直送]' : '');
+        }
+    }
+
+    if (directShipBtn) {
+        directShipBtn.addEventListener('click', () => {
+            if (registeredClientType === CLIENT_TYPE_DIRECT_LABEL) return;
+
+            if (!isDirectShipOn()) {
+                const ok = confirm(
+                    currentClientName + ' 様の発注を【直送】として送ります。\n\n' +
+                    '・' + '直送シート（YYYY-MM-DD直送）に記録されます\n' +
+                    '・LINE通知が【直送発注】になります\n\n' +
+                    'よろしいですか？'
+                );
+                if (!ok) return;
+                currentClientType = CLIENT_TYPE_DIRECT_LABEL;
+            } else {
+                currentClientType = registeredClientType || '';
+            }
+
+            renderDirectShipBtn();
+        });
+    }
     let itemsData = [];
     let itemsPreparsedFromCache = false; // 自動ログイン猶予中にキャッシュをparse済みか
     let favoriteItems = [];
@@ -246,13 +305,23 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const updateConfirmationCopy = (isEditing) => {
+        // 直送トグルがONのときは最終確認でも明示する（誤送信に気づける最後の場所）
+        const direct = isDirectShipOn();
         if (confirmationTitle) {
-            confirmationTitle.textContent = isEditing ? '発注内容の変更確認' : '発注内容の最終確認';
+            confirmationTitle.textContent =
+                (direct ? '【直送】' : '') +
+                (isEditing ? '発注内容の変更確認' : '発注内容の最終確認');
         }
         if (confirmationDesc) {
-            confirmationDesc.textContent = isEditing
-                ? '以下の内容で発注内容を変更しますか？'
-                : '以下の内容で発注を確定しますか？';
+            if (direct) {
+                confirmationDesc.textContent = isEditing
+                    ? 'この内容を【直送】として変更しますか？'
+                    : 'この内容を【直送】として発注しますか？';
+            } else {
+                confirmationDesc.textContent = isEditing
+                    ? '以下の内容で発注内容を変更しますか？'
+                    : '以下の内容で発注を確定しますか？';
+            }
         }
         if (modalConfirmBtn) {
             modalConfirmBtn.textContent = isEditing ? '変更を保存する' : '注文を確定する';
@@ -2308,6 +2377,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (printSheetBtn) {
             printSheetBtn.classList.toggle('hidden', !isMasterSession);
         }
+        if (directShipBtn) {
+            directShipBtn.classList.toggle('hidden', !isMasterSession);
+            renderDirectShipBtn();
+        }
         // 一括取り込みのドラフトがあれば自動でプレビューを開く
         if (isMasterSession) {
             setTimeout(() => maybeOpenImportDraft(), 900);
@@ -2425,6 +2498,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 currentClientName = (result.clientName || '').trim();
                 currentClientCode = String(result.clientCode || '').trim();
                 currentClientType = result.clientType || ''; // '直送' or ''
+                registeredClientType = currentClientType;
 
                 // PWA: 次回の自動ログイン用にセッション保存
                 autoLoginInProgress = false;
@@ -2535,6 +2609,9 @@ document.addEventListener('DOMContentLoaded', () => {
             currentClientName = (clientData.name || '').trim();
             currentClientCode = String(clientData.code || '').trim();
             currentClientType = clientData.type;
+            // サロンを切り替えたら直送トグルは必ず解除する。
+            // 前のサロンの指定が残ったまま別のサロンを発注する事故を防ぐ。
+            registeredClientType = clientData.type || '';
 
             document.getElementById('master-salon-selector').classList.add('hidden');
             loginForm.classList.remove('hidden');
@@ -2560,6 +2637,7 @@ document.addEventListener('DOMContentLoaded', () => {
             currentUsername = '';
             currentClientName = '';
             currentClientCode = '';
+            registeredClientType = '';
             currentClientType = '';
             isMasterSession = false;
             // 切替キャンセル時もクリアしておく
@@ -2587,6 +2665,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             currentClientName = '';
             currentClientCode = '';
+            registeredClientType = '';
             currentClientType = 'MASTER';
             favoriteItems = [];
             currentCart = {};
@@ -2636,6 +2715,7 @@ document.addEventListener('DOMContentLoaded', () => {
         currentUsername = '';
         currentClientName = '';
         currentClientCode = '';
+        registeredClientType = '';
         currentClientType = '';
         isMasterSession = false;
         if (masterReturnBtn) masterReturnBtn.classList.add('hidden');
@@ -2690,6 +2770,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (isSubmitting) return;
         setSubmittingState(true, isEditing);
         showLoading();
+        // 送信時点の直送指定を控える。送信後に自動でOFFへ戻すため。
+        const wasDirectShip = isDirectShipOn();
         try {
             const action = isEditing ? 'update_order' : 'order';
             const payload = {
@@ -2714,7 +2796,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (result.status === 'success') {
                 fetchHistory(true); // alertを閉じるのを待たず履歴更新を先行開始
-                alert(isEditing ? '発注内容を変更しました。' : '発注が完了しました！\n引き続き発注いただけます。');
+                alert((wasDirectShip ? '【直送】として送信しました。\n\n' : '') +
+                    (isEditing ? '発注内容を変更しました。' : '発注が完了しました！\n引き続き発注いただけます。'));
+                // 直送は都度指定。送信できたら自動でOFFへ戻し、次の発注へ持ち越さない。
+                // （登録上が直送のサロンは registeredClientType が '直送' なので変わらない）
+                if (wasDirectShip) {
+                    currentClientType = registeredClientType || '';
+                    renderDirectShipBtn();
+                }
                 // ... (中略: favoriteItems の処理はそのまま)
                 let favsUpdated = false;
                 orders.forEach(order => {
@@ -2756,6 +2845,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (isSubmitting) return;
         setSubmittingState(true, isEditing);
         showLoading();
+        // 送信時点の直送指定を控える。送信後に自動でOFFへ戻すため。
+        const wasDirectShip = isDirectShipOn();
         try {
             const payload = {
                 action: 'multi_order',
@@ -2774,7 +2865,14 @@ document.addEventListener('DOMContentLoaded', () => {
             const result = await response.json();
             if (result.status === 'success') {
                 fetchHistory(true); // alertを閉じるのを待たず履歴更新を先行開始
-                alert(isEditing ? '発注内容を変更しました。' : '発注が完了しました！\n引き続き発注いただけます。');
+                alert((wasDirectShip ? '【直送】として送信しました。\n\n' : '') +
+                    (isEditing ? '発注内容を変更しました。' : '発注が完了しました！\n引き続き発注いただけます。'));
+                // 直送は都度指定。送信できたら自動でOFFへ戻し、次の発注へ持ち越さない。
+                // （登録上が直送のサロンは registeredClientType が '直送' なので変わらない）
+                if (wasDirectShip) {
+                    currentClientType = registeredClientType || '';
+                    renderDirectShipBtn();
+                }
                 let favsUpdated = false;
                 orderGroups.forEach(group => {
                     group.orders.forEach(order => {
