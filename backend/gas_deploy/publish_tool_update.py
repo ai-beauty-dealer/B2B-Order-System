@@ -39,6 +39,8 @@ CHANNEL_TAB = "_ツール配信"
 EXCLUDES = [
     "venv",
     "__pycache__",
+    ".git",  # コミット履歴ごと社員へ渡さない
+    "CLAUDE-SECURITY-*",  # 脆弱性レポートは配布物に含めない
     "logs",
     "backups",
     "reports",

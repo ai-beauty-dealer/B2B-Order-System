@@ -66,9 +66,16 @@ CLIENT_HEADER = [
     "ログインID", "パスワード", "得意先名", "発送区分",
     "発注曜日", "新規・グループ用", "得意先コード",
 ]
-CLIENT_MASTER_ROW = [
-    "master", "actim", "マスター", "マスター", "", "", "",
-]
+# マスターアカウントは全得意先リストを返すため、推測できる値にしない。
+# ルール: ID = master + 担当者番号 / PW = a + 担当者番号 + 合言葉
+# 担当者番号は config.js に公開されるので、合言葉が無いと外部から導けてしまう。
+# 合言葉はコード・ドキュメントに書かず、環境変数 B2B_MASTER_SECRET で渡す。
+def build_client_master_row(staff_no, secret):
+    return [
+        "master" + staff_no,
+        "a" + staff_no + secret,
+        "マスター", "マスター", "", "", "",
+    ]
 
 IMPORTRANGE_FORMULA = (
     f'=IMPORTRANGE("{MASTER_SHEET_ID}", "ItemMaster!A1:G")'
@@ -178,6 +185,10 @@ def main():
     )
     parser.add_argument("--sheet-id", required=True)
     parser.add_argument(
+        "--staff-no", required=True,
+        help="担当者番号（例: 755）。マスターIDとPWの生成に使う",
+    )
+    parser.add_argument(
         "--type",
         choices=["order", "invoice"],
         default="order",
@@ -190,6 +201,19 @@ def main():
     args = parser.parse_args()
 
     sheet_id = args.sheet_id.strip()
+
+    staff_no = args.staff_no.strip()
+    master_secret = os.environ.get("B2B_MASTER_SECRET", "").strip()
+
+    if not master_secret:
+        sys.exit(
+            "❌ 合言葉が未設定。マスターPWが担当者番号だけから\n"
+            "   導ける状態になるため中止する。\n"
+            "   実行例: B2B_MASTER_SECRET=合言葉 python3 "
+            "setup_employee_sheet.py --sheet-id ... --staff-no 755"
+        )
+
+    client_master_row = build_client_master_row(staff_no, master_secret)
 
     if sheet_id in PROTECTED_IDS:
         sys.exit(
@@ -249,7 +273,7 @@ def main():
     client.retry(client_ws.clear)
     client.retry(
         client_ws.update,
-        values=[CLIENT_HEADER, CLIENT_MASTER_ROW],
+        values=[CLIENT_HEADER, client_master_row],
         range_name="A1:G2",
         value_input_option="RAW",
     )

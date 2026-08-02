@@ -43,6 +43,16 @@ const SPREADSHEET_ID = (function () {
   );
 })();
 
+// --- 機能フラグ ---
+// 写メ・LINE文面からの取り込み（parse_order / order_import.gs）。
+// 2026-08-02 停止。無認証で呼べる口だったため、外部からClaude APIを
+// 叩かれてAPI利用料だけが発生する状態だった（呼び出し側がモデルと
+// max_tokensを指定できる）。
+// 再開するときは true に戻して再デプロイするだけでよい。
+// order_import.gs は消していないので、コードはそのまま残っている。
+// ただし再開前に、parse_order にログイン確認を入れること。
+const ENABLE_PARSE_ORDER = false;
+
 // --- 設定 ---
 const SHEET_NAMES = {
   MASTER: 'ItemMaster',
@@ -409,7 +419,16 @@ function doPost(e) {
 
         // ── ロック不要なアクション（先に処理） ──
         if (action === 'log_unknown_jan') return handleLogUnknownJan(postData);
-        if (action === 'parse_order') return handleParseOrder(postData); // 取り込みモード（order_import.gs・読み取り専用）
+        // 取り込みモード（order_import.gs・読み取り専用）。ENABLE_PARSE_ORDER で停止中。
+        if (action === 'parse_order') {
+            if (!ENABLE_PARSE_ORDER) {
+                return ContentService.createTextOutput(JSON.stringify({
+                    status: 'error',
+                    message: '取り込みモードは現在停止しています。'
+                })).setMimeType(ContentService.MimeType.JSON);
+            }
+            return handleParseOrder(postData);
+        }
 
         // ── ロックが必要なアクション ──
         const lock = LockService.getScriptLock();
@@ -554,8 +573,9 @@ function handleLogin(data) {
 
     const values = sheet.getDataRange().getValues();
     
-    // ヘッダーをスキップし、A列:ID, B列:PW, C列:得意先名, D列:種別 を想定して検索
+    // ヘッダーをスキップし、A列:ID, B列:PW, C列:得意先名, D列:種別, G列:得意先コード を想定して検索
     let clientName = null;
+    let clientCode = ''; // G列（履歴お気に入りの参照キー。未設定なら空）
     let clientType = ''; // D列（空なら通常、'直送' なら直送）
     let authSuccess = false;
 
@@ -563,6 +583,7 @@ function handleLogin(data) {
         if(String(values[i][0]) === String(username) && String(values[i][1]) === String(password)) {
             authSuccess = true;
             clientName = values[i][2]; // C列の得意先名
+            clientCode = String(values[i][6] || '').trim().replace(/^'/, ''); // G列の得意先コード
             const rawType = String(values[i][3] || '').trim().toUpperCase();
             const rawGroup = String(values[i][5] || '').trim().toUpperCase(); // F列: グループ設定
             
@@ -587,6 +608,7 @@ function handleLogin(data) {
                  if (type !== 'マスター' && type !== 'MASTER' && String(values[j][2])) {
                      allClients.push({
                          name: values[j][2],
+                         code: String(values[j][6] || '').trim().replace(/^'/, ''),
                          type: type === CLIENT_TYPE_DIRECT ? CLIENT_TYPE_DIRECT : ''
                      });
                  }
@@ -598,6 +620,7 @@ function handleLogin(data) {
                  if (groupName === clientType && String(values[j][2])) {
                      allClients.push({
                          name: values[j][2],
+                         code: String(values[j][6] || '').trim().replace(/^'/, ''),
                          type: type === CLIENT_TYPE_DIRECT ? CLIENT_TYPE_DIRECT : '' // 直送ステータスを保持
                      });
                  }
@@ -653,6 +676,7 @@ function handleLogin(data) {
              status: 'success',
              message: 'Login successful',
              clientName: clientName,
+             clientCode: clientCode,
              clientType: clientType,
              isMaster: (clientType === 'MASTER'),
              isGroup: clientType.startsWith('GROUP_'),

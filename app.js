@@ -208,6 +208,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // State
     let currentUsername = '';
     let currentClientName = '';
+    // history_favorites.json の参照キー。得意先名は公開ファイルに出さない（ClientMaster G列）
+    let currentClientCode = '';
+
+    // 取り込みモード（LINE文面・写メ → カート）。2026-08-02 停止。
+    // バックエンドの ENABLE_PARSE_ORDER と対で切り替える。
+    // 再開するときは true に戻すだけ。UIもモーダルもコードは残してある。
+    const ENABLE_IMPORT_MODE = false;
     let currentClientType = ''; // '直送' or ''
     let itemsData = [];
     let itemsPreparsedFromCache = false; // 自動ログイン猶予中にキャッシュをparse済みか
@@ -1042,12 +1049,12 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log('[SyncFavs] currentClientName:', currentClientName);
         console.log('[SyncFavs] historyFavoritesData keys:', historyFavoritesData ? Object.keys(historyFavoritesData).slice(0, 5) : null);
 
-        if (!currentClientName || !historyFavoritesData) {
+        if (!currentClientCode || !historyFavoritesData) {
             showSyncMsg('データが読み込まれていないか、ログイン情報が不正です。', 'error');
             return;
         }
 
-        let historyCodes = historyFavoritesData[currentClientName] || [];
+        let historyCodes = historyFavoritesData[currentClientCode] || [];
         
         console.log('[SyncFavs] historyCodes count:', historyCodes ? historyCodes.length : 'NOT FOUND');
 
@@ -2296,7 +2303,7 @@ document.addEventListener('DOMContentLoaded', () => {
             codeFilterBtn.classList.toggle('hidden', !isMasterSession);
         }
         if (importModeBtn) {
-            importModeBtn.classList.toggle('hidden', !isMasterSession);
+            importModeBtn.classList.toggle('hidden', !ENABLE_IMPORT_MODE || !isMasterSession);
         }
         if (printSheetBtn) {
             printSheetBtn.classList.toggle('hidden', !isMasterSession);
@@ -2403,7 +2410,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         }
                         // 一括取り込みボタン（MASTERのみ）
                         const batchBtnEl = document.getElementById('batch-import-btn');
-                        if (batchBtnEl) batchBtnEl.classList.toggle('hidden', !result.isMaster);
+                        if (batchBtnEl) batchBtnEl.classList.toggle('hidden', !ENABLE_IMPORT_MODE || !result.isMaster);
 
                         // Save these temporarily to pass to the processLoginSuccess later
                         selectEl.dataset.announcement = result.announcement || '';
@@ -2416,6 +2423,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 currentClientName = (result.clientName || '').trim();
+                currentClientCode = String(result.clientCode || '').trim();
                 currentClientType = result.clientType || ''; // '直送' or ''
 
                 // PWA: 次回の自動ログイン用にセッション保存
@@ -2525,6 +2533,7 @@ document.addEventListener('DOMContentLoaded', () => {
             cartOrder = [];
 
             currentClientName = (clientData.name || '').trim();
+            currentClientCode = String(clientData.code || '').trim();
             currentClientType = clientData.type;
 
             document.getElementById('master-salon-selector').classList.add('hidden');
@@ -2550,6 +2559,7 @@ document.addEventListener('DOMContentLoaded', () => {
             clearCartFromStorage(); // Must be called before currentUsername is cleared
             currentUsername = '';
             currentClientName = '';
+            currentClientCode = '';
             currentClientType = '';
             isMasterSession = false;
             // 切替キャンセル時もクリアしておく
@@ -2576,6 +2586,7 @@ document.addEventListener('DOMContentLoaded', () => {
             closeCodeFilterModal();
 
             currentClientName = '';
+            currentClientCode = '';
             currentClientType = 'MASTER';
             favoriteItems = [];
             currentCart = {};
@@ -2624,6 +2635,7 @@ document.addEventListener('DOMContentLoaded', () => {
         clearCartFromStorage(); // Must be called before clearing currentUsername/currentClientName
         currentUsername = '';
         currentClientName = '';
+        currentClientCode = '';
         currentClientType = '';
         isMasterSession = false;
         if (masterReturnBtn) masterReturnBtn.classList.add('hidden');
@@ -3935,8 +3947,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const pushCode = (c) => { if (c && codes.indexOf(c) === -1) codes.push(c); };
         (favoriteItems || []).forEach(pushCode);
         archiveCodes.forEach(pushCode);
-        if (historyFavoritesData && historyFavoritesData[currentClientName]) {
-            historyFavoritesData[currentClientName].forEach(pushCode);
+        if (historyFavoritesData && historyFavoritesData[currentClientCode]) {
+            historyFavoritesData[currentClientCode].forEach(pushCode);
         }
         const sheetItems = codes.filter((c) => itemByCode[c]).slice(0, PRINT_SHEET_MAX_ITEMS)
             .map((c) => ({ code: c, name: itemByCode[c].name, category: itemByCode[c].category || 'その他' }));
