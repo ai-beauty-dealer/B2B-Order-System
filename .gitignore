@@ -1,5 +1,14 @@
 .DS_Store
 backend/gas_deploy/projects.json
+
+# 設計書・手順書はリポジトリに置かない。
+# このリポジトリはPublicで、かつGitHub Pagesがルートを丸ごと配信するため、
+# docs/ に置いたものは https://.../docs/ファイル名 で誰でも読めてしまう。
+# （共通パスワードや社員セットアップ手順が公開されていた）
+# ファイルは手元のdocs/にそのまま残っている。
+docs/
+manual/
+CLAUDE-SECURITY-*/
 backend/node_modules/
 自動入力ツール/
 __pycache__/
