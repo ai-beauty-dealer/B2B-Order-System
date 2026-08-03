@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="style.css?v=2.35.4">
 
     <!-- PWA -->
-    <link rel="manifest" href="manifest.json?v=2.18.0">
+    <link rel="manifest" href="manifest.json?v=2.35.6">
     <meta name="theme-color" content="#1e3a5f">
     <link rel="apple-touch-icon" href="apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -258,13 +258,13 @@
          SWがバージョンクエリ付き資産をcache-firstで持つため、
          上げ忘れると既訪端末が古い販売担当コード表を使い続ける。 -->
     <script src="config.js?v=2.35.5"></script>
-    <script src="app.js?v=2.35.4"></script>
+    <script src="app.js?v=2.35.6"></script>
 
     <!-- Service Worker 登録（PWA） -->
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function () {
-                navigator.serviceWorker.register('sw.js?v=2.35.5')
+                navigator.serviceWorker.register('sw.js?v=2.35.6')
                     .catch(function (err) {
                         console.warn('SW登録に失敗（通常サイトとして続行）:', err);
                     });

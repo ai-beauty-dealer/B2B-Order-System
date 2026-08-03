@@ -20,6 +20,26 @@ document.addEventListener('DOMContentLoaded', () => {
         if (loginBtn) { loginBtn.disabled = false; loginBtn.textContent = 'ログイン'; }
     };
 
+    /**
+     * ログイン失敗が「接続先の担当違い」で説明できるときだけ案内を足す。
+     *
+     * ホーム画面アプリを ?dealer= 無しで追加すると、iPhoneではSafariと
+     * localStorageが分かれるため記憶したdealerも読めず、defaultの本店へ
+     * 接続してしまう。社員のサロン様は本店に居ないので必ず弾かれるが、
+     * 「IDまたはパスワードが違う」としか出ないため原因に辿り着けなかった。
+     * 本店のサロン様はログインが通るのでこの文言は出ない。
+     */
+    const wrongDealerHint = () => {
+        const standalone = window.matchMedia('(display-mode: standalone)').matches
+            || window.navigator.standalone === true;
+        if (!standalone) return '';
+        if (CONFIG.DEALER !== 'default') return '';
+        return '\n\nホーム画面のアイコンから開いている場合、担当者の指定が'
+            + '外れていることがあります。担当者から案内されたURLをブラウザで'
+            + '開いてログインできるか試し、できた場合はそのページから'
+            + 'ホーム画面に追加し直してください。';
+    };
+
     // UI Elements
     const loginForm = document.getElementById('login-form');
     const loginContainer = document.getElementById('login-container');
@@ -2518,7 +2538,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     clearResumeSession();
                     autoLoginInProgress = false;
                 } else {
-                    alert('ログインに失敗しました: ' + result.message);
+                    alert('ログインに失敗しました: ' + result.message
+                        + wrongDealerHint());
                 }
             }
         } catch (error) {

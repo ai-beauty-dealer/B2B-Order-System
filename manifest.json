@@ -2,7 +2,7 @@
   "name": "AI Beauty Dealer 発注",
   "short_name": "発注",
   "description": "サロン様向け発注システム",
-  "start_url": ".",
+  "_comment_start_url": "start_urlは意図的に持たない。'.'固定にすると、ホーム画面から起動したとき ?dealer= が落ちる。iPhoneのホーム画面アプリはSafariと別のlocalStorageを使うため記憶したdealerも読めず、defaultの本店GASへ接続して社員のサロン様がログインできなくなる。start_urlを省略すると『追加した時点のURL』がそのまま使われるので、?dealer=付きで追加すれば担当が保持される。",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
