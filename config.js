@@ -18,8 +18,8 @@ const DEALER_API_URLS = {
     // ぶんちゃん（本店）。パラメータなしはここに接続される
     'default': 'https://script.google.com/macros/s/AKfycbwkR588NKOrW4lvb2qa9stPdkQIyso2flRcVSZt6HyxLAqc8pLiSqMpuWeh1RPxV2RD/exec'
 
-    // 社員1（2026-07-16追加）
-    ,'8732': 'https://script.google.com/macros/s/AKfycbysvKUpgDxKkXjY1LB__T--QzhNSc8tz7H9PUHL5rYsywvV92_lzWCgzQpBdsFJYHg7Hg/exec'
+    // 8732（花光さん・ぶんちゃん名義の旧環境）は 2026-08-03 に退役。
+    // 社員名義の 755 へ移行済みで、サロン様の登録も注文実績も無かった。
 
     // サブアカウント導入テスト（2026-07-18追加）
     ,'test-sub': 'https://script.google.com/macros/s/AKfycbzFFSKVcYi5Sel5MhJ7gf_2fq5UCtIALYuC0QM29hmQp12GyQcoqctG1mse_vxgNfeM/exec'
