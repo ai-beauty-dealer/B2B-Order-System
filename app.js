@@ -4029,11 +4029,23 @@ document.addEventListener('DOMContentLoaded', () => {
     const PRINT_CATEGORY_ORDER = ['カラー関連', '2剤/ブリーチ', 'パーマ関連', 'ストレート関連', 'シャンプー', 'トリートメント', 'スキャルプ関連', '業務用商品', 'コスメ関連'];
 
     // アーカイブ履歴からも商品コードを集めて「全履歴」に近づける
+    // アーカイブは「28日より古い履歴」しか返さないため中身は1日1回しか変わらない。
+    // サロン別に24時間キャッシュし、同日2回目以降の発注書出力を即時にする。
+    const ARCHIVE_CODES_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+    const archiveCodesCacheKey = (salonName) => 'b2b_archive_codes_' + salonName;
     const collectArchiveCodes = async () => {
+        try {
+            const cached = JSON.parse(localStorage.getItem(archiveCodesCacheKey(currentClientName)) || 'null');
+            if (cached && Array.isArray(cached.codes) && (Date.now() - cached.at) < ARCHIVE_CODES_CACHE_TTL_MS) {
+                return cached.codes;
+            }
+        } catch (e) { /* 壊れたキャッシュは無視して取り直す */ }
+
         const codes = [];
         let before = '';
         try {
             for (let page = 0; page < PRINT_ARCHIVE_MAX_PAGES; page++) {
+                showLoading(`アーカイブ履歴を集めています... ${page + 1}/${PRINT_ARCHIVE_MAX_PAGES}ページ`);
                 let url = `${CONFIG.API_URL}?action=history_archive&clientName=${encodeURIComponent(currentClientName)}`;
                 if (before) url += `&before=${encodeURIComponent(before)}`;
                 const res = await fetch(url);
@@ -4043,6 +4055,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!result.hasMore || !result.nextBefore) break;
                 before = result.nextBefore;
             }
+            // 途中で例外が出た不完全な結果は保存しない（24時間分の穴になるため）
+            try {
+                localStorage.setItem(archiveCodesCacheKey(currentClientName), JSON.stringify({ at: Date.now(), codes }));
+            } catch (e) { /* 容量超過等は無視（キャッシュなしで動作継続） */ }
         } catch (e) {
             console.warn('[PrintSheet] archive fetch failed (続行):', e);
         }
