@@ -4116,8 +4116,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const dateStr = `${today.getFullYear()}/${today.getMonth() + 1}/${today.getDate()}`;
 
         // 選択した列数で列優先配置する。列数ごとに文字サイズと改ページ見積もりを変える。
+        // 数量欄は商品名の左隣（行の右端だと商品名との距離が開き、行を取り違えやすい）
         const cell = (it) => it
-            ? `<div class="cell"><span class="nm">${escImportHtml(it.name)}<span class="cd">CODE ${escImportHtml(it.code)}</span></span><span class="qty"></span></div>`
+            ? `<div class="cell"><span class="qty"></span><span class="nm">${escImportHtml(it.name)}<span class="cd">CODE ${escImportHtml(it.code)}</span></span></div>`
             : '<div class="cell empty"></div>';
         const estimateCellWeight = (it) => {
             if (!it || !it.name) return 1;
@@ -4127,7 +4128,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const lines = Math.max(1, Math.ceil(visualWidth / layout.visualChars));
             return Math.min(layout.maxWeight, layout.baseWeight + (lines - 1) * layout.lineWeight);
         };
-        const blankCell = '<div class="cell"><span class="nm"></span><span class="qty"></span></div>';
+        const blankCell = '<div class="cell"><span class="qty"></span><span class="nm"></span></div>';
         let freeWriteHtml = '<p class="sec">▼ 表にない商品はこちらへ（商品名・サイズ・数量）</p>';
         for (let i = 0; i < 4; i++) {
             freeWriteHtml += `<div class="pair blank">${blankCell.repeat(printCols)}</div>`;
@@ -4217,7 +4218,7 @@ document.addEventListener('DOMContentLoaded', () => {
   </div>
   <img class="qr-main" src="${qrDataUrl}" alt="QR">
 </div>
-<p class="note">✏️ ご注文の商品の右枠に<b>数量</b>をご記入ください。表にない商品は最後の空欄にご記入ください。記入したページを全て写真に撮ってお送りください。</p>
+<p class="note">✏️ ご注文の商品名の<b>左のマスに数量</b>をご記入ください。表にない商品は最後の空欄にご記入ください。記入したページを全て写真に撮ってお送りください。</p>
 ${bodyHtml}
 </section>`;
             }
@@ -4256,9 +4257,9 @@ body { font-family: "Hiragino Sans", "Yu Gothic", sans-serif; color: #111; font-
 .pair { display: flex; gap: 2.8mm; break-inside: avoid; page-break-inside: avoid; }
 .cell { flex: 1; min-width: 0; display: flex; align-items: stretch; border-bottom: 1px solid #bbb; min-height: ${layout.cellMinMm}mm; }
 .cell.empty { border-bottom: none; }
-.nm { flex: 1; min-width: 0; padding: 0.2mm 0.8mm 0.2mm 0; font-size: ${layout.namePt}pt; font-weight: 700; line-height: 1.08; overflow-wrap: anywhere; }
+.nm { flex: 1; min-width: 0; padding: 0.2mm 0.8mm 0.2mm 1.2mm; font-size: ${layout.namePt}pt; font-weight: 700; line-height: 1.08; overflow-wrap: anywhere; }
 .cd { display: block; margin-top: 0.2mm; color: #111; font-family: Menlo, Monaco, "Courier New", monospace; font-size: ${layout.codePt}pt; font-weight: 600; line-height: 1; letter-spacing: 0.03em; white-space: nowrap; }
-.qty { width: ${layout.qtyMm}mm; flex-shrink: 0; border-left: 1px solid #bbb; }
+.qty { width: ${layout.qtyMm}mm; flex-shrink: 0; border-left: 1px solid #bbb; border-right: 1px solid #bbb; }
 .pair.blank .cell { min-height: ${layout.blankMinMm}mm; }
 .sec { font-size: 7.5pt; font-weight: bold; margin: 2.5mm 0 1mm; break-after: avoid; }
 .print-btn { position: fixed; top: 8px; right: 8px; padding: 10px 18px; font-size: 12pt; cursor: pointer; z-index: 10; }
