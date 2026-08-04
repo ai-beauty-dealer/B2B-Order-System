@@ -1,8 +1,8 @@
-// v2.36.0 (SORT-BY-CODE)
+// v2.36.9 (PRINT-QUANTITY-COLUMN)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.36.0 (SORT-BY-CODE) Loaded ---');
+    console.log('--- B2B Order System v2.36.9 (PRINT-QUANTITY-COLUMN) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -4249,7 +4249,7 @@ document.addEventListener('DOMContentLoaded', () => {
   </div>
   <img class="qr-main" src="${qrDataUrl}" alt="QR">
 </div>
-<p class="note">✏️ ご注文の商品名の<b>すぐ右のマスに数量</b>をご記入ください。表にない商品は最後の空欄にご記入ください。記入したページを全て写真に撮ってお送りください。</p>
+<p class="note">✏️ ご注文の商品名の<b>右側にある数量欄</b>へご記入ください。表にない商品は最後の空欄にご記入ください。記入したページを全て写真に撮ってお送りください。</p>
 ${bodyHtml}
 </section>`;
             }
@@ -4286,12 +4286,11 @@ body { font-family: "Hiragino Sans", "Yu Gothic", sans-serif; color: #111; font-
 .note { font-size: 7pt; color: #333; margin-bottom: 1.6mm; }
 .cat { font-size: 7.5pt; font-weight: bold; background: #ececec; padding: 0.7mm 1.2mm; margin-top: 1.4mm; break-after: avoid; page-break-after: avoid; }
 .pair { display: flex; gap: 2.8mm; break-inside: avoid; page-break-inside: avoid; }
-.cell { flex: 1; min-width: 0; display: flex; align-items: stretch; border-bottom: 1px solid #bbb; min-height: ${layout.cellMinMm}mm; }
+.cell { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) ${layout.qtyMm}mm; align-items: stretch; border-bottom: 1px solid #bbb; min-height: ${layout.cellMinMm}mm; }
 .cell.empty { border-bottom: none; }
-.nm { flex: 0 1 auto; min-width: 0; padding: 0.2mm 1mm 0.2mm 0; font-size: ${layout.namePt}pt; font-weight: 700; line-height: 1.08; overflow-wrap: anywhere; }
+.nm { min-width: 0; padding: 0.2mm 1mm 0.2mm 0; font-size: ${layout.namePt}pt; font-weight: 700; line-height: 1.08; overflow-wrap: anywhere; }
 .cd { display: block; margin-top: 0.2mm; color: #111; font-family: Menlo, Monaco, "Courier New", monospace; font-size: ${layout.codePt}pt; font-weight: 600; line-height: 1; letter-spacing: 0.03em; white-space: nowrap; }
-.qty { width: ${layout.qtyMm}mm; flex-shrink: 0; border: 1px solid #999; border-bottom: none; }
-.pair.blank .nm { flex: 1; }
+.qty { min-width: 0; border: 1px solid #999; border-bottom: none; }
 .pair.blank .cell { min-height: ${layout.blankMinMm}mm; }
 .sec { font-size: 7.5pt; font-weight: bold; margin: 2.5mm 0 1mm; break-after: avoid; }
 .print-btn { position: fixed; top: 8px; right: 8px; padding: 10px 18px; font-size: 12pt; cursor: pointer; z-index: 10; }
