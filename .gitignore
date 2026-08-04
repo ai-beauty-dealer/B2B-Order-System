@@ -13,3 +13,10 @@ backend/node_modules/
 自動入力ツール/
 __pycache__/
 *.pyc
+
+# バックエンド・生成スクリプトは公開Pagesから配信しない
+# （GAS本体・デプロイ台帳ツール・シード処理は攻撃者に内部構造を晒すため）
+backend/
+gen_history_favs.py
+app.backup.js
+style.backup.css
