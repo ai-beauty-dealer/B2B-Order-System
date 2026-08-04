@@ -4065,10 +4065,22 @@ document.addEventListener('DOMContentLoaded', () => {
         return codes;
     };
 
-    const printOrderSheet = async (requestedColumns) => {
+    const printOrderSheet = async (requestedColumns, requestedPageLimit) => {
         if (!isMasterSession || !currentClientName) return;
-        const layout = PRINT_LAYOUTS[requestedColumns] || PRINT_LAYOUTS[3];
-        const printCols = layout.cols;
+        const baseLayout = PRINT_LAYOUTS[requestedColumns] || PRINT_LAYOUTS[3];
+        const printCols = baseLayout.cols;
+        // 枚数（1=片面1枚 / 2=両面1枚 / 0=縮小なし・枚数自由）
+        // 全商品掲載は変えず、収まらない場合は全体の倍率を縮小して収める
+        const pageLimit = [1, 2].indexOf(requestedPageLimit) !== -1 ? requestedPageLimit : 0;
+        const PRINT_MIN_SCALE = 0.5; // これ以上の縮小は読めなくなるので、超える場合は枚数が増えるのを許容
+        const scaledLayout = (s) => ({
+            namePt: Math.round(baseLayout.namePt * s * 100) / 100,
+            codePt: Math.round(baseLayout.codePt * s * 100) / 100,
+            qtyMm: Math.max(6, Math.round(baseLayout.qtyMm * s * 100) / 100), // 手書き数字が入る最小幅は確保
+            cellMinMm: Math.round(baseLayout.cellMinMm * s * 100) / 100,
+            blankMinMm: Math.round(baseLayout.blankMinMm * s * 100) / 100,
+            visualChars: baseLayout.visualChars / s
+        });
 
         showLoading('全履歴を集めています...');
         const archiveCodes = await collectArchiveCodes();
@@ -4119,13 +4131,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const cell = (it) => it
             ? `<div class="cell"><span class="nm">${escImportHtml(it.name)}<span class="cd">CODE ${escImportHtml(it.code)}</span></span><span class="qty"></span></div>`
             : '<div class="cell empty"></div>';
-        const estimateCellWeight = (it) => {
+        const estimateCellWeight = (it, L) => {
             if (!it || !it.name) return 1;
             const visualWidth = Array.from(String(it.name)).reduce((sum, ch) => {
                 return sum + (/^[\x20-\x7eｦ-ﾟ]$/.test(ch) ? 0.56 : 1);
             }, 0);
-            const lines = Math.max(1, Math.ceil(visualWidth / layout.visualChars));
-            return Math.min(layout.maxWeight, layout.baseWeight + (lines - 1) * layout.lineWeight);
+            const lines = Math.max(1, Math.ceil(visualWidth / L.visualChars));
+            return Math.min(baseLayout.maxWeight, baseLayout.baseWeight + (lines - 1) * baseLayout.lineWeight);
         };
         const blankCell = '<div class="cell"><span class="nm"></span><span class="qty"></span></div>';
         let freeWriteHtml = '<p class="sec">▼ 表にない商品はこちらへ（商品名・サイズ・数量）</p>';
@@ -4138,16 +4150,17 @@ document.addEventListener('DOMContentLoaded', () => {
             if (block.type === 'cat') return 1.2;
             return 1;
         };
-        const paginatePrintBlocks = (blocks) => {
+        const paginatePrintBlocks = (blocks, s) => {
+            // 縮小率 s で行が低くなるぶん、1ページに入る行数（重み容量）は 1/s 倍に増える
             const pages = [];
             let page = [];
             let used = 0;
-            let limit = 42; // 1枚目はタイトル・説明・大きいQRを除いた実寸に合わせる
+            let limit = 42 / s; // 1枚目はタイトル・説明・大きいQRを除いた実寸に合わせる
             const pushPage = () => {
                 if (page.length) pages.push(page);
                 page = [];
                 used = 0;
-                limit = 47; // 2枚目以降は小さいQRヘッダーぶんだけ確保
+                limit = 47 / s; // 2枚目以降は小さいQRヘッダーぶんだけ確保
             };
             blocks.forEach((block) => {
                 const weight = blockWeight(block);
@@ -4161,7 +4174,8 @@ document.addEventListener('DOMContentLoaded', () => {
         };
 
         // 商品リスト → カテゴリ別グルーピング → ブロック化 → ページ分割（枚数上限の試算にも使う）
-        const buildPrintPages = (items) => {
+        const buildPrintPages = (items, s) => {
+            const L = scaledLayout(s);
             // 表示用: カテゴリ → 商品コード順（同じブランド・系列が自然に固まる）
             const byCategory = {};
             items.forEach((it) => {
@@ -4192,18 +4206,36 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     printBlocks.push({
                         type: 'row',
-                        weight: Math.max(...rowItems.map(estimateCellWeight)),
+                        weight: Math.max(...rowItems.map((x) => estimateCellWeight(x, L))),
                         html: `<div class="pair">${row}</div>`
                     });
                 }
             });
-            printBlocks.push({ type: 'free', weight: layout.freeWeight, html: freeWriteHtml });
-            return paginatePrintBlocks(printBlocks);
+            printBlocks.push({ type: 'free', weight: baseLayout.freeWeight, html: freeWriteHtml });
+            return paginatePrintBlocks(printBlocks, s);
         };
 
-        // 全商品を掲載する（枚数で絞らない方が親切、という運用判断・2026-08-04）
-        const printPages = buildPrintPages(sheetItems);
-        const metaCountLabel = `掲載 ${sheetItems.length}商品（お取引履歴より）`;
+        // 全商品を必ず掲載する（枚数で絞らない方が親切、という運用判断・2026-08-04）。
+        // 枚数指定があり収まらない場合は、商品を削らず全体の倍率を縮小して収める。
+        let printScale = 1;
+        let printPages = buildPrintPages(sheetItems, 1);
+        if (pageLimit > 0 && printPages.length > pageLimit) {
+            if (buildPrintPages(sheetItems, PRINT_MIN_SCALE).length > pageLimit) {
+                printScale = PRINT_MIN_SCALE; // 下限まで縮めても収まらない場合は下限倍率＋枚数超過を許容
+            } else {
+                // 収まる範囲で最大の倍率（＝最小の縮小）を二分探索
+                let lo = PRINT_MIN_SCALE, hi = 1;
+                for (let i = 0; i < 14; i++) {
+                    const mid = (lo + hi) / 2;
+                    if (buildPrintPages(sheetItems, mid).length <= pageLimit) lo = mid; else hi = mid;
+                }
+                printScale = Math.floor(lo * 100) / 100; // 切り捨て（切り上げると収まらない側に転ぶ）
+            }
+            printPages = buildPrintPages(sheetItems, printScale);
+        }
+        const layout = scaledLayout(printScale);
+        const metaCountLabel = `掲載 ${sheetItems.length}商品（お取引履歴より）`
+            + (printScale < 0.995 ? `／縮小 ${Math.round(printScale * 100)}%` : '');
 
         const renderPage = (blocks, idx) => {
             const bodyHtml = blocks.map((block) => block.html).join('');
@@ -4217,7 +4249,7 @@ document.addEventListener('DOMContentLoaded', () => {
   </div>
   <img class="qr-main" src="${qrDataUrl}" alt="QR">
 </div>
-<p class="note">✏️ ご注文の商品の<b>右枠に数量</b>をご記入ください。表にない商品は最後の空欄にご記入ください。記入したページを全て写真に撮ってお送りください。</p>
+<p class="note">✏️ ご注文の商品名の<b>すぐ右のマスに数量</b>をご記入ください。表にない商品は最後の空欄にご記入ください。記入したページを全て写真に撮ってお送りください。</p>
 ${bodyHtml}
 </section>`;
             }
@@ -4256,9 +4288,10 @@ body { font-family: "Hiragino Sans", "Yu Gothic", sans-serif; color: #111; font-
 .pair { display: flex; gap: 2.8mm; break-inside: avoid; page-break-inside: avoid; }
 .cell { flex: 1; min-width: 0; display: flex; align-items: stretch; border-bottom: 1px solid #bbb; min-height: ${layout.cellMinMm}mm; }
 .cell.empty { border-bottom: none; }
-.nm { flex: 1; min-width: 0; padding: 0.2mm 0.8mm 0.2mm 0; font-size: ${layout.namePt}pt; font-weight: 700; line-height: 1.08; overflow-wrap: anywhere; }
+.nm { flex: 0 1 auto; min-width: 0; padding: 0.2mm 1mm 0.2mm 0; font-size: ${layout.namePt}pt; font-weight: 700; line-height: 1.08; overflow-wrap: anywhere; }
 .cd { display: block; margin-top: 0.2mm; color: #111; font-family: Menlo, Monaco, "Courier New", monospace; font-size: ${layout.codePt}pt; font-weight: 600; line-height: 1; letter-spacing: 0.03em; white-space: nowrap; }
-.qty { width: ${layout.qtyMm}mm; flex-shrink: 0; border-left: 1px solid #bbb; }
+.qty { width: ${layout.qtyMm}mm; flex-shrink: 0; border: 1px solid #999; border-bottom: none; }
+.pair.blank .nm { flex: 1; }
 .pair.blank .cell { min-height: ${layout.blankMinMm}mm; }
 .sec { font-size: 7.5pt; font-weight: bold; margin: 2.5mm 0 1mm; break-after: avoid; }
 .print-btn { position: fixed; top: 8px; right: 8px; padding: 10px 18px; font-size: 12pt; cursor: pointer; z-index: 10; }
@@ -4278,6 +4311,8 @@ ${pagesHtml}
         if (!isMasterSession || !currentClientName || !printLayoutModal || !printLayoutOverlay) return;
         const defaultOption = printLayoutModal.querySelector('input[name="print-columns"][value="3"]');
         if (defaultOption) defaultOption.checked = true;
+        const defaultPages = printLayoutModal.querySelector('input[name="print-pages"][value="2"]');
+        if (defaultPages) defaultPages.checked = true;
         printLayoutModal.classList.remove('hidden');
         printLayoutOverlay.classList.remove('hidden');
     };
@@ -4292,8 +4327,10 @@ ${pagesHtml}
     if (printLayoutCreateBtn) printLayoutCreateBtn.addEventListener('click', () => {
         const selected = printLayoutModal && printLayoutModal.querySelector('input[name="print-columns"]:checked');
         const columns = selected ? Number(selected.value) : 3;
+        const selectedPages = printLayoutModal && printLayoutModal.querySelector('input[name="print-pages"]:checked');
+        const pageLimit = selectedPages ? Number(selectedPages.value) : 2;
         closePrintLayoutModal();
-        printOrderSheet(columns);
+        printOrderSheet(columns, pageLimit);
     });
 
     // ==========================================

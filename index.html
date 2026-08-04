@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="robots" content="noindex">
     <title>AI Beauty Dealer - B2B Order System</title>
-    <link rel="stylesheet" href="style.css?v=2.36.5">
+    <link rel="stylesheet" href="style.css?v=2.36.8">
 
     <!-- PWA -->
     <link rel="manifest" href="manifest.json?v=2.35.6">
@@ -259,13 +259,13 @@
          SWがバージョンクエリ付き資産をcache-firstで持つため、
          上げ忘れると既訪端末が古い販売担当コード表を使い続ける。 -->
     <script src="config.js?v=2.35.5"></script>
-    <script src="app.js?v=2.36.7"></script>
+    <script src="app.js?v=2.36.8"></script>
 
     <!-- Service Worker 登録（PWA） -->
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function () {
-                navigator.serviceWorker.register('sw.js?v=2.36.7')
+                navigator.serviceWorker.register('sw.js?v=2.36.8')
                     .catch(function (err) {
                         console.warn('SW登録に失敗（通常サイトとして続行）:', err);
                     });
@@ -400,9 +400,10 @@
     <div id="print-layout-overlay" class="cart-overlay hidden"></div>
     <div id="print-layout-modal" class="import-modal print-layout-modal hidden" role="dialog" aria-modal="true" aria-labelledby="print-layout-title">
         <div class="import-header">
-            <h3 id="print-layout-title">発注書の列数</h3>
+            <h3 id="print-layout-title">発注書の設定</h3>
             <button id="print-layout-close-btn" class="cart-close-btn" type="button" aria-label="閉じる">&times;</button>
         </div>
+        <p class="print-layout-label">列数</p>
         <div class="print-column-segments" role="radiogroup" aria-label="発注書の列数">
             <label>
                 <input type="radio" name="print-columns" value="2">
@@ -415,6 +416,21 @@
             <label>
                 <input type="radio" name="print-columns" value="4">
                 <span><strong>4列</strong><small>コンパクト</small></span>
+            </label>
+        </div>
+        <p class="print-layout-label">枚数（全商品のまま、収まらない分は全体を縮小）</p>
+        <div class="print-column-segments" role="radiogroup" aria-label="発注書の枚数">
+            <label>
+                <input type="radio" name="print-pages" value="1">
+                <span><strong>片面1枚</strong><small>1ページ</small></span>
+            </label>
+            <label>
+                <input type="radio" name="print-pages" value="2" checked>
+                <span><strong>両面1枚</strong><small>2ページ</small></span>
+            </label>
+            <label>
+                <input type="radio" name="print-pages" value="0">
+                <span><strong>縮小なし</strong><small>枚数自由</small></span>
             </label>
         </div>
         <button id="print-layout-create-btn" class="btn-primary print-layout-create-btn" type="button">発注書を作成</button>
