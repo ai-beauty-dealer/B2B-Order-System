@@ -4065,12 +4065,10 @@ document.addEventListener('DOMContentLoaded', () => {
         return codes;
     };
 
-    const printOrderSheet = async (requestedColumns, requestedPageLimit) => {
+    const printOrderSheet = async (requestedColumns) => {
         if (!isMasterSession || !currentClientName) return;
         const layout = PRINT_LAYOUTS[requestedColumns] || PRINT_LAYOUTS[3];
         const printCols = layout.cols;
-        // 枚数上限（1=片面1枚 / 2=両面1枚 / 0=制限なし・従来どおり全商品）
-        const pageLimit = [1, 2].indexOf(requestedPageLimit) !== -1 ? requestedPageLimit : 0;
 
         showLoading('全履歴を集めています...');
         const archiveCodes = await collectArchiveCodes();
@@ -4203,27 +4201,9 @@ document.addEventListener('DOMContentLoaded', () => {
             return paginatePrintBlocks(printBlocks);
         };
 
-        // 枚数上限に収まらない場合、文字サイズは変えず「よく頼む順」の上位だけ掲載する。
-        // sheetItems は発注回数→最終発注日の重要度順なので、先頭から n 件を採用すればよい。
-        let usedItems = sheetItems;
-        let printPages = buildPrintPages(usedItems);
-        if (pageLimit > 0 && printPages.length > pageLimit) {
-            let lo = 1, hi = sheetItems.length - 1, best = 1;
-            while (lo <= hi) {
-                const mid = (lo + hi) >> 1;
-                if (buildPrintPages(sheetItems.slice(0, mid)).length <= pageLimit) {
-                    best = mid;
-                    lo = mid + 1;
-                } else {
-                    hi = mid - 1;
-                }
-            }
-            usedItems = sheetItems.slice(0, best);
-            printPages = buildPrintPages(usedItems);
-        }
-        const metaCountLabel = usedItems.length < sheetItems.length
-            ? `掲載 ${usedItems.length}商品（全${sheetItems.length}商品からよく頼む順・その他は空欄へ）`
-            : `掲載 ${usedItems.length}商品（お取引履歴より）`;
+        // 全商品を掲載する（枚数で絞らない方が親切、という運用判断・2026-08-04）
+        const printPages = buildPrintPages(sheetItems);
+        const metaCountLabel = `掲載 ${sheetItems.length}商品（お取引履歴より）`;
 
         const renderPage = (blocks, idx) => {
             const bodyHtml = blocks.map((block) => block.html).join('');
@@ -4298,8 +4278,6 @@ ${pagesHtml}
         if (!isMasterSession || !currentClientName || !printLayoutModal || !printLayoutOverlay) return;
         const defaultOption = printLayoutModal.querySelector('input[name="print-columns"][value="3"]');
         if (defaultOption) defaultOption.checked = true;
-        const defaultPages = printLayoutModal.querySelector('input[name="print-pages"][value="2"]');
-        if (defaultPages) defaultPages.checked = true;
         printLayoutModal.classList.remove('hidden');
         printLayoutOverlay.classList.remove('hidden');
     };
@@ -4314,10 +4292,8 @@ ${pagesHtml}
     if (printLayoutCreateBtn) printLayoutCreateBtn.addEventListener('click', () => {
         const selected = printLayoutModal && printLayoutModal.querySelector('input[name="print-columns"]:checked');
         const columns = selected ? Number(selected.value) : 3;
-        const selectedPages = printLayoutModal && printLayoutModal.querySelector('input[name="print-pages"]:checked');
-        const pageLimit = selectedPages ? Number(selectedPages.value) : 2;
         closePrintLayoutModal();
-        printOrderSheet(columns, pageLimit);
+        printOrderSheet(columns);
     });
 
     // ==========================================

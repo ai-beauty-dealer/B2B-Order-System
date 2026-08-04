@@ -1422,17 +1422,6 @@ input[type=number]::-webkit-outer-spin-button {
     max-height: none;
 }
 
-.print-layout-label {
-    font-size: 0.8rem;
-    font-weight: 600;
-    color: #475569;
-    margin: 12px 0 6px;
-}
-
-.print-layout-label:first-of-type {
-    margin-top: 0;
-}
-
 .print-column-segments {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
