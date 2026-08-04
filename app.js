@@ -131,9 +131,20 @@ document.addEventListener('DOMContentLoaded', () => {
     // 別のサロンに切り替えるときはログアウトすればよい（下記でclearする）。
     // 認証失敗時はセッションを消して手動ログイン画面に戻す（無限ループ防止）。
     let autoLoginInProgress = false;
-    const saveResumeSession = (u, p, name) => {
+    // セキュリティ: パスワードはもう保存しない。サーバー発行のセッション
+    // トークン（tk）だけを保存し、自動ログインはトークンで行う。
+    // （旧バージョンが保存した {u, p, name} は初回だけ読み、成功後に
+    //   トークン形式で上書きされて平文パスワードが消える）
+    const saveResumeSession = (u, name) => {
+        // トークンが無い＝GAS側がまだ旧版。そのときは何も保存しない。
+        // （空トークンを保存すると次回の自動ログインが必ず失敗して
+        //   「ログイン中…」で止まったように見えるため）
+        if (!sessionToken) {
+            clearResumeSession();
+            return;
+        }
         try {
-            localStorage.setItem('b2b_resume', JSON.stringify({ u, p, name }));
+            localStorage.setItem('b2b_resume', JSON.stringify({ u, name, tk: sessionToken }));
         } catch (e) { /* 保存不可でも通常動作 */ }
     };
     const clearResumeSession = () => {
@@ -143,7 +154,7 @@ document.addEventListener('DOMContentLoaded', () => {
         let session = null;
         try { session = JSON.parse(localStorage.getItem('b2b_resume') || 'null'); }
         catch (e) { session = null; }
-        if (!session || !session.u || !session.p) return;
+        if (!session || !session.u || (!session.p && !session.tk)) return;
 
         // 自動ログイン中の表示＋「別のサロン」への脱出口
         const banner = document.createElement('div');
@@ -179,16 +190,47 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 0);
 
         // 「別のサロン」を押す猶予を少しだけ置いてから自動送信
-        setTimeout(() => {
+        setTimeout(async () => {
             if (cancelled) return;
             autoLoginInProgress = true;
-            if (usernameInput) usernameInput.value = session.u;
-            const pwEl = document.getElementById('password');
-            if (pwEl) pwEl.value = session.p;
             const b = document.getElementById('auto-login-banner');
             if (b) b.remove();
             loginForm.style.display = '';
-            // 既存のログイン処理をそのまま流用（新しい経路を作らない）
+
+            if (session.tk) {
+                // 新方式: トークンで再ログイン（パスワードは端末に無い）
+                showLoading();
+                try {
+                    const response = await fetch(CONFIG.API_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                        redirect: 'follow',
+                        body: JSON.stringify({ action: 'login', token: session.tk })
+                    });
+                    const result = await response.json();
+                    if (result.status === 'success') {
+                        await processLoginResult(result, session.u);
+                    } else {
+                        // トークン失効: 記憶を消して静かに手動ログインへ
+                        hideLoading();
+                        clearResumeSession();
+                        autoLoginInProgress = false;
+                        if (usernameInput) usernameInput.value = session.u;
+                    }
+                } catch (e) {
+                    // 通信エラーは一時的なので記憶は消さない
+                    console.error(e);
+                    hideLoading();
+                    autoLoginInProgress = false;
+                }
+                return;
+            }
+
+            // 旧方式の保存（平文パスワード）からの移行パス。
+            // 1回だけ従来のフォーム送信で入り、成功時にトークン形式で上書きされる。
+            if (usernameInput) usernameInput.value = session.u;
+            const pwEl = document.getElementById('password');
+            if (pwEl) pwEl.value = session.p;
             loginForm.requestSubmit
                 ? loginForm.requestSubmit()
                 : loginForm.dispatchEvent(new Event('submit', { cancelable: true }));
@@ -232,6 +274,19 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentClientName = '';
     // history_favorites.json の参照キー。得意先名は公開ファイルに出さない（ClientMaster G列）
     let currentClientCode = '';
+
+    // XSS対策: サーバー・発注履歴・ユーザー入力由来の文字列は
+    // 必ずこれを通してからinnerHTMLテンプレートに埋め込む。
+    // （発注履歴の商品名はシート経由で第三者が汚染し得るため）
+    const escHtml = (v) => String(v == null ? '' : v)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+    // セッショントークン（ログイン成功時にGASが発行するHMAC署名トークン）。
+    // 旧方式の「パスワードをlocalStorageに保存」を置き換えるもの。
+    // 全API呼び出しに同梱し、GAS側はこれでサロンを特定する。
+    let sessionToken = '';
+    const tokenQuery = () => sessionToken ? `&token=${encodeURIComponent(sessionToken)}` : '';
 
     // 取り込みモード（LINE文面・写メ → カート）。2026-08-02 停止。
     // バックエンドの ENABLE_PARSE_ORDER と対で切り替える。
@@ -443,12 +498,16 @@ document.addEventListener('DOMContentLoaded', () => {
     window.clearCacheSurgically = () => {
         const keysToKeep = [];
         // Identify keys to preserve (Favorites and Login identity)
+        // b2b_dealer / b2b_resume を消すと、PWA起動（?dealer=なし）の端末が
+        // 本店GASに戻って社員担当のサロン様がログイン不能になる。必ず残す。
         for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
             if (key.startsWith('b2b_favs_') ||
                 key.startsWith('b2b_cart_') ||
                 key === 'b2b_saved_username' ||
-                key === 'b2b_remember_me') {
+                key === 'b2b_remember_me' ||
+                key === 'b2b_dealer' ||
+                key === 'b2b_resume') {
                 keysToKeep.push({ key, value: localStorage.getItem(key) });
             }
         }
@@ -462,7 +521,18 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         alert('商品データのキャッシュを消去しました（お気に入りは保存されました）。画面を再読み込みします。');
-        location.reload();
+
+        // Service Workerのキャッシュも消す（「真っ黒画面」の原因が
+        // 壊れたSWキャッシュだった場合、localStorageだけでは直らない）。
+        // 失敗しても従来どおり再読み込みだけは必ず行う。
+        if (window.caches && caches.keys) {
+            caches.keys()
+                .then((names) => Promise.all(names.map((n) => caches.delete(n))))
+                .catch(() => {})
+                .then(() => location.reload());
+        } else {
+            location.reload();
+        }
     };
 
 
@@ -561,8 +631,8 @@ document.addEventListener('DOMContentLoaded', () => {
             row.className = 'cart-item-row';
             row.innerHTML = `
                 <div class="cart-item-info">
-                    <span class="cart-item-code">${code}</span>
-                    <span class="cart-item-name">${data.name}</span>
+                    <span class="cart-item-code">${escHtml(code)}</span>
+                    <span class="cart-item-name">${escHtml(data.name)}</span>
                 </div>
                 <div class="cart-item-controls">
                     <button class="cart-qty-btn cart-minus" data-code="${code}">−</button>
@@ -1093,6 +1163,7 @@ document.addEventListener('DOMContentLoaded', () => {
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify({
                 action: 'save_favorites',
+                token: sessionToken,
                 clientName: currentClientName,
                 favorites: favoriteItems
             })
@@ -1201,6 +1272,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                 body: JSON.stringify({
                     action: 'sync_all_history_to_favorites',
+                    token: sessionToken,
                     extraData: introHistory
                 })
             });
@@ -1366,8 +1438,8 @@ document.addEventListener('DOMContentLoaded', () => {
         card.innerHTML = `
             <button type="button" class="btn-fav ${isFav ? 'active' : ''}" data-code="${strCode}">${isFav ? '★' : '☆'}</button>
             <div class="item-row-info">
-                <span class="item-code">${strCode.replace(/^'/, '')}</span>
-                <span class="item-row-name">${item.name}${freqBadge}</span>
+                <span class="item-code">${escHtml(strCode.replace(/^'/, ''))}</span>
+                <span class="item-row-name">${escHtml(item.name)}${freqBadge}</span>
             </div>
             <div class="order-controls">
                 <button type="button" class="btn-qty minus">-</button>
@@ -1466,7 +1538,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             items.forEach(item => {
                 totalItems += parseInt(item.qty);
-                detailsHtml += `<div class="history-item"><span>${item.name}</span><span>${item.qty}点</span></div>`;
+                detailsHtml += `<div class="history-item"><span>${escHtml(item.name)}</span><span>${escHtml(item.qty)}点</span></div>`;
             });
 
             const isCompleted = items.length > 0 && items[0].status === '完了';
@@ -1567,7 +1639,7 @@ document.addEventListener('DOMContentLoaded', () => {
         button.disabled = true;
 
         try {
-            let url = `${CONFIG.API_URL}?action=history_archive&clientName=${encodeURIComponent(currentClientName)}`;
+            let url = `${CONFIG.API_URL}?action=history_archive&clientName=${encodeURIComponent(currentClientName)}${tokenQuery()}`;
             if (archiveNextBefore) {
                 url += `&before=${encodeURIComponent(archiveNextBefore)}`;
             }
@@ -1630,7 +1702,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             groupItems.forEach(item => {
                 totalItems += parseInt(item.qty) || 0;
-                detailsHtml += `<div class="history-item"><span>${item.name}</span><span>${item.qty}点</span></div>`;
+                detailsHtml += `<div class="history-item"><span>${escHtml(item.name)}</span><span>${escHtml(item.qty)}点</span></div>`;
             });
 
             const card = document.createElement('div');
@@ -1671,6 +1743,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                 body: JSON.stringify({
                     action: 'cancel_order',
+                    token: sessionToken,
                     clientName: currentClientName,
                     clientType: currentClientType, // '直送' or ''
                     orderId: orderId
@@ -1715,7 +1788,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <span class="item-code" style="color: var(--primary-color); font-weight: bold;">+ 特注・その他の商品</span>
                     <button type="button" class="btn-remove-custom" style="background: none; border: none; font-size: 1.2rem; cursor: pointer; color: #94a3b8;">×</button>
                 </div>
-                <input type="text" class="custom-name-input" placeholder="商品名や規格を入力してください..." value="${initialName === '（商品名未入力）' ? '' : initialName}"
+                <input type="text" class="custom-name-input" placeholder="商品名や規格を入力してください..." value="${initialName === '（商品名未入力）' ? '' : escHtml(initialName)}"
                        style="width: 100%; margin-top: 8px; padding: 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
             </div>
             <div class="order-controls" style="margin-top: 12px; justify-content: flex-end; width: 100%;">
@@ -1891,7 +1964,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         showLoading('履歴を読み込み中...');
         try {
-            const url = `${CONFIG.API_URL}?action=history&clientName=${encodeURIComponent(currentClientName)}`;
+            const url = `${CONFIG.API_URL}?action=history&clientName=${encodeURIComponent(currentClientName)}${tokenQuery()}`;
             const response = await fetch(url);
             const result = await response.json();
 
@@ -1943,7 +2016,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) { /* パース失敗は無視 */ }
 
         try {
-            const url = `${CONFIG.API_URL}?action=history&clientName=${encodeURIComponent(currentClientName)}`;
+            const url = `${CONFIG.API_URL}?action=history&clientName=${encodeURIComponent(currentClientName)}${tokenQuery()}`;
             const res = await fetch(url);
             const result = await res.json();
             if (result.status === 'success') {
@@ -2322,7 +2395,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const maintenanceMsgEl = document.getElementById('maintenance-message');
             if (maintenanceContainer) {
                 if (maintenanceMsgEl && maintenanceMessage) {
-                    maintenanceMsgEl.innerHTML = maintenanceMessage.replace(/\n/g, '<br>');
+                    maintenanceMsgEl.innerHTML = escHtml(maintenanceMessage).replace(/\n/g, '<br>');
                 }
                 maintenanceContainer.classList.remove('hidden');
             }
@@ -2352,7 +2425,7 @@ document.addEventListener('DOMContentLoaded', () => {
             (async () => {
                 if (!favClientName) return; // 名前なしでGETするとGAS側でエラーになる
                 try {
-                    const favRes = await fetch(`${CONFIG.API_URL}?action=get_favorites&clientName=${encodeURIComponent(favClientName)}`);
+                    const favRes = await fetch(`${CONFIG.API_URL}?action=get_favorites&clientName=${encodeURIComponent(favClientName)}${tokenQuery()}`);
                     const favData = await favRes.json();
                     if (favClientName !== currentClientName) return; // 取得中にサロン切替済みなら破棄
                     if (favData.status === 'success' && favData.data && favData.data.length > 0) {
@@ -2439,6 +2512,69 @@ document.addEventListener('DOMContentLoaded', () => {
         hideLoading();
     };
 
+    // --- Login成功時の共通処理 ---
+    // フォームログインとトークン自動ログインの両方から呼ばれる。
+    // マスター/グループはサロン選択画面へ、通常サロンは発注画面へ。
+    async function processLoginResult(result, username) {
+        currentUsername = username;
+        sessionToken = result.sessionToken || '';
+
+        // --- Master / Group Account Logic ---
+        isMasterSession = !!result.isMaster;
+        if (result.isMaster || result.isGroup) {
+            currentClientType = result.isMaster ? 'MASTER' : 'GROUP';
+            console.log(`[DEBUG] ${result.isMaster ? 'Master' : 'Group'} Account detected`);
+            masterAllClients = result.allClients || [];
+            const selectEl = document.getElementById('master-salon-select');
+            if (selectEl) {
+                selectEl.innerHTML = '';
+                masterAllClients.forEach(c => {
+                    const option = document.createElement('option');
+                    option.value = JSON.stringify(c);
+                    const typeLabel = c.type === '直送' ? ' [直送]' : '';
+                    option.textContent = c.name + typeLabel;
+                    selectEl.appendChild(option);
+                });
+                // サロン検索の初期表示（全件）。検索欄はクリア。
+                if (masterSalonSearch) masterSalonSearch.value = '';
+                renderMasterSalonList('');
+                loginForm.classList.add('hidden');
+                document.getElementById('master-salon-selector').classList.remove('hidden');
+
+                if (globalSyncBtn) {
+                    if (result.isMaster) {
+                        console.log('[DEBUG] Showing GlobalSyncBtn for Master');
+                        globalSyncBtn.classList.remove('hidden');
+                    } else {
+                        globalSyncBtn.classList.add('hidden');
+                    }
+                }
+                // 一括取り込みボタン（MASTERのみ）
+                const batchBtnEl = document.getElementById('batch-import-btn');
+                if (batchBtnEl) batchBtnEl.classList.toggle('hidden', !ENABLE_IMPORT_MODE || !result.isMaster);
+
+                // Save these temporarily to pass to the processLoginSuccess later
+                selectEl.dataset.announcement = result.announcement || '';
+                selectEl.dataset.isMaintenance = result.isMaintenance || false;
+                selectEl.dataset.maintenanceMessage = result.maintenanceMessage || '';
+                selectEl.dataset.dataVersion = result.dataVersion || '';
+            }
+            hideLoading();
+            return;
+        }
+
+        currentClientName = (result.clientName || '').trim();
+        currentClientCode = String(result.clientCode || '').trim();
+        currentClientType = result.clientType || ''; // '直送' or ''
+        registeredClientType = currentClientType;
+
+        // PWA: 次回の自動ログイン用にセッション保存（トークンのみ。PWは保存しない）
+        autoLoginInProgress = false;
+        saveResumeSession(username, currentClientName);
+
+        await processLoginSuccess(result.announcement, result.isMaintenance, result.maintenanceMessage, result.dataVersion, result.favorites);
+    }
+
     // --- Login (API) ---
     loginForm.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -2474,62 +2610,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     localStorage.setItem('b2b_remember_me', 'false');
                 }
 
-                currentUsername = username;
-
-                // --- Master / Group Account Logic ---
-                isMasterSession = !!result.isMaster;
-                if (result.isMaster || result.isGroup) {
-                    currentClientType = result.isMaster ? 'MASTER' : 'GROUP';
-                    console.log(`[DEBUG] ${result.isMaster ? 'Master' : 'Group'} Account detected`);
-                    masterAllClients = result.allClients || [];
-                    const selectEl = document.getElementById('master-salon-select');
-                    if (selectEl) {
-                        selectEl.innerHTML = '';
-                        masterAllClients.forEach(c => {
-                            const option = document.createElement('option');
-                            option.value = JSON.stringify(c);
-                            const typeLabel = c.type === '直送' ? ' [直送]' : '';
-                            option.textContent = c.name + typeLabel;
-                            selectEl.appendChild(option);
-                        });
-                        // サロン検索の初期表示（全件）。検索欄はクリア。
-                        if (masterSalonSearch) masterSalonSearch.value = '';
-                        renderMasterSalonList('');
-                        loginForm.classList.add('hidden');
-                        document.getElementById('master-salon-selector').classList.remove('hidden');
-                        
-                        if (globalSyncBtn) {
-                            if (result.isMaster) {
-                                console.log('[DEBUG] Showing GlobalSyncBtn for Master');
-                                globalSyncBtn.classList.remove('hidden');
-                            } else {
-                                globalSyncBtn.classList.add('hidden');
-                            }
-                        }
-                        // 一括取り込みボタン（MASTERのみ）
-                        const batchBtnEl = document.getElementById('batch-import-btn');
-                        if (batchBtnEl) batchBtnEl.classList.toggle('hidden', !ENABLE_IMPORT_MODE || !result.isMaster);
-
-                        // Save these temporarily to pass to the processLoginSuccess later
-                        selectEl.dataset.announcement = result.announcement || '';
-                        selectEl.dataset.isMaintenance = result.isMaintenance || false;
-                        selectEl.dataset.maintenanceMessage = result.maintenanceMessage || '';
-                        selectEl.dataset.dataVersion = result.dataVersion || '';
-                    }
-                    hideLoading();
-                    return;
-                }
-
-                currentClientName = (result.clientName || '').trim();
-                currentClientCode = String(result.clientCode || '').trim();
-                currentClientType = result.clientType || ''; // '直送' or ''
-                registeredClientType = currentClientType;
-
-                // PWA: 次回の自動ログイン用にセッション保存
-                autoLoginInProgress = false;
-                saveResumeSession(username, password, currentClientName);
-
-                await processLoginSuccess(result.announcement, result.isMaintenance, result.maintenanceMessage, result.dataVersion, result.favorites);
+                await processLoginResult(result, username);
             } else {
                 console.error('[DEBUG] Login Failed result:', result);
                 // ★重要: 失敗時もローディングを必ず解除する。
@@ -2736,6 +2817,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Logout ---
     logoutBtn.addEventListener('click', () => {
+        sessionToken = ''; // トークンも破棄（以後のAPI呼び出しに乗せない）
         clearResumeSession(); // 明示ログアウト＝別の人に切り替える意図なので再開情報を消す
         clearCartFromStorage(); // Must be called before clearing currentUsername/currentClientName
         currentUsername = '';
@@ -2802,6 +2884,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const action = isEditing ? 'update_order' : 'order';
             const payload = {
                 action: action,
+                token: sessionToken,
                 clientName: currentClientName,
                 clientType: currentClientType, // '直送' or ''
                 orders: attachIsSpecial(orders),
@@ -2876,6 +2959,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const payload = {
                 action: 'multi_order',
+                token: sessionToken,
                 orderGroups: orderGroups.map(group => ({
                     ...group,
                     orders: attachIsSpecial(group.orders)
@@ -2988,7 +3072,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             </div>
                         `;
                         
-                        row.innerHTML = `<div style="display: flex; justify-content: space-between;"><span class="confirm-item-name" style="font-weight: 600;">${data.name}</span><span class="confirm-item-qty">${data.qty}点</span></div>${assignHtml}`;
+                        row.innerHTML = `<div style="display: flex; justify-content: space-between;"><span class="confirm-item-name" style="font-weight: 600;">${escHtml(data.name)}</span><span class="confirm-item-qty">${escHtml(data.qty)}点</span></div>${assignHtml}`;
                         
                         // Set the default value
                         const select = row.querySelector('.item-assign-select');
@@ -3473,6 +3557,7 @@ document.addEventListener('DOMContentLoaded', () => {
             redirect: 'follow',
             body: JSON.stringify({
                 action: 'log_unknown_jan',
+                token: sessionToken,
                 janCode: janCode,
                 clientName: currentClientName
             })
@@ -3942,6 +4027,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 redirect: 'follow',
                 body: JSON.stringify({
                     action: 'parse_order',
+                    token: sessionToken,
                     clientName: currentClientName,
                     text: text,
                     images: importImages.map(im => im.data),
@@ -4046,7 +4132,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             for (let page = 0; page < PRINT_ARCHIVE_MAX_PAGES; page++) {
                 showLoading(`アーカイブ履歴を集めています... ${page + 1}/${PRINT_ARCHIVE_MAX_PAGES}ページ`);
-                let url = `${CONFIG.API_URL}?action=history_archive&clientName=${encodeURIComponent(currentClientName)}`;
+                let url = `${CONFIG.API_URL}?action=history_archive&clientName=${encodeURIComponent(currentClientName)}${tokenQuery()}`;
                 if (before) url += `&before=${encodeURIComponent(before)}`;
                 const res = await fetch(url);
                 const result = await res.json();
@@ -4527,6 +4613,7 @@ ${pagesHtml}
                     redirect: 'follow',
                     body: JSON.stringify({
                         action: 'parse_order',
+                        token: sessionToken,
                         clientName: salon,
                         text: '',
                         images: groups[salon].images,
