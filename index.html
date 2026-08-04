@@ -182,6 +182,7 @@
                 <option value="frequency">🕒 よく頼む順</option>
                 <option value="lastdate">📅 最終発注日順</option>
                 <option value="aiueo">🔤 あいうえお順</option>
+                <option value="code">🔢 商品コード順</option>
             </select>
         </div>
 
@@ -258,13 +259,13 @@
          SWがバージョンクエリ付き資産をcache-firstで持つため、
          上げ忘れると既訪端末が古い販売担当コード表を使い続ける。 -->
     <script src="config.js?v=2.35.5"></script>
-    <script src="app.js?v=2.35.6"></script>
+    <script src="app.js?v=2.36.0"></script>
 
     <!-- Service Worker 登録（PWA） -->
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function () {
-                navigator.serviceWorker.register('sw.js?v=2.35.6')
+                navigator.serviceWorker.register('sw.js?v=2.36.0')
                     .catch(function (err) {
                         console.warn('SW登録に失敗（通常サイトとして続行）:', err);
                     });

@@ -1,8 +1,8 @@
-// v2.35.4 (EMPTY-CLIENTNAME-GUARD)
+// v2.36.0 (SORT-BY-CODE)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.35.4 (EMPTY-CLIENTNAME-GUARD) Loaded ---');
+    console.log('--- B2B Order System v2.36.0 (SORT-BY-CODE) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -304,7 +304,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentCategoryFilter = 'all';
     let orderFrequency = {}; // よく頼む順: 商品コード → このサロンの発注回数
     let lastOrderDate = {};  // 最終発注日順: 商品コード → 最後に頼んだ時刻(epoch)
-    let currentSort = 'frequency'; // 並べ替え: frequency / lastdate / aiueo
+    let currentSort = 'frequency'; // 並べ替え: frequency / lastdate / aiueo / code
     let editingOrderId = null;
     let currentCart = {};
     let cartOrder = []; // Track the order in which items are added to the cart
@@ -1958,6 +1958,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- 現在の選択(currentSort)で商品配列を並べ替える共通関数 ---
     const sortByCurrent = (items) => {
         const codeOf = (it) => String(it.code).replace(/^'/, '');
+        if (currentSort === 'code') {
+            // 商品コード順（数値として比較。桁数違い・先頭0でも自然な順になる）
+            return items.slice().sort((a, b) =>
+                codeOf(a).localeCompare(codeOf(b), 'ja', { numeric: true }));
+        }
         if (currentSort === 'aiueo') {
             return items.slice().sort((a, b) =>
                 String(a.name || '').localeCompare(String(b.name || ''), 'ja'));
