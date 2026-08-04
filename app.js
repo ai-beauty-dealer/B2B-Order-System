@@ -4021,9 +4021,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const PRINT_SHEET_MAX_ITEMS = 240;
     const PRINT_ARCHIVE_MAX_PAGES = 6;      // アーカイブ履歴を遡る最大ページ数（50件×6）
     const PRINT_LAYOUTS = {
-        2: { cols: 2, namePt: 9, codePt: 10, qtyMm: 12, cellMinMm: 8, blankMinMm: 9, visualChars: 30, baseWeight: 1.35, lineWeight: 0.78, maxWeight: 3.7, freeWeight: 8.4 },
-        3: { cols: 3, namePt: 7.5, codePt: 8, qtyMm: 10, cellMinMm: 6, blankMinMm: 7, visualChars: 24, baseWeight: 1.05, lineWeight: 0.62, maxWeight: 2.6, freeWeight: 6.8 },
-        4: { cols: 4, namePt: 7, codePt: 7, qtyMm: 9, cellMinMm: 5.6, blankMinMm: 7, visualChars: 18, baseWeight: 1, lineWeight: 0.58, maxWeight: 2.4, freeWeight: 6.8 }
+        2: { cols: 2, namePt: 10, codePt: 7.5, qtyMm: 12, cellMinMm: 8, blankMinMm: 9, visualChars: 27, baseWeight: 1.35, lineWeight: 0.78, maxWeight: 3.7, freeWeight: 8.4 },
+        3: { cols: 3, namePt: 8.5, codePt: 6.5, qtyMm: 10, cellMinMm: 6, blankMinMm: 7, visualChars: 21, baseWeight: 1.05, lineWeight: 0.62, maxWeight: 2.6, freeWeight: 6.8 },
+        4: { cols: 4, namePt: 7.5, codePt: 6, qtyMm: 9, cellMinMm: 5.6, blankMinMm: 7, visualChars: 17, baseWeight: 1, lineWeight: 0.58, maxWeight: 2.4, freeWeight: 6.8 }
     };
     // 印刷時のカテゴリ掲載順（この順でセクション化し、各セクション内は商品名あいうえお順）
     const PRINT_CATEGORY_ORDER = ['カラー関連', '2剤/ブリーチ', 'パーマ関連', 'ストレート関連', 'シャンプー', 'トリートメント', 'スキャルプ関連', '業務用商品', 'コスメ関連'];
@@ -4236,8 +4236,8 @@ body { font-family: "Hiragino Sans", "Yu Gothic", sans-serif; color: #111; font-
 .pair { display: flex; gap: 2.8mm; break-inside: avoid; page-break-inside: avoid; }
 .cell { flex: 1; min-width: 0; display: flex; align-items: stretch; border-bottom: 1px solid #bbb; min-height: ${layout.cellMinMm}mm; }
 .cell.empty { border-bottom: none; }
-.nm { flex: 1; min-width: 0; padding: 0.2mm 0.8mm 0.2mm 0; font-size: ${layout.namePt}pt; line-height: 1.02; overflow-wrap: anywhere; }
-.cd { display: block; margin-top: 0.05mm; color: #111; font-family: Menlo, Monaco, "Courier New", monospace; font-size: ${layout.codePt}pt; font-weight: 700; line-height: 1; letter-spacing: 0; white-space: nowrap; }
+.nm { flex: 1; min-width: 0; padding: 0.2mm 0.8mm 0.2mm 0; font-size: ${layout.namePt}pt; font-weight: 700; line-height: 1.08; overflow-wrap: anywhere; }
+.cd { display: block; margin-top: 0.2mm; color: #555; font-family: Menlo, Monaco, "Courier New", monospace; font-size: ${layout.codePt}pt; font-weight: 400; line-height: 1; letter-spacing: 0; white-space: nowrap; }
 .qty { width: ${layout.qtyMm}mm; flex-shrink: 0; border-left: 1px solid #bbb; }
 .pair.blank .cell { min-height: ${layout.blankMinMm}mm; }
 .sec { font-size: 7.5pt; font-weight: bold; margin: 2.5mm 0 1mm; break-after: avoid; }
