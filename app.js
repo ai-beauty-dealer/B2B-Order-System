@@ -4065,10 +4065,12 @@ document.addEventListener('DOMContentLoaded', () => {
         return codes;
     };
 
-    const printOrderSheet = async (requestedColumns) => {
+    const printOrderSheet = async (requestedColumns, requestedPageLimit) => {
         if (!isMasterSession || !currentClientName) return;
         const layout = PRINT_LAYOUTS[requestedColumns] || PRINT_LAYOUTS[3];
         const printCols = layout.cols;
+        // 枚数上限（1=片面1枚 / 2=両面1枚 / 0=制限なし・従来どおり全商品）
+        const pageLimit = [1, 2].indexOf(requestedPageLimit) !== -1 ? requestedPageLimit : 0;
 
         showLoading('全履歴を集めています...');
         const archiveCodes = await collectArchiveCodes();
@@ -4097,25 +4099,6 @@ document.addEventListener('DOMContentLoaded', () => {
             alert('このサロンの履歴・お気に入りがまだありません。発注書を作るには履歴が必要です。');
             return;
         }
-
-        // 表示用: カテゴリ → 商品名あいうえお順（同じブランド・系列が自然に固まる）
-        const byCategory = {};
-        sheetItems.forEach((it) => {
-            if (!byCategory[it.category]) byCategory[it.category] = [];
-            byCategory[it.category].push(it);
-        });
-        const categoryKeys = Object.keys(byCategory).sort((a, b) => {
-            const ia = PRINT_CATEGORY_ORDER.indexOf(a);
-            const ib = PRINT_CATEGORY_ORDER.indexOf(b);
-            if (ia !== -1 && ib !== -1) return ia - ib;
-            if (ia !== -1) return -1;
-            if (ib !== -1) return 1;
-            return a.localeCompare(b, 'ja');
-        });
-        categoryKeys.forEach((cat) => {
-            // カテゴリ内は商品コード順（同一系列はコードが並んでいるため自然にまとまる）
-            byCategory[cat].sort((a, b) => String(a.code).localeCompare(String(b.code), 'ja', { numeric: true }));
-        });
 
         // QR生成（qrcode-generator。日本語サロン名のためUTF-8バイト変換を指定）
         let qrDataUrl = '';
@@ -4146,32 +4129,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const lines = Math.max(1, Math.ceil(visualWidth / layout.visualChars));
             return Math.min(layout.maxWeight, layout.baseWeight + (lines - 1) * layout.lineWeight);
         };
-        const printBlocks = [];
-        categoryKeys.forEach((cat) => {
-            printBlocks.push({ type: 'cat', html: `<div class="cat">${escImportHtml(cat)}</div>` });
-            const arr = byCategory[cat];
-            const rows = Math.ceil(arr.length / printCols);
-            for (let i = 0; i < rows; i++) {
-                let row = '';
-                const rowItems = [];
-                for (let k = 0; k < printCols; k++) {
-                    const rowItem = arr[i + k * rows];
-                    rowItems.push(rowItem);
-                    row += cell(rowItem);
-                }
-                printBlocks.push({
-                    type: 'row',
-                    weight: Math.max(...rowItems.map(estimateCellWeight)),
-                    html: `<div class="pair">${row}</div>`
-                });
-            }
-        });
         const blankCell = '<div class="cell"><span class="nm"></span><span class="qty"></span></div>';
         let freeWriteHtml = '<p class="sec">▼ 表にない商品はこちらへ（商品名・サイズ・数量）</p>';
         for (let i = 0; i < 4; i++) {
             freeWriteHtml += `<div class="pair blank">${blankCell.repeat(printCols)}</div>`;
         }
-        printBlocks.push({ type: 'free', weight: layout.freeWeight, html: freeWriteHtml });
 
         const blockWeight = (block) => {
             if (block.weight) return block.weight;
@@ -4200,7 +4162,69 @@ document.addEventListener('DOMContentLoaded', () => {
             return pages;
         };
 
-        const printPages = paginatePrintBlocks(printBlocks);
+        // 商品リスト → カテゴリ別グルーピング → ブロック化 → ページ分割（枚数上限の試算にも使う）
+        const buildPrintPages = (items) => {
+            // 表示用: カテゴリ → 商品コード順（同じブランド・系列が自然に固まる）
+            const byCategory = {};
+            items.forEach((it) => {
+                if (!byCategory[it.category]) byCategory[it.category] = [];
+                byCategory[it.category].push(it);
+            });
+            const categoryKeys = Object.keys(byCategory).sort((a, b) => {
+                const ia = PRINT_CATEGORY_ORDER.indexOf(a);
+                const ib = PRINT_CATEGORY_ORDER.indexOf(b);
+                if (ia !== -1 && ib !== -1) return ia - ib;
+                if (ia !== -1) return -1;
+                if (ib !== -1) return 1;
+                return a.localeCompare(b, 'ja');
+            });
+            const printBlocks = [];
+            categoryKeys.forEach((cat) => {
+                printBlocks.push({ type: 'cat', html: `<div class="cat">${escImportHtml(cat)}</div>` });
+                const arr = byCategory[cat].slice()
+                    .sort((a, b) => String(a.code).localeCompare(String(b.code), 'ja', { numeric: true }));
+                const rows = Math.ceil(arr.length / printCols);
+                for (let i = 0; i < rows; i++) {
+                    let row = '';
+                    const rowItems = [];
+                    for (let k = 0; k < printCols; k++) {
+                        const rowItem = arr[i + k * rows];
+                        rowItems.push(rowItem);
+                        row += cell(rowItem);
+                    }
+                    printBlocks.push({
+                        type: 'row',
+                        weight: Math.max(...rowItems.map(estimateCellWeight)),
+                        html: `<div class="pair">${row}</div>`
+                    });
+                }
+            });
+            printBlocks.push({ type: 'free', weight: layout.freeWeight, html: freeWriteHtml });
+            return paginatePrintBlocks(printBlocks);
+        };
+
+        // 枚数上限に収まらない場合、文字サイズは変えず「よく頼む順」の上位だけ掲載する。
+        // sheetItems は発注回数→最終発注日の重要度順なので、先頭から n 件を採用すればよい。
+        let usedItems = sheetItems;
+        let printPages = buildPrintPages(usedItems);
+        if (pageLimit > 0 && printPages.length > pageLimit) {
+            let lo = 1, hi = sheetItems.length - 1, best = 1;
+            while (lo <= hi) {
+                const mid = (lo + hi) >> 1;
+                if (buildPrintPages(sheetItems.slice(0, mid)).length <= pageLimit) {
+                    best = mid;
+                    lo = mid + 1;
+                } else {
+                    hi = mid - 1;
+                }
+            }
+            usedItems = sheetItems.slice(0, best);
+            printPages = buildPrintPages(usedItems);
+        }
+        const metaCountLabel = usedItems.length < sheetItems.length
+            ? `掲載 ${usedItems.length}商品（全${sheetItems.length}商品からよく頼む順・その他は空欄へ）`
+            : `掲載 ${usedItems.length}商品（お取引履歴より）`;
+
         const renderPage = (blocks, idx) => {
             const bodyHtml = blocks.map((block) => block.html).join('');
             if (idx === 0) {
@@ -4209,7 +4233,7 @@ document.addEventListener('DOMContentLoaded', () => {
   <div class="htxt">
     <h1>アクティム発注書</h1>
     <div class="salon">${escImportHtml(currentClientName)} 様</div>
-    <div class="meta">発行日: ${dateStr} ／ 掲載 ${sheetItems.length}商品（お取引履歴より）</div>
+    <div class="meta">発行日: ${dateStr} ／ ${metaCountLabel}</div>
   </div>
   <img class="qr-main" src="${qrDataUrl}" alt="QR">
 </div>
@@ -4274,6 +4298,8 @@ ${pagesHtml}
         if (!isMasterSession || !currentClientName || !printLayoutModal || !printLayoutOverlay) return;
         const defaultOption = printLayoutModal.querySelector('input[name="print-columns"][value="3"]');
         if (defaultOption) defaultOption.checked = true;
+        const defaultPages = printLayoutModal.querySelector('input[name="print-pages"][value="2"]');
+        if (defaultPages) defaultPages.checked = true;
         printLayoutModal.classList.remove('hidden');
         printLayoutOverlay.classList.remove('hidden');
     };
@@ -4288,8 +4314,10 @@ ${pagesHtml}
     if (printLayoutCreateBtn) printLayoutCreateBtn.addEventListener('click', () => {
         const selected = printLayoutModal && printLayoutModal.querySelector('input[name="print-columns"]:checked');
         const columns = selected ? Number(selected.value) : 3;
+        const selectedPages = printLayoutModal && printLayoutModal.querySelector('input[name="print-pages"]:checked');
+        const pageLimit = selectedPages ? Number(selectedPages.value) : 2;
         closePrintLayoutModal();
-        printOrderSheet(columns);
+        printOrderSheet(columns, pageLimit);
     });
 
     // ==========================================
