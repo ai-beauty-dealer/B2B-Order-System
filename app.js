@@ -1,8 +1,8 @@
-// v2.36.9 (PRINT-QUANTITY-COLUMN)
+// v2.37.1 (HISTORY-REQUEST-MERGE)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.36.9 (PRINT-QUANTITY-COLUMN) Loaded ---');
+    console.log('--- B2B Order System v2.37.1 (HISTORY-REQUEST-MERGE) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -1944,6 +1944,34 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Fetch History from API ---
     // Optimization: Implement Caching in LocalStorage
+    // 履歴APIの同時リクエスト合流: 履歴タブと「よく頼む順」の読み込みが
+    // 同時に走っても、重いGAS呼び出しは1本にまとめる
+    let historyRequestPromise = null;
+    let historyRequestKey = '';
+    const requestHistoryData = () => {
+        const key = currentClientName;
+        if (historyRequestPromise && historyRequestKey === key) {
+            return historyRequestPromise;
+        }
+        historyRequestKey = key;
+        historyRequestPromise = (async () => {
+            try {
+                const url = `${CONFIG.API_URL}?action=history&clientName=${encodeURIComponent(key)}${tokenQuery()}`;
+                const response = await fetch(url);
+                const result = await response.json();
+                if (result.status !== 'success') {
+                    throw new Error(result.message || '履歴の取得に失敗しました');
+                }
+                localStorage.setItem(`b2b_history_${key}`, JSON.stringify(result.data));
+                localStorage.setItem(`b2b_history_${key}_ts`, Date.now().toString());
+                return result.data;
+            } finally {
+                historyRequestPromise = null;
+            }
+        })();
+        return historyRequestPromise;
+    };
+
     const fetchHistory = async (forceRefresh = false) => {
         // 未ログイン等でサロン名が無いまま呼ばれたら通信しない
         // （GAS側で "clientName parameter is required" エラーになるため）
@@ -1964,22 +1992,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         showLoading('履歴を読み込み中...');
         try {
-            const url = `${CONFIG.API_URL}?action=history&clientName=${encodeURIComponent(currentClientName)}${tokenQuery()}`;
-            const response = await fetch(url);
-            const result = await response.json();
-
-            if (result.status === 'success') {
-                // Save to cache
-                localStorage.setItem(cacheKey, JSON.stringify(result.data));
-                localStorage.setItem(cacheKey + '_ts', now.toString());
-                
-                renderHistory(result.data);
-            } else {
-                alert('履歴の取得に失敗しました: ' + result.message);
-            }
+            const data = await requestHistoryData();
+            renderHistory(data);
         } catch (error) {
             console.error(error);
-            alert('通信エラーが発生しました。');
+            alert('履歴の取得に失敗しました: ' + (error && error.message ? error.message : '通信エラー'));
         } finally {
             hideLoading();
         }
@@ -2016,15 +2033,10 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) { /* パース失敗は無視 */ }
 
         try {
-            const url = `${CONFIG.API_URL}?action=history&clientName=${encodeURIComponent(currentClientName)}${tokenQuery()}`;
-            const res = await fetch(url);
-            const result = await res.json();
-            if (result.status === 'success') {
-                localStorage.setItem(cacheKey, JSON.stringify(result.data));
-                localStorage.setItem(cacheKey + '_ts', Date.now().toString());
-                buildOrderFrequency(result.data);
-                if (itemsData.length) renderItems(itemsData);
-            }
+            // fetchHistoryと同じ合流リクエストを使う（キャッシュ書き込みも共通）
+            const data = await requestHistoryData();
+            buildOrderFrequency(data);
+            if (itemsData.length) renderItems(itemsData);
         } catch (e) { /* 頻度が取れなくても通常動作 */ }
     };
 
