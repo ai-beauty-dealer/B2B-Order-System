@@ -1,8 +1,8 @@
-// v2.37.1 (HISTORY-REQUEST-MERGE)
+// v2.37.2 (PRINT-PAGE-FIT)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.37.1 (HISTORY-REQUEST-MERGE) Loaded ---');
+    console.log('--- B2B Order System v2.37.2 (PRINT-PAGE-FIT) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -4119,9 +4119,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const PRINT_SHEET_MAX_ITEMS = 240;
     const PRINT_ARCHIVE_MAX_PAGES = 6;      // アーカイブ履歴を遡る最大ページ数（50件×6）
     const PRINT_LAYOUTS = {
-        2: { cols: 2, namePt: 10, codePt: 8.5, qtyMm: 12, cellMinMm: 8, blankMinMm: 9, visualChars: 27, baseWeight: 1.35, lineWeight: 0.78, maxWeight: 3.7, freeWeight: 8.4 },
-        3: { cols: 3, namePt: 8.5, codePt: 7.5, qtyMm: 10, cellMinMm: 6, blankMinMm: 7, visualChars: 21, baseWeight: 1.05, lineWeight: 0.62, maxWeight: 2.6, freeWeight: 6.8 },
-        4: { cols: 4, namePt: 7.5, codePt: 6.5, qtyMm: 9, cellMinMm: 5.6, blankMinMm: 7, visualChars: 17, baseWeight: 1, lineWeight: 0.58, maxWeight: 2.4, freeWeight: 6.8 }
+        2: { cols: 2, namePt: 10, codePt: 8.5, qtyMm: 12, cellMinMm: 8, blankMinMm: 9 },
+        3: { cols: 3, namePt: 8.5, codePt: 7.5, qtyMm: 10, cellMinMm: 6, blankMinMm: 7 },
+        4: { cols: 4, namePt: 7.5, codePt: 6.5, qtyMm: 9, cellMinMm: 5.6, blankMinMm: 7 }
     };
     // 印刷時のカテゴリ掲載順（この順でセクション化し、各セクション内は商品名あいうえお順）
     const PRINT_CATEGORY_ORDER = ['カラー関連', '2剤/ブリーチ', 'パーマ関連', 'ストレート関連', 'シャンプー', 'トリートメント', 'スキャルプ関連', '業務用商品', 'コスメ関連'];
@@ -4171,14 +4171,32 @@ document.addEventListener('DOMContentLoaded', () => {
         // 全商品掲載は変えず、収まらない場合は全体の倍率を縮小して収める
         const pageLimit = [1, 2].indexOf(requestedPageLimit) !== -1 ? requestedPageLimit : 0;
         const PRINT_MIN_SCALE = 0.5; // これ以上の縮小は読めなくなるので、超える場合は枚数が増えるのを許容
-        const scaledLayout = (s) => ({
-            namePt: Math.round(baseLayout.namePt * s * 100) / 100,
-            codePt: Math.round(baseLayout.codePt * s * 100) / 100,
-            qtyMm: Math.max(6, Math.round(baseLayout.qtyMm * s * 100) / 100), // 手書き数字が入る最小幅は確保
-            cellMinMm: Math.round(baseLayout.cellMinMm * s * 100) / 100,
-            blankMinMm: Math.round(baseLayout.blankMinMm * s * 100) / 100,
-            visualChars: baseLayout.visualChars / s
-        });
+
+        // ---- ページ分割の見積もりは実寸(mm)で行う ----
+        // 以前は抽象的な重み(1ページ=42)で数えていたが実描画より2割ほど楽観的で、
+        // 片面1枚指定でも実際は2枚に溢れていた（2026-08-09修正）。
+        const PT_MM = 25.4 / 72;       // 1pt = 0.353mm
+        const PRINT_BODY_W_MM = 192;   // A4幅210mm - 左右余白9mm×2
+        const PAIR_GAP_MM = 2.8;       // .pair の列間gap
+        // 1ページで本文に使える高さ = A4印字可能283mm(297-上8-下6) - ヘッダー実測 - OS間フォント差の安全余白4mm
+        const PAGE1_BODY_MM = 245;     // 1枚目ヘッダー（タイトル・説明・大QR）実測32.4mm
+        const PAGE_CONT_BODY_MM = 262; // 2枚目以降ヘッダー（小QR）実測14.8mm
+        const CAT_HEAD_MM = 6.8;       // カテゴリ見出し。フォント固定なので縮小率に依存しない
+
+        const scaledLayout = (s) => {
+            const namePt = Math.round(baseLayout.namePt * s * 100) / 100;
+            const qtyMm = Math.max(6, Math.round(baseLayout.qtyMm * s * 100) / 100); // 手書き数字が入る最小幅は確保
+            // 1行に入る文字数（全角換算）は商品名欄の実幅÷実フォント幅。全角1文字≒1em、1.2mmは右padding等
+            const nameColMm = (PRINT_BODY_W_MM - (printCols - 1) * PAIR_GAP_MM) / printCols - qtyMm - 1.2;
+            return {
+                namePt,
+                codePt: Math.round(baseLayout.codePt * s * 100) / 100,
+                qtyMm,
+                cellMinMm: Math.round(baseLayout.cellMinMm * s * 100) / 100,
+                blankMinMm: Math.round(baseLayout.blankMinMm * s * 100) / 100,
+                visualChars: nameColMm / (namePt * PT_MM)
+            };
+        };
 
         showLoading('全履歴を集めています...');
         const archiveCodes = await collectArchiveCodes();
@@ -4229,13 +4247,20 @@ document.addEventListener('DOMContentLoaded', () => {
         const cell = (it) => it
             ? `<div class="cell"><span class="nm">${escImportHtml(it.name)}<span class="cd">CODE ${escImportHtml(it.code)}</span></span><span class="qty"></span></div>`
             : '<div class="cell empty"></div>';
-        const estimateCellWeight = (it, L) => {
+        const estimateCellLines = (it, L) => {
             if (!it || !it.name) return 1;
+            // 文字幅の全角換算（Hiragino Sans実測: 英数字≈0.65em・半角カナ≈0.50em。少し安全側に切り上げ）
             const visualWidth = Array.from(String(it.name)).reduce((sum, ch) => {
-                return sum + (/^[\x20-\x7eｦ-ﾟ]$/.test(ch) ? 0.56 : 1);
+                if (/^[\x20-\x7e]$/.test(ch)) return sum + 0.66;
+                if (/^[ｦ-ﾟ]$/.test(ch)) return sum + 0.52;
+                return sum + 1;
             }, 0);
-            const lines = Math.max(1, Math.ceil(visualWidth / L.visualChars));
-            return Math.min(baseLayout.maxWeight, baseLayout.baseWeight + (lines - 1) * baseLayout.lineWeight);
+            return Math.max(1, Math.ceil(visualWidth / L.visualChars));
+        };
+        // 行の実寸: 商品名(折り返し行数ぶん) + CODE行 + 上下余白。Chrome実測と±0.1mmで一致する
+        const rowHeightMm = (rowItems, L) => {
+            const lines = Math.max(...rowItems.map((x) => estimateCellLines(x, L)));
+            return Math.max(L.cellMinMm, lines * L.namePt * 1.08 * PT_MM + L.codePt * PT_MM + 0.9);
         };
         const blankCell = '<div class="cell"><span class="nm"></span><span class="qty"></span></div>';
         let freeWriteHtml = '<p class="sec">▼ 表にない商品はこちらへ（商品名・サイズ・数量）</p>';
@@ -4243,29 +4268,23 @@ document.addEventListener('DOMContentLoaded', () => {
             freeWriteHtml += `<div class="pair blank">${blankCell.repeat(printCols)}</div>`;
         }
 
-        const blockWeight = (block) => {
-            if (block.weight) return block.weight;
-            if (block.type === 'cat') return 1.2;
-            return 1;
-        };
-        const paginatePrintBlocks = (blocks, s) => {
-            // 縮小率 s で行が低くなるぶん、1ページに入る行数（重み容量）は 1/s 倍に増える
+        const paginatePrintBlocks = (blocks) => {
             const pages = [];
             let page = [];
             let used = 0;
-            let limit = 42 / s; // 1枚目はタイトル・説明・大きいQRを除いた実寸に合わせる
+            let limit = PAGE1_BODY_MM;
             const pushPage = () => {
                 if (page.length) pages.push(page);
                 page = [];
                 used = 0;
-                limit = 47 / s; // 2枚目以降は小さいQRヘッダーぶんだけ確保
+                limit = PAGE_CONT_BODY_MM;
             };
             blocks.forEach((block) => {
-                const weight = blockWeight(block);
-                if (block.type === 'cat' && page.length && used + 2.1 > limit) pushPage();
-                if (page.length && used + weight > limit) pushPage();
+                // カテゴリ見出しがページ最下段に孤立しないよう、直後に最低1行入る余地まで見る
+                if (block.type === 'cat' && page.length && used + block.heightMm + 6 > limit) pushPage();
+                if (page.length && used + block.heightMm > limit) pushPage();
                 page.push(block);
-                used += weight;
+                used += block.heightMm;
             });
             pushPage();
             return pages;
@@ -4290,7 +4309,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             const printBlocks = [];
             categoryKeys.forEach((cat) => {
-                printBlocks.push({ type: 'cat', html: `<div class="cat">${escImportHtml(cat)}</div>` });
+                printBlocks.push({ type: 'cat', heightMm: CAT_HEAD_MM, html: `<div class="cat">${escImportHtml(cat)}</div>` });
                 const arr = byCategory[cat].slice()
                     .sort((a, b) => String(a.code).localeCompare(String(b.code), 'ja', { numeric: true }));
                 const rows = Math.ceil(arr.length / printCols);
@@ -4304,13 +4323,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     printBlocks.push({
                         type: 'row',
-                        weight: Math.max(...rowItems.map((x) => estimateCellWeight(x, L))),
+                        heightMm: rowHeightMm(rowItems, L),
                         html: `<div class="pair">${row}</div>`
                     });
                 }
             });
-            printBlocks.push({ type: 'free', weight: baseLayout.freeWeight, html: freeWriteHtml });
-            return paginatePrintBlocks(printBlocks, s);
+            // 自由記入欄 = 見出し行7.5mm + 空欄4行（罫線ぶん+0.4mm）
+            printBlocks.push({ type: 'free', heightMm: 7.5 + 4 * (L.blankMinMm + 0.4), html: freeWriteHtml });
+            return paginatePrintBlocks(printBlocks);
         };
 
         // 全商品を必ず掲載する（枚数で絞らない方が親切、という運用判断・2026-08-04）。
@@ -4330,6 +4350,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 printScale = Math.floor(lo * 100) / 100; // 切り捨て（切り上げると収まらない側に転ぶ）
             }
             printPages = buildPrintPages(sheetItems, printScale);
+            if (printPages.length > pageLimit) {
+                alert(`商品数が多く、最小倍率(50%)でも指定枚数に収まらないため${printPages.length}ページになります（全商品掲載を優先します）。列数を増やすと収まりやすくなります。`);
+            }
         }
         const layout = scaledLayout(printScale);
         const metaCountLabel = `掲載 ${sheetItems.length}商品（お取引履歴より）`
