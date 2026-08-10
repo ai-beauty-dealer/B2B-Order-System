@@ -19,6 +19,12 @@ __pycache__/
 backend/
 # 納品書集約ツールのGASソース。backend/ と同じ性質（集約コード変換の業務ロジック）
 gas-tools/
+# backend/ の実ファイルを読み込むテストと、公開除外したdocs/を参照するUT設定。
+# 追跡すると「読み込み先が無い壊れたテスト」になるうえ、
+# 外したはずのGAS内部（関数名・スクリプトプロパティ名）が本文から漏れる。
+tests/test_line_user_id_capture.mjs
+tests/test_shipping_import.mjs
+ut.config.yaml
 gen_history_favs.py
 app.backup.js
 style.backup.css
