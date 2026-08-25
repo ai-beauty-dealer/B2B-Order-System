@@ -28,3 +28,8 @@ ut.config.yaml
 gen_history_favs.py
 app.backup.js
 style.backup.css
+# アイコン生成スクリプトとロゴ原本。backend/ と同じく生成側は配信しない
+# （成果物の icon-*.png / apple-touch-icon.png だけを追跡する）
+tools/
+# アイコン差し替え時の旧版バックアップ。手元に残すだけでよい
+.icon_backup_*/
