@@ -2590,7 +2590,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Login (API) ---
     loginForm.addEventListener('submit', async (e) => {
         e.preventDefault();
-        const username = document.getElementById('username').value;
+        // IDはtrimする。iOSの予測変換は確定時に末尾スペースを入れることがあり、
+        // 見た目が同じなのに弾かれる。パスワードは触らない（前後に空白を含む
+        // パスワードが登録されていた場合、既存の人を締め出してしまうため）。
+        const username = document.getElementById('username').value.trim();
         const password = document.getElementById('password').value;
 
         if (!username || !password) return;
