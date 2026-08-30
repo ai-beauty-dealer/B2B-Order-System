@@ -60,17 +60,17 @@ test('正の字と不明数量を構造化して扱う', () => {
 });
 
 test('印刷時に用紙ID・ページQR・位置JSONを登録する', () => {
-    assert.match(app, /PRINT_RENDERER_VERSION = 'b2b-print-v2\.39\.0'/);
+    assert.match(app, /PRINT_RENDERER_VERSION = 'b2b-print-v2\.39\.1'/);
     assert.match(app, /data-sheet-ocr-code/);
     assert.match(app, /registerOrderSheetLayoutFromPrint/);
     assert.match(app, /action: 'save_order_sheet_layout'/);
 });
 
-test('PWAは画像OCRヘルパーとv2.39.0を配信する', () => {
-    assert.match(html, /sheet-ocr\.js\?v=2\.39\.0/);
-    assert.match(html, /app\.js\?v=2\.39\.0/);
-    assert.match(html, /style\.css\?v=2\.39\.0/);
-    assert.match(sw, /CACHE_VERSION = 'v2\.39\.0'/);
+test('PWAは画像OCRヘルパーとv2.39.1を配信する', () => {
+    assert.match(html, /sheet-ocr\.js\?v=2\.39\.1/);
+    assert.match(html, /app\.js\?v=2\.39\.1/);
+    assert.match(html, /style\.css\?v=2\.39\.1/);
+    assert.match(sw, /CACHE_VERSION = 'v2\.39\.1'/);
     assert.match(sw, /'\.\/sheet-ocr\.js'/);
 });
 

@@ -1,8 +1,8 @@
-// v2.39.0 (FIXED-LAYOUT-SHEET-OCR-MAIN-ONLY)
+// v2.39.1 (FIXED-LAYOUT-SHEET-OCR-MAIN-ONLY)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.39.0 (FIXED-LAYOUT-SHEET-OCR-MAIN-ONLY) Loaded ---');
+    console.log('--- B2B Order System v2.39.1 (FIXED-LAYOUT-SHEET-OCR-MAIN-ONLY) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -4875,7 +4875,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const printLayoutCreateBtn = document.getElementById('print-layout-create-btn');
     const IMPORT_QR_PREFIX = 'B2BORDER|'; // QRの中身: B2BORDER|サロン名（一括取り込みのサロン判定に使う）
     const importDraftKey = (salonName) => 'b2b_import_draft_' + salonName;
-    const PRINT_RENDERER_VERSION = 'b2b-print-v2.39.0';
+    const PRINT_RENDERER_VERSION = 'b2b-print-v2.39.1';
 
     const PRINT_SHEET_MAX_ITEMS = 240;
     const PRINT_ARCHIVE_MAX_PAGES = 6;      // アーカイブ履歴を遡る最大ページ数（50件×6）
@@ -5224,7 +5224,7 @@ ${bodyHtml}
     } catch (error) {
       button.disabled = true;
       button.textContent = '位置情報の保存に失敗・閉じて再作成';
-      alert('画像取り込み用の位置情報を保存できませんでした。元の発注サイトを閉じずに、発注書を作り直してください。\n' + (error.message || ''));
+      alert('画像取り込み用の位置情報を保存できませんでした。元の発注サイトを閉じずに、発注書を作り直してください。\\n' + (error.message || ''));
     }
   };
   setTimeout(register, 120);

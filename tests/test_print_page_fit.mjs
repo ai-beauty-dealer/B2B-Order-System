@@ -39,7 +39,7 @@ const buildItems = (n) => {
 };
 
 // printOrderSheet が参照する外部を全部モックして実体を取り出す
-const buildSheetHtml = async (itemCount, cols, pageLimit) => {
+const buildSheetHtml = async (itemCount, cols, pageLimit, sheetOcrEnabled = false) => {
     const itemsData = buildItems(itemCount);
     const orderFrequency = {};
     const lastOrderDate = {};
@@ -54,7 +54,12 @@ const buildSheetHtml = async (itemCount, cols, pageLimit) => {
         historyFavoritesData: {},
         PRINT_SHEET_MAX_ITEMS: 240,
         IMPORT_QR_PREFIX: 'B2BORDER|',
-        ENABLE_SHEET_IMAGE_IMPORT: false,
+        ENABLE_SHEET_IMAGE_IMPORT: sheetOcrEnabled,
+        PRINT_RENDERER_VERSION: 'b2b-print-v2.39.1',
+        sheetOcr: {
+            makeSheetId: () => 'SO-abcdefghijklmnop',
+            makeQrValue: (sheetId, pageNo) => `B2BORDER2|${sheetId}|${pageNo}`,
+        },
         showLoading: () => {},
         hideLoading: () => {},
         collectArchiveCodes: async () => [],
@@ -87,6 +92,12 @@ if (!process.argv.includes('--browser')) {
     assert.ok(html.includes('print-page'), '発注書HTMLを生成できること');
     passed++;
     console.log('  ✓ HTML生成（PDF実ページ数の検証は --browser 指定時に実行）');
+    const ocrHtml = await buildSheetHtml(60, 3, 1, true);
+    const inlineScripts = [...ocrHtml.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((match) => match[1]);
+    assert.equal(inlineScripts.length, 1, '画像取込対応の位置登録スクリプトが1件あること');
+    assert.doesNotThrow(() => new Function(inlineScripts[0]), '印刷画面の位置登録スクリプトに構文エラーがないこと');
+    passed++;
+    console.log('  ✓ 画像取込対応の位置登録スクリプト構文');
 } else {
     assert.ok(chromePath, 'Chrome実描画テストを指定したがChromeが見つからない');
     const tempDir = mkdtempSync(join(tmpdir(), 'b2b-print-fit-'));
