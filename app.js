@@ -1,8 +1,8 @@
-// v2.37.2 (PRINT-PAGE-FIT)
+// v2.37.5 (PERSISTENT-PWA-LOGIN)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.37.2 (PRINT-PAGE-FIT) Loaded ---');
+    console.log('--- B2B Order System v2.37.5 (PERSISTENT-PWA-LOGIN) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -2531,6 +2531,13 @@ document.addEventListener('DOMContentLoaded', () => {
         currentUsername = username;
         sessionToken = result.sessionToken || '';
 
+        // PWA: 全アカウント共通で次回の自動ログイン情報を保存する。
+        // 以前は通常サロン分岐にだけ置いていたため、社員用のマスター／
+        // グループはここより下でreturnし、毎回ID/PWが必要になっていた。
+        const resumeName = (result.clientName || '').trim();
+        autoLoginInProgress = false;
+        saveResumeSession(username, resumeName);
+
         // --- Master / Group Account Logic ---
         isMasterSession = !!result.isMaster;
         if (result.isMaster || result.isGroup) {
@@ -2579,10 +2586,6 @@ document.addEventListener('DOMContentLoaded', () => {
         currentClientCode = String(result.clientCode || '').trim();
         currentClientType = result.clientType || ''; // '直送' or ''
         registeredClientType = currentClientType;
-
-        // PWA: 次回の自動ログイン用にセッション保存（トークンのみ。PWは保存しない）
-        autoLoginInProgress = false;
-        saveResumeSession(username, currentClientName);
 
         await processLoginSuccess(result.announcement, result.isMaintenance, result.maintenanceMessage, result.dataVersion, result.favorites);
     }
