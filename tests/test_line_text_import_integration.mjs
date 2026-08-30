@@ -16,13 +16,15 @@ const block = app.slice(start, end);
 const tests = [];
 const test = (name, run) => tests.push({ name, run });
 
-test('LINE取込は本店default限定、旧AI取込は停止したまま', () => {
-    assert.match(app, /const ENABLE_LINE_TEXT_IMPORT = CONFIG\.DEALER === 'default';/);
+test('LINE取込は本店と稼働中の社員dealerへ配信し、旧AI取込は停止したまま', () => {
+    assert.match(app, /const LINE_TEXT_IMPORT_DEALERS = new Set\(\['default', '755', '747'\]\);/);
+    assert.match(app, /const ENABLE_LINE_TEXT_IMPORT = LINE_TEXT_IMPORT_DEALERS\.has\(CONFIG\.DEALER\);/);
     assert.match(app, /const ENABLE_IMPORT_MODE = false;/);
 });
 
-test('社員dealerは明示承認までLINE取込の対象外', () => {
-    assert.doesNotMatch(app, /ENABLE_LINE_TEXT_IMPORT\s*=.*'755'|ENABLE_LINE_TEXT_IMPORT\s*=.*'747'/);
+test('テストdealerはLINE取込の対象外', () => {
+    const allowlist = app.match(/const LINE_TEXT_IMPORT_DEALERS = new Set\(\[([^\]]+)\]\);/)?.[1] || '';
+    assert.doesNotMatch(allowlist, /test-sub/);
 });
 
 test('MASTERセッションだけにボタンを表示する', () => {
@@ -61,11 +63,11 @@ test('LINE原文と商品名をHTMLとして解釈しない', () => {
     assert.doesNotMatch(block, /innerHTML\s*=.*source_text/);
 });
 
-test('PWAは照合ファイルとv2.38.0を配信する', () => {
+test('PWAは照合ファイルとv2.38.1のアプリを配信する', () => {
     assert.match(html, /line-order-match\.js\?v=2\.38\.0/);
-    assert.match(html, /app\.js\?v=2\.38\.0/);
+    assert.match(html, /app\.js\?v=2\.38\.1/);
     assert.match(html, /style\.css\?v=2\.38\.0/);
-    assert.match(sw, /CACHE_VERSION = 'v2\.38\.0'/);
+    assert.match(sw, /CACHE_VERSION = 'v2\.38\.1'/);
     assert.match(sw, /'\.\/line-order-match\.js'/);
 });
 

@@ -1,8 +1,8 @@
-// v2.38.0 (LINE-TEXT-IMPORT)
+// v2.38.1 (LINE-TEXT-IMPORT-EMPLOYEE-ROLLOUT)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.38.0 (LINE-TEXT-IMPORT) Loaded ---');
+    console.log('--- B2B Order System v2.38.1 (LINE-TEXT-IMPORT-EMPLOYEE-ROLLOUT) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -293,9 +293,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // バックエンドの ENABLE_PARSE_ORDER と対で切り替える。
     // 再開するときは true に戻すだけ。UIもモーダルもコードは残してある。
     const ENABLE_IMPORT_MODE = false;
-    // 段階導入: まず本店(default)だけで検証し、社員dealerには表示しない。
-    // 本店検証後、社員展開を承認した時点で対象dealerを明示的に追加する。
-    const ENABLE_LINE_TEXT_IMPORT = CONFIG.DEALER === 'default';
+    // 検証済みの本店と稼働中の社員dealerへ展開。test-subは対象外。
+    const LINE_TEXT_IMPORT_DEALERS = new Set(['default', '755', '747']);
+    const ENABLE_LINE_TEXT_IMPORT = LINE_TEXT_IMPORT_DEALERS.has(CONFIG.DEALER);
     let currentClientType = ''; // '直送' or ''
     // ClientMaster D列に登録された本来の区分。直送トグルをOFFに戻すときここへ戻す。
     // currentClientType は「今回の発注をどのシートへ送るか」で、こちらは登録値。
