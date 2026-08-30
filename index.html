@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="robots" content="noindex">
     <title>AI Beauty Dealer - B2B Order System</title>
-    <link rel="stylesheet" href="style.css?v=2.39.2">
+    <link rel="stylesheet" href="style.css?v=2.39.3">
 
     <!-- PWA -->
     <link rel="manifest" href="manifest.json?v=2.37.3">
@@ -272,14 +272,14 @@
          上げ忘れると既訪端末が古い販売担当コード表を使い続ける。 -->
     <script src="config.js?v=2.35.5"></script>
     <script src="line-order-match.js?v=2.38.0"></script>
-    <script src="sheet-ocr.js?v=2.39.2"></script>
-    <script src="app.js?v=2.39.2"></script>
+    <script src="sheet-ocr.js?v=2.39.3"></script>
+    <script src="app.js?v=2.39.3"></script>
 
     <!-- Service Worker 登録（PWA） -->
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function () {
-                navigator.serviceWorker.register('sw.js?v=2.39.2')
+                navigator.serviceWorker.register('sw.js?v=2.39.3')
                     .catch(function (err) {
                         console.warn('SW登録に失敗（通常サイトとして続行）:', err);
                     });
@@ -364,8 +364,12 @@
 
         <div id="sheet-ocr-upload-step">
             <p class="import-desc">このサイトから新しく印刷した発注書を撮影してください。用紙IDと保存済みの商品位置を照合し、数量欄だけをGeminiで読みます。</p>
-            <input id="sheet-ocr-photo" type="file" accept="image/jpeg,image/png,image/heic,image/heif,.heic,.heif,image/*" capture="environment" class="hidden">
-            <button id="sheet-ocr-photo-btn" class="btn-primary sheet-ocr-main-btn" type="button">カメラで撮る・写真を選ぶ</button>
+            <input id="sheet-ocr-photo" type="file" accept="image/jpeg,image/png,image/heic,image/heif,.heic,.heif,image/*" class="hidden">
+            <input id="sheet-ocr-camera" type="file" accept="image/*" capture="environment" class="hidden">
+            <div class="sheet-ocr-source-actions">
+                <button id="sheet-ocr-photo-btn" class="btn-primary sheet-ocr-main-btn" type="button">写真ライブラリから選ぶ</button>
+                <button id="sheet-ocr-camera-btn" class="btn-secondary sheet-ocr-main-btn" type="button">カメラで撮る</button>
+            </div>
             <div class="sheet-ocr-privacy">
                 <span>商品は場所で確定</span>
                 <span>AIへ商品名を送らない</span>

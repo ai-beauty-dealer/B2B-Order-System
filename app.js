@@ -1,8 +1,8 @@
-// v2.39.2 (FIXED-LAYOUT-SHEET-OCR-MAIN-ONLY)
+// v2.39.3 (MOBILE-PHOTO-LIBRARY-PICKER)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.39.2 (FIXED-LAYOUT-SHEET-OCR-MAIN-ONLY) Loaded ---');
+    console.log('--- B2B Order System v2.39.3 (MOBILE-PHOTO-LIBRARY-PICKER) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -4091,6 +4091,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const sheetOcrCloseBtn = document.getElementById('sheet-ocr-close-btn');
     const sheetOcrPhoto = document.getElementById('sheet-ocr-photo');
     const sheetOcrPhotoBtn = document.getElementById('sheet-ocr-photo-btn');
+    const sheetOcrCamera = document.getElementById('sheet-ocr-camera');
+    const sheetOcrCameraBtn = document.getElementById('sheet-ocr-camera-btn');
     const sheetOcrUploadStep = document.getElementById('sheet-ocr-upload-step');
     const sheetOcrCornerStep = document.getElementById('sheet-ocr-corner-step');
     const sheetOcrProcessingStep = document.getElementById('sheet-ocr-processing-step');
@@ -4164,6 +4166,7 @@ document.addEventListener('DOMContentLoaded', () => {
         sheetOcrState.reviewStartedAt = 0;
         sheetOcrState.busy = false;
         if (sheetOcrPhoto) sheetOcrPhoto.value = '';
+        if (sheetOcrCamera) sheetOcrCamera.value = '';
         if (sheetOcrReviewList) sheetOcrReviewList.replaceChildren();
         sheetOcrUploadStep.classList.remove('hidden');
         sheetOcrCornerStep.classList.add('hidden');
@@ -4289,7 +4292,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!file || sheetOcrState.busy) return;
         sheetOcrState.busy = true;
         sheetOcrPhotoBtn.disabled = true;
+        sheetOcrCameraBtn.disabled = true;
         sheetOcrPhotoBtn.textContent = '用紙IDを確認中…';
+        sheetOcrCameraBtn.textContent = '用紙IDを確認中…';
         showSheetOcrStatus('発注書のQRと保存済み位置JSONを照合しています。');
         sheetOcrState.startedAt = performance.now();
         try {
@@ -4326,10 +4331,13 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (error) {
             showSheetOcrStatus(error.message || '写真を読み込めませんでした。', true);
             if (sheetOcrPhoto) sheetOcrPhoto.value = '';
+            if (sheetOcrCamera) sheetOcrCamera.value = '';
         } finally {
             sheetOcrState.busy = false;
             sheetOcrPhotoBtn.disabled = false;
-            sheetOcrPhotoBtn.textContent = 'カメラで撮る・写真を選ぶ';
+            sheetOcrCameraBtn.disabled = false;
+            sheetOcrPhotoBtn.textContent = '写真ライブラリから選ぶ';
+            sheetOcrCameraBtn.textContent = 'カメラで撮る';
         }
     };
 
@@ -4476,12 +4484,14 @@ document.addEventListener('DOMContentLoaded', () => {
         sheetOcrModal.classList.remove('hidden');
         sheetOcrOverlay.classList.remove('hidden');
         sheetOcrPhotoBtn.disabled = true;
+        sheetOcrCameraBtn.disabled = true;
         showSheetOcrStatus('Gemini数量OCRの接続を確認しています。');
         try {
             const result = await callSheetOcrApi({ action: 'order_sheet_ocr_status' });
             if (!result.data.gemini_configured) throw new Error('Gemini APIが未設定です。管理者設定後に利用できます。');
             showSheetOcrStatus(`接続OK：${result.data.model}（数量欄のみ送信）`);
             sheetOcrPhotoBtn.disabled = false;
+            sheetOcrCameraBtn.disabled = false;
         } catch (error) {
             showSheetOcrStatus(error.message || '画像取り込みAPIへ接続できません。', true);
         }
@@ -4507,6 +4517,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (sheetOcrOverlay) sheetOcrOverlay.addEventListener('click', closeSheetOcrModal);
     if (sheetOcrPhotoBtn) sheetOcrPhotoBtn.addEventListener('click', () => sheetOcrPhoto.click());
     if (sheetOcrPhoto) sheetOcrPhoto.addEventListener('change', () => loadSheetOcrPhoto(sheetOcrPhoto.files && sheetOcrPhoto.files[0]));
+    if (sheetOcrCameraBtn) sheetOcrCameraBtn.addEventListener('click', () => sheetOcrCamera.click());
+    if (sheetOcrCamera) sheetOcrCamera.addEventListener('change', () => loadSheetOcrPhoto(sheetOcrCamera.files && sheetOcrCamera.files[0]));
     if (sheetOcrCornerReset) sheetOcrCornerReset.addEventListener('click', resetSheetOcrCorners);
     if (sheetOcrPhotoCanvas) sheetOcrPhotoCanvas.addEventListener('click', (event) => {
         if (!sheetOcrState.sourceCanvas || sheetOcrState.corners.length >= 4) return;

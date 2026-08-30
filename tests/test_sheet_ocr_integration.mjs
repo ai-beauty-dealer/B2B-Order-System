@@ -72,12 +72,22 @@ test('本店発注書はお気に入りを正本にし外した商品を履歴�
     assert.match(app, /if \(!useFavoriteOnlyPrint\) \{[\s\S]*archiveCodes\.forEach\(pushCode\)/);
 });
 
-test('PWAは画像OCRヘルパーとv2.39.2を配信する', () => {
-    assert.match(html, /sheet-ocr\.js\?v=2\.39\.2/);
-    assert.match(html, /app\.js\?v=2\.39\.2/);
-    assert.match(html, /style\.css\?v=2\.39\.2/);
-    assert.match(sw, /CACHE_VERSION = 'v2\.39\.2'/);
+test('PWAは画像OCRヘルパーとv2.39.3を配信する', () => {
+    assert.match(html, /sheet-ocr\.js\?v=2\.39\.3/);
+    assert.match(html, /app\.js\?v=2\.39\.3/);
+    assert.match(html, /style\.css\?v=2\.39\.3/);
+    assert.match(sw, /CACHE_VERSION = 'v2\.39\.3'/);
     assert.match(sw, /'\.\/sheet-ocr\.js'/);
+});
+
+test('スマホの写真ライブラリとカメラを別入力にする', () => {
+    assert.match(html, /id="sheet-ocr-photo"[^>]*class="hidden"/);
+    assert.doesNotMatch(html, /id="sheet-ocr-photo"[^>]*capture=/);
+    assert.match(html, /id="sheet-ocr-camera"[^>]*capture="environment"/);
+    assert.match(html, /写真ライブラリから選ぶ/);
+    assert.match(html, /カメラで撮る/);
+    assert.match(block, /sheetOcrCameraBtn\.addEventListener\('click'/);
+    assert.match(block, /sheetOcrCamera\.addEventListener\('change'/);
 });
 
 test('スマホで商品画像と数量が横並びになり操作高を確保する', () => {
