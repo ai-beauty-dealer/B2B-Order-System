@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="robots" content="noindex">
     <title>AI Beauty Dealer - B2B Order System</title>
-    <link rel="stylesheet" href="style.css?v=2.38.0">
+    <link rel="stylesheet" href="style.css?v=2.39.0">
 
     <!-- PWA -->
     <link rel="manifest" href="manifest.json?v=2.37.3">
@@ -119,6 +119,9 @@
             </button>
             <button id="line-import-btn" class="btn-secondary hidden" title="LINEでもらった注文文をカートへ取り込み">
                 LINE取込
+            </button>
+            <button id="sheet-image-import-btn" class="btn-secondary hidden" title="印刷した発注書の写真から数量を取り込み">
+                画像取込
             </button>
             <button id="print-sheet-btn" class="btn-secondary hidden" title="このサロン用の発注書を印刷">
                 🖨 発注書
@@ -269,13 +272,14 @@
          上げ忘れると既訪端末が古い販売担当コード表を使い続ける。 -->
     <script src="config.js?v=2.35.5"></script>
     <script src="line-order-match.js?v=2.38.0"></script>
-    <script src="app.js?v=2.38.1"></script>
+    <script src="sheet-ocr.js?v=2.39.0"></script>
+    <script src="app.js?v=2.39.0"></script>
 
     <!-- Service Worker 登録（PWA） -->
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function () {
-                navigator.serviceWorker.register('sw.js?v=2.38.1')
+                navigator.serviceWorker.register('sw.js?v=2.39.0')
                     .catch(function (err) {
                         console.warn('SW登録に失敗（通常サイトとして続行）:', err);
                     });
@@ -338,6 +342,69 @@
                 </div>
             </div>
         </div>
+    </div>
+
+    <!-- 発注書画像取込（固定座標＋Gemini数量OCR・本店MASTER限定） -->
+    <div id="sheet-ocr-overlay" class="cart-overlay hidden"></div>
+    <div id="sheet-ocr-modal" class="import-modal sheet-ocr-modal hidden" role="dialog" aria-modal="true" aria-labelledby="sheet-ocr-title">
+        <div class="import-header">
+            <div>
+                <p class="sheet-ocr-kicker">LAYOUT LOCKED / GEMINI OCR</p>
+                <h3 id="sheet-ocr-title">発注書の写真を取り込む</h3>
+            </div>
+            <button id="sheet-ocr-close-btn" class="cart-close-btn" type="button" aria-label="閉じる">&times;</button>
+        </div>
+
+        <div class="sheet-ocr-steps" aria-label="画像取り込みの進行状況">
+            <span data-sheet-ocr-step="1" class="is-active">1 写真</span>
+            <span data-sheet-ocr-step="2">2 四隅</span>
+            <span data-sheet-ocr-step="3">3 読取</span>
+            <span data-sheet-ocr-step="4">4 確認</span>
+        </div>
+
+        <div id="sheet-ocr-upload-step">
+            <p class="import-desc">このサイトから新しく印刷した発注書を撮影してください。用紙IDと保存済みの商品位置を照合し、数量欄だけをGeminiで読みます。</p>
+            <input id="sheet-ocr-photo" type="file" accept="image/jpeg,image/png,image/heic,image/heif,.heic,.heif,image/*" capture="environment" class="hidden">
+            <button id="sheet-ocr-photo-btn" class="btn-primary sheet-ocr-main-btn" type="button">カメラで撮る・写真を選ぶ</button>
+            <div class="sheet-ocr-privacy">
+                <span>商品は場所で確定</span>
+                <span>AIへ商品名を送らない</span>
+                <span>写真を保存しない</span>
+            </div>
+        </div>
+
+        <div id="sheet-ocr-corner-step" class="hidden">
+            <p class="sheet-ocr-corner-guide"><strong id="sheet-ocr-corner-message">紙の左上をタップしてください。</strong><span>左上 → 右上 → 右下 → 左下</span></p>
+            <div class="sheet-ocr-canvas-wrap">
+                <canvas id="sheet-ocr-photo-canvas" width="900" height="1200" aria-label="発注書写真の四隅指定"></canvas>
+            </div>
+            <div class="sheet-ocr-corner-actions">
+                <button id="sheet-ocr-corner-reset" class="btn-secondary" type="button">四隅をやり直す</button>
+                <button id="sheet-ocr-recognize-btn" class="btn-primary" type="button" disabled>位置補正して数量を読む</button>
+            </div>
+        </div>
+
+        <div id="sheet-ocr-processing-step" class="hidden" aria-live="polite">
+            <div class="sheet-ocr-processing-mark"><span></span></div>
+            <strong>数量欄だけを読み取っています</strong>
+            <p>商品名は保存済みの位置JSONから確定します。通常は数秒〜数十秒です。</p>
+        </div>
+
+        <div id="sheet-ocr-review-step" class="hidden">
+            <div class="sheet-ocr-metrics">
+                <span><strong id="sheet-ocr-item-count">0</strong>記入商品</span>
+                <span><strong id="sheet-ocr-attention-count">0</strong>要修正</span>
+                <span><strong id="sheet-ocr-time">—</strong>機械処理</span>
+            </div>
+            <p class="sheet-ocr-review-note">商品名から数量欄までの元画像と、読み取った数字を同じ行で確認してください。</p>
+            <div id="sheet-ocr-review-list" class="sheet-ocr-review-list"></div>
+            <div class="sheet-ocr-cart-bar">
+                <p id="sheet-ocr-cart-message">数量を確認してください。</p>
+                <button id="sheet-ocr-cart-btn" class="btn-primary" type="button" disabled>この数量でカートへ</button>
+            </div>
+        </div>
+        <p id="sheet-ocr-status" class="import-status hidden" aria-live="polite"></p>
+        <div id="sheet-ocr-qr-reader" class="sheet-ocr-qr-reader" aria-hidden="true"></div>
     </div>
 
     <!-- Import Modal（旧AI取り込み・停止中） -->

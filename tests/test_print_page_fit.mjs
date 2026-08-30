@@ -54,6 +54,7 @@ const buildSheetHtml = async (itemCount, cols, pageLimit) => {
         historyFavoritesData: {},
         PRINT_SHEET_MAX_ITEMS: 240,
         IMPORT_QR_PREFIX: 'B2BORDER|',
+        ENABLE_SHEET_IMAGE_IMPORT: false,
         showLoading: () => {},
         hideLoading: () => {},
         collectArchiveCodes: async () => [],

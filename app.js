@@ -1,8 +1,8 @@
-// v2.38.1 (LINE-TEXT-IMPORT-EMPLOYEE-ROLLOUT)
+// v2.39.0 (FIXED-LAYOUT-SHEET-OCR-MAIN-ONLY)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.38.1 (LINE-TEXT-IMPORT-EMPLOYEE-ROLLOUT) Loaded ---');
+    console.log('--- B2B Order System v2.39.0 (FIXED-LAYOUT-SHEET-OCR-MAIN-ONLY) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -51,6 +51,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const codeEntryBtn = document.getElementById('code-entry-btn');
     const codeFilterBtn = document.getElementById('code-filter-btn');
     const lineImportBtn = document.getElementById('line-import-btn');
+    const sheetImageImportBtn = document.getElementById('sheet-image-import-btn');
     const directShipBtn = document.getElementById('direct-ship-btn');
     const CLIENT_TYPE_DIRECT_LABEL = '直送'; // GAS側 CLIENT_TYPE_DIRECT と対
     const totalQtySpan = document.getElementById('total-qty');
@@ -296,6 +297,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // 検証済みの本店と稼働中の社員dealerへ展開。test-subは対象外。
     const LINE_TEXT_IMPORT_DEALERS = new Set(['default', '755', '747']);
     const ENABLE_LINE_TEXT_IMPORT = LINE_TEXT_IMPORT_DEALERS.has(CONFIG.DEALER);
+    // 画像OCRは本店で検証してから社員へ広げる。GAS側も本店sheetIdで二重制限。
+    const ENABLE_SHEET_IMAGE_IMPORT = CONFIG.DEALER === 'default';
     let currentClientType = ''; // '直送' or ''
     // ClientMaster D列に登録された本来の区分。直送トグルをOFFに戻すときここへ戻す。
     // currentClientType は「今回の発注をどのシートへ送るか」で、こちらは登録値。
@@ -2491,6 +2494,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (lineImportBtn) {
             lineImportBtn.classList.toggle('hidden', !ENABLE_LINE_TEXT_IMPORT || !isMasterSession);
         }
+        if (sheetImageImportBtn) {
+            sheetImageImportBtn.classList.toggle('hidden', !ENABLE_SHEET_IMAGE_IMPORT || !isMasterSession);
+        }
         if (printSheetBtn) {
             printSheetBtn.classList.toggle('hidden', !isMasterSession);
         }
@@ -2836,6 +2842,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (codeFilterBtn) codeFilterBtn.classList.add('hidden');
             if (importModeBtn) importModeBtn.classList.add('hidden');
             if (lineImportBtn) lineImportBtn.classList.add('hidden');
+            if (sheetImageImportBtn) sheetImageImportBtn.classList.add('hidden');
             if (printSheetBtn) printSheetBtn.classList.add('hidden');
             switchTab('tab-all');
         });
@@ -2857,6 +2864,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (codeFilterBtn) codeFilterBtn.classList.add('hidden');
         if (importModeBtn) importModeBtn.classList.add('hidden');
         if (lineImportBtn) lineImportBtn.classList.add('hidden');
+        if (sheetImageImportBtn) sheetImageImportBtn.classList.add('hidden');
         if (printSheetBtn) printSheetBtn.classList.add('hidden');
         favoriteItems = [];
         currentCart = {};
@@ -4075,6 +4083,444 @@ document.addEventListener('DOMContentLoaded', () => {
     if (lineImportApplyBtn) lineImportApplyBtn.addEventListener('click', applyLineImportToCart);
 
     // ==========================================
+    // 発注書画像取込（固定座標＋Gemini数量OCR・本店MASTER限定）
+    // ==========================================
+    const sheetOcr = window.SheetOrderOcr;
+    const sheetOcrOverlay = document.getElementById('sheet-ocr-overlay');
+    const sheetOcrModal = document.getElementById('sheet-ocr-modal');
+    const sheetOcrCloseBtn = document.getElementById('sheet-ocr-close-btn');
+    const sheetOcrPhoto = document.getElementById('sheet-ocr-photo');
+    const sheetOcrPhotoBtn = document.getElementById('sheet-ocr-photo-btn');
+    const sheetOcrUploadStep = document.getElementById('sheet-ocr-upload-step');
+    const sheetOcrCornerStep = document.getElementById('sheet-ocr-corner-step');
+    const sheetOcrProcessingStep = document.getElementById('sheet-ocr-processing-step');
+    const sheetOcrReviewStep = document.getElementById('sheet-ocr-review-step');
+    const sheetOcrPhotoCanvas = document.getElementById('sheet-ocr-photo-canvas');
+    const sheetOcrCornerMessage = document.getElementById('sheet-ocr-corner-message');
+    const sheetOcrCornerReset = document.getElementById('sheet-ocr-corner-reset');
+    const sheetOcrRecognizeBtn = document.getElementById('sheet-ocr-recognize-btn');
+    const sheetOcrReviewList = document.getElementById('sheet-ocr-review-list');
+    const sheetOcrItemCount = document.getElementById('sheet-ocr-item-count');
+    const sheetOcrAttentionCount = document.getElementById('sheet-ocr-attention-count');
+    const sheetOcrTime = document.getElementById('sheet-ocr-time');
+    const sheetOcrCartMessage = document.getElementById('sheet-ocr-cart-message');
+    const sheetOcrCartBtn = document.getElementById('sheet-ocr-cart-btn');
+    const sheetOcrStatus = document.getElementById('sheet-ocr-status');
+
+    const sheetOcrState = {
+        sourceCanvas: null,
+        rectifiedCanvas: null,
+        corners: [],
+        qr: null,
+        manifest: null,
+        page: null,
+        reviewRows: [],
+        startedAt: 0,
+        prepareMs: 0,
+        machineMs: 0,
+        reviewStartedAt: 0,
+        busy: false
+    };
+    const SHEET_OCR_CORNER_LABELS = ['左上', '右上', '右下', '左下'];
+
+    const setSheetOcrStep = (number) => {
+        document.querySelectorAll('[data-sheet-ocr-step]').forEach((element) => {
+            element.classList.toggle('is-active', Number(element.dataset.sheetOcrStep) === number);
+        });
+    };
+
+    const showSheetOcrStatus = (message, isError = false) => {
+        if (!sheetOcrStatus) return;
+        sheetOcrStatus.textContent = message;
+        sheetOcrStatus.classList.toggle('import-status-error', isError);
+        sheetOcrStatus.classList.toggle('hidden', !message);
+    };
+
+    const callSheetOcrApi = async (payload) => {
+        const response = await fetch(CONFIG.API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            redirect: 'follow',
+            body: JSON.stringify({ ...payload, token: sessionToken, clientName: currentClientName })
+        });
+        const result = await response.json();
+        if (!response.ok || result.status !== 'success') {
+            throw new Error(String(result.message || '画像取り込みAPIでエラーが発生しました。').replace(/^Error:\s*/, ''));
+        }
+        return result;
+    };
+
+    const resetSheetOcrState = () => {
+        sheetOcrState.sourceCanvas = null;
+        sheetOcrState.rectifiedCanvas = null;
+        sheetOcrState.corners = [];
+        sheetOcrState.qr = null;
+        sheetOcrState.manifest = null;
+        sheetOcrState.page = null;
+        sheetOcrState.reviewRows = [];
+        sheetOcrState.startedAt = 0;
+        sheetOcrState.prepareMs = 0;
+        sheetOcrState.machineMs = 0;
+        sheetOcrState.reviewStartedAt = 0;
+        sheetOcrState.busy = false;
+        if (sheetOcrPhoto) sheetOcrPhoto.value = '';
+        if (sheetOcrReviewList) sheetOcrReviewList.replaceChildren();
+        sheetOcrUploadStep.classList.remove('hidden');
+        sheetOcrCornerStep.classList.add('hidden');
+        sheetOcrProcessingStep.classList.add('hidden');
+        sheetOcrReviewStep.classList.add('hidden');
+        sheetOcrRecognizeBtn.disabled = true;
+        setSheetOcrStep(1);
+        showSheetOcrStatus('');
+    };
+
+    const imageFileToCanvas = async (file, maxLongEdge = 1800) => {
+        let image;
+        try {
+            image = await createImageBitmap(file, { imageOrientation: 'from-image' });
+        } catch (bitmapError) {
+            image = await new Promise((resolve, reject) => {
+                const url = URL.createObjectURL(file);
+                const element = new Image();
+                element.onload = () => { URL.revokeObjectURL(url); resolve(element); };
+                element.onerror = () => { URL.revokeObjectURL(url); reject(bitmapError); };
+                element.src = url;
+            });
+        }
+        const scale = Math.min(1, maxLongEdge / Math.max(image.width, image.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        const context = canvas.getContext('2d');
+        context.imageSmoothingEnabled = true;
+        context.imageSmoothingQuality = 'high';
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        if (typeof image.close === 'function') image.close();
+        return canvas;
+    };
+
+    const isHeicFile = (file) => {
+        const mime = String(file && file.type || '').toLowerCase();
+        const name = String(file && file.name || '').toLowerCase();
+        return mime === 'image/heic' || mime === 'image/heif' || /\.(heic|heif)$/.test(name);
+    };
+
+    const normalizeSheetOcrImageFile = async (file) => {
+        if (!isHeicFile(file)) return file;
+        showSheetOcrStatus('HEIC写真を端末内でJPEGへ変換しています。写真は外部へ送信しません。');
+        try {
+            const converter = await import('./lib/heic-to.js?v=1.5.2');
+            const jpegBlob = await converter.heicTo({ blob: file, type: 'image/jpeg', quality: 0.92 });
+            return new File([jpegBlob], String(file.name || 'order-sheet').replace(/\.(heic|heif)$/i, '') + '.jpg', {
+                type: 'image/jpeg',
+                lastModified: file.lastModified || Date.now()
+            });
+        } catch (error) {
+            console.warn('[SheetOCR] HEIC conversion failed:', error);
+            throw new Error('HEIC写真を変換できませんでした。iPhoneの共有画面で「互換性優先」にするか、JPEGで撮り直してください。');
+        }
+    };
+
+    const canvasToFile = (canvas, name) => new Promise((resolve, reject) => {
+        canvas.toBlob((blob) => {
+            if (!blob) { reject(new Error('写真をJPEGへ変換できません。')); return; }
+            resolve(new File([blob], name, { type: 'image/jpeg' }));
+        }, 'image/jpeg', 0.9);
+    });
+
+    const decodeSheetOcrQr = async (file, fallbackCanvas) => {
+        if (typeof Html5Qrcode !== 'function') throw new Error('QR読み取り機能を読み込めませんでした。');
+        const scanner = new Html5Qrcode('sheet-ocr-qr-reader');
+        try {
+            let decoded = '';
+            try {
+                decoded = await scanner.scanFile(file, true);
+            } catch (firstError) {
+                const converted = await canvasToFile(fallbackCanvas, `sheet-ocr-${Date.now()}.jpg`);
+                decoded = await scanner.scanFile(converted, true);
+            }
+            return sheetOcr.parseQrValue(decoded);
+        } catch (error) {
+            return null;
+        } finally {
+            try { scanner.clear(); } catch (error) { /* noop */ }
+        }
+    };
+
+    const drawSheetOcrCorners = () => {
+        if (!sheetOcrState.sourceCanvas) return;
+        sheetOcrPhotoCanvas.width = sheetOcrState.sourceCanvas.width;
+        sheetOcrPhotoCanvas.height = sheetOcrState.sourceCanvas.height;
+        const context = sheetOcrPhotoCanvas.getContext('2d');
+        context.drawImage(sheetOcrState.sourceCanvas, 0, 0);
+        if (sheetOcrState.corners.length > 1) {
+            context.beginPath();
+            context.moveTo(sheetOcrState.corners[0].x, sheetOcrState.corners[0].y);
+            sheetOcrState.corners.slice(1).forEach((point) => context.lineTo(point.x, point.y));
+            if (sheetOcrState.corners.length === 4) context.closePath();
+            context.strokeStyle = '#f97316';
+            context.lineWidth = Math.max(4, sheetOcrPhotoCanvas.width / 230);
+            context.stroke();
+        }
+        sheetOcrState.corners.forEach((point, index) => {
+            context.beginPath();
+            context.fillStyle = '#f97316';
+            context.arc(point.x, point.y, Math.max(12, sheetOcrPhotoCanvas.width / 75), 0, Math.PI * 2);
+            context.fill();
+            context.fillStyle = '#fff';
+            context.font = `900 ${Math.max(16, sheetOcrPhotoCanvas.width / 48)}px Menlo, monospace`;
+            context.textAlign = 'center';
+            context.textBaseline = 'middle';
+            context.fillText(String(index + 1), point.x, point.y + 1);
+        });
+        const next = sheetOcrState.corners.length;
+        sheetOcrCornerMessage.textContent = next < 4
+            ? `紙の${SHEET_OCR_CORNER_LABELS[next]}をタップしてください。`
+            : '四隅を指定しました。数量を読み取れます。';
+        sheetOcrRecognizeBtn.disabled = next !== 4;
+    };
+
+    const resetSheetOcrCorners = () => {
+        sheetOcrState.corners = [];
+        drawSheetOcrCorners();
+    };
+
+    const loadSheetOcrPhoto = async (file) => {
+        if (!file || sheetOcrState.busy) return;
+        sheetOcrState.busy = true;
+        sheetOcrPhotoBtn.disabled = true;
+        sheetOcrPhotoBtn.textContent = '用紙IDを確認中…';
+        showSheetOcrStatus('発注書のQRと保存済み位置JSONを照合しています。');
+        sheetOcrState.startedAt = performance.now();
+        try {
+            if (file.size > 30 * 1024 * 1024) {
+                throw new Error('写真が30MBを超えています。スマホの通常画質で撮り直してください。');
+            }
+            let browserFile = file;
+            let sourceCanvas;
+            try {
+                sourceCanvas = await imageFileToCanvas(browserFile);
+            } catch (nativeError) {
+                if (!isHeicFile(file)) throw nativeError;
+                browserFile = await normalizeSheetOcrImageFile(file);
+                sourceCanvas = await imageFileToCanvas(browserFile);
+            }
+            const qr = await decodeSheetOcrQr(browserFile, sourceCanvas);
+            if (!qr) {
+                throw new Error('新しい発注書用QRを読めませんでした。このサイトから発注書を再印刷し、明るい場所で紙全体を撮影してください。');
+            }
+            const response = await callSheetOcrApi({ action: 'get_order_sheet_layout', sheetId: qr.sheet_id });
+            const manifest = response.data;
+            const page = sheetOcr.getManifestPage(manifest, qr.page_no, currentClientName);
+            sheetOcrState.sourceCanvas = sourceCanvas;
+            sheetOcrState.qr = qr;
+            sheetOcrState.manifest = manifest;
+            sheetOcrState.page = page;
+            sheetOcrState.corners = [];
+            sheetOcrState.prepareMs = performance.now() - sheetOcrState.startedAt;
+            sheetOcrUploadStep.classList.add('hidden');
+            sheetOcrCornerStep.classList.remove('hidden');
+            setSheetOcrStep(2);
+            showSheetOcrStatus(`${manifest.printed_product_count}商品の発注書・${qr.page_no}ページ目を確認しました（準備 ${(sheetOcrState.prepareMs / 1000).toFixed(1)}秒）。`);
+            drawSheetOcrCorners();
+        } catch (error) {
+            showSheetOcrStatus(error.message || '写真を読み込めませんでした。', true);
+            if (sheetOcrPhoto) sheetOcrPhoto.value = '';
+        } finally {
+            sheetOcrState.busy = false;
+            sheetOcrPhotoBtn.disabled = false;
+            sheetOcrPhotoBtn.textContent = 'カメラで撮る・写真を選ぶ';
+        }
+    };
+
+    const updateSheetOcrReadiness = () => {
+        const invalid = sheetOcrState.reviewRows.filter((row) => !Number.isInteger(row.quantity) || row.quantity < 0 || row.quantity > 999);
+        const included = sheetOcrState.reviewRows.filter((row) => Number.isInteger(row.quantity) && row.quantity > 0);
+        const attention = sheetOcrState.reviewRows.filter((row) => (
+            !Number.isInteger(row.quantity) || row.quantity < 0 || row.quantity > 999 ||
+            (row.quantity > 0 && row.confidence !== 'high')
+        ));
+        sheetOcrAttentionCount.textContent = String(attention.length);
+        sheetOcrCartBtn.disabled = included.length === 0 || invalid.length > 0;
+        sheetOcrCartMessage.textContent = invalid.length > 0
+            ? `${invalid.length}商品の数量を修正してください。誤検出は0で除外できます。`
+            : included.length === 0
+                ? 'カートへ入れる商品を1件以上残してください。'
+                : attention.length > 0
+                    ? `黄色の${attention.length}件を確認してください。誤検出は0で除外できます。`
+                    : `${included.length}商品をカートへ追加できます。`;
+    };
+
+    const renderSheetOcrReview = () => {
+        sheetOcrReviewList.replaceChildren();
+        sheetOcrState.reviewRows.forEach((row, index) => {
+            const article = document.createElement('article');
+            article.className = 'sheet-ocr-review-row';
+
+            const product = document.createElement('div');
+            product.className = 'sheet-ocr-product';
+            const name = document.createElement('strong');
+            name.textContent = row.name;
+            const code = document.createElement('code');
+            code.textContent = `CODE ${row.code}`;
+            const strip = document.createElement('img');
+            strip.className = 'sheet-ocr-strip';
+            strip.alt = `${row.name}の商品名から数量欄までの元画像`;
+            strip.src = sheetOcr.cropRowDataUrl(sheetOcrState.rectifiedCanvas, row.row_bbox);
+            const reading = document.createElement('span');
+            reading.className = 'sheet-ocr-reading';
+            reading.textContent = row.mark_type === 'japanese_tally'
+                ? `正の字「${row.raw_reading || '記入'}」→ ${row.quantity ?? '要確認'}`
+                : row.mark_type === 'unclear'
+                    ? '読み取り不明・数字を入力'
+                    : `読み取り ${row.raw_reading || row.quantity || '要確認'}`;
+            reading.classList.toggle('is-attention', row.confidence !== 'high' || !row.quantity);
+            product.append(name, code, strip, reading);
+
+            const quantityBlock = document.createElement('div');
+            quantityBlock.className = 'sheet-ocr-quantity';
+            const label = document.createElement('label');
+            label.htmlFor = `sheet-ocr-qty-${index}`;
+            label.textContent = '数量';
+            const quantity = document.createElement('input');
+            quantity.id = `sheet-ocr-qty-${index}`;
+            quantity.className = 'sheet-ocr-qty';
+            quantity.type = 'number';
+            quantity.inputMode = 'numeric';
+            quantity.min = '0';
+            quantity.max = '999';
+            quantity.value = row.quantity ?? '';
+            const excludeHint = document.createElement('span');
+            excludeHint.className = 'sheet-ocr-quantity-hint';
+            excludeHint.textContent = '0で除外';
+            const sync = () => {
+                const value = Number.parseInt(quantity.value, 10);
+                row.quantity = Number.isInteger(value) && value >= 0 && value <= 999 ? value : null;
+                const invalid = !Number.isInteger(row.quantity);
+                quantity.classList.toggle('is-invalid', invalid);
+                article.classList.toggle('needs-attention', invalid || (row.quantity > 0 && row.confidence !== 'high'));
+                article.classList.toggle('is-excluded', row.quantity === 0);
+                updateSheetOcrReadiness();
+            };
+            quantity.addEventListener('input', sync);
+            quantityBlock.append(label, quantity, excludeHint);
+            article.append(product, quantityBlock);
+            sheetOcrReviewList.appendChild(article);
+            sync();
+        });
+        sheetOcrItemCount.textContent = String(sheetOcrState.reviewRows.length);
+        sheetOcrTime.textContent = sheetOcrState.machineMs < 1000
+            ? `${Math.round(sheetOcrState.machineMs)}ms`
+            : `${(sheetOcrState.machineMs / 1000).toFixed(1)}秒`;
+        updateSheetOcrReadiness();
+    };
+
+    const recognizeSheetOcrPhoto = async () => {
+        if (sheetOcrState.busy || !sheetOcrState.sourceCanvas || !sheetOcrState.page) return;
+        if (!sheetOcr.validCornerOrder(sheetOcrState.corners, sheetOcrState.sourceCanvas.width, sheetOcrState.sourceCanvas.height)) {
+            showSheetOcrStatus('左上→右上→右下→左下の順で、紙の四隅を指定し直してください。', true);
+            return;
+        }
+        sheetOcrState.busy = true;
+        sheetOcrCornerStep.classList.add('hidden');
+        sheetOcrProcessingStep.classList.remove('hidden');
+        setSheetOcrStep(3);
+        showSheetOcrStatus('');
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        try {
+            const startedAt = performance.now();
+            const rectifiedCanvas = sheetOcr.warpPerspective(sheetOcrState.sourceCanvas, sheetOcrState.corners);
+            const contactSheet = sheetOcr.buildContactSheet(rectifiedCanvas, sheetOcrState.page.products);
+            const response = await callSheetOcrApi({
+                action: 'recognize_order_sheet_cells',
+                sheetId: sheetOcrState.qr.sheet_id,
+                pageNo: sheetOcrState.qr.page_no,
+                cellIds: sheetOcrState.page.products.map((product) => product.cell_id),
+                imageBase64: contactSheet.toDataURL('image/jpeg', 0.88).split(',')[1]
+            });
+            const cells = sheetOcr.validateRecognition(response.data, sheetOcrState.page.products);
+            const reviewRows = sheetOcr.buildReviewRows(sheetOcrState.page.products, cells, itemsData);
+            if (reviewRows.length === 0) throw new Error('記入された数量を検出できませんでした。四隅と写真の明るさを確認してください。');
+            sheetOcrState.rectifiedCanvas = rectifiedCanvas;
+            sheetOcrState.reviewRows = reviewRows;
+            sheetOcrState.machineMs = sheetOcrState.prepareMs + (performance.now() - startedAt);
+            sheetOcrState.reviewStartedAt = performance.now();
+            renderSheetOcrReview();
+            sheetOcrProcessingStep.classList.add('hidden');
+            sheetOcrReviewStep.classList.remove('hidden');
+            setSheetOcrStep(4);
+        } catch (error) {
+            sheetOcrProcessingStep.classList.add('hidden');
+            sheetOcrCornerStep.classList.remove('hidden');
+            setSheetOcrStep(2);
+            showSheetOcrStatus(error.message || '数量を読み取れませんでした。', true);
+        } finally {
+            sheetOcrState.busy = false;
+        }
+    };
+
+    const closeSheetOcrModal = () => {
+        if (sheetOcrState.busy) return;
+        sheetOcrModal.classList.add('hidden');
+        sheetOcrOverlay.classList.add('hidden');
+        resetSheetOcrState();
+    };
+
+    const openSheetOcrModal = async () => {
+        if (!ENABLE_SHEET_IMAGE_IMPORT || !isMasterSession || !currentClientName) return;
+        if (!sheetOcr) {
+            alert('画像取り込み機能を読み込めませんでした。画面を再読み込みしてください。');
+            return;
+        }
+        resetSheetOcrState();
+        sheetOcrModal.classList.remove('hidden');
+        sheetOcrOverlay.classList.remove('hidden');
+        sheetOcrPhotoBtn.disabled = true;
+        showSheetOcrStatus('Gemini数量OCRの接続を確認しています。');
+        try {
+            const result = await callSheetOcrApi({ action: 'order_sheet_ocr_status' });
+            if (!result.data.gemini_configured) throw new Error('Gemini APIが未設定です。管理者設定後に利用できます。');
+            showSheetOcrStatus(`接続OK：${result.data.model}（数量欄のみ送信）`);
+            sheetOcrPhotoBtn.disabled = false;
+        } catch (error) {
+            showSheetOcrStatus(error.message || '画像取り込みAPIへ接続できません。', true);
+        }
+    };
+
+    const applySheetOcrToCart = () => {
+        const invalid = sheetOcrState.reviewRows.find((row) => !Number.isInteger(row.quantity) || row.quantity < 0 || row.quantity > 999);
+        if (invalid) return;
+        const included = sheetOcrState.reviewRows.filter((row) => row.quantity > 0);
+        if (included.length === 0) return;
+        included.forEach((row) => {
+            const existingQty = (currentCart[row.code] && currentCart[row.code].qty) || 0;
+            updateFromCart(row.code, row.name, existingQty + row.quantity);
+        });
+        const reviewMs = Math.max(0, performance.now() - sheetOcrState.reviewStartedAt);
+        console.log(`[SheetOCR] machine=${Math.round(sheetOcrState.machineMs)}ms review=${Math.round(reviewMs)}ms items=${included.length}`);
+        closeSheetOcrModal();
+        openCartSidebar();
+    };
+
+    if (sheetImageImportBtn) sheetImageImportBtn.addEventListener('click', openSheetOcrModal);
+    if (sheetOcrCloseBtn) sheetOcrCloseBtn.addEventListener('click', closeSheetOcrModal);
+    if (sheetOcrOverlay) sheetOcrOverlay.addEventListener('click', closeSheetOcrModal);
+    if (sheetOcrPhotoBtn) sheetOcrPhotoBtn.addEventListener('click', () => sheetOcrPhoto.click());
+    if (sheetOcrPhoto) sheetOcrPhoto.addEventListener('change', () => loadSheetOcrPhoto(sheetOcrPhoto.files && sheetOcrPhoto.files[0]));
+    if (sheetOcrCornerReset) sheetOcrCornerReset.addEventListener('click', resetSheetOcrCorners);
+    if (sheetOcrPhotoCanvas) sheetOcrPhotoCanvas.addEventListener('click', (event) => {
+        if (!sheetOcrState.sourceCanvas || sheetOcrState.corners.length >= 4) return;
+        const rect = sheetOcrPhotoCanvas.getBoundingClientRect();
+        sheetOcrState.corners.push({
+            x: (event.clientX - rect.left) * sheetOcrPhotoCanvas.width / rect.width,
+            y: (event.clientY - rect.top) * sheetOcrPhotoCanvas.height / rect.height
+        });
+        drawSheetOcrCorners();
+    });
+    if (sheetOcrRecognizeBtn) sheetOcrRecognizeBtn.addEventListener('click', recognizeSheetOcrPhoto);
+    if (sheetOcrCartBtn) sheetOcrCartBtn.addEventListener('click', applySheetOcrToCart);
+
+    // ==========================================
     // 📥 旧AI取り込みモード（停止中・MASTERログイン限定）
     // ==========================================
     const importModeBtn = document.getElementById('import-mode-btn');
@@ -4429,6 +4875,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const printLayoutCreateBtn = document.getElementById('print-layout-create-btn');
     const IMPORT_QR_PREFIX = 'B2BORDER|'; // QRの中身: B2BORDER|サロン名（一括取り込みのサロン判定に使う）
     const importDraftKey = (salonName) => 'b2b_import_draft_' + salonName;
+    const PRINT_RENDERER_VERSION = 'b2b-print-v2.39.0';
 
     const PRINT_SHEET_MAX_ITEMS = 240;
     const PRINT_ARCHIVE_MAX_PAGES = 6;      // アーカイブ履歴を遡る最大ページ数（50件×6）
@@ -4475,6 +4922,21 @@ document.addEventListener('DOMContentLoaded', () => {
             console.warn('[PrintSheet] archive fetch failed (続行):', e);
         }
         return codes;
+    };
+
+    // 印刷用の子画面が実寸DOMから測った位置を、本店GASへ保存する。
+    // 子画面へトークンを渡さず、認証済みの親画面だけがAPIを呼ぶ。
+    window.registerOrderSheetLayoutFromPrint = async (measuredManifest) => {
+        if (!ENABLE_SHEET_IMAGE_IMPORT || !isMasterSession || !currentClientName || !sheetOcr) {
+            throw new Error('画像取り込み用の位置保存は本店MASTER限定です。');
+        }
+        const manifest = {
+            ...measuredManifest,
+            schema_version: '1.0',
+            client_name: currentClientName
+        };
+        const result = await callSheetOcrApi({ action: 'save_order_sheet_layout', manifest });
+        return result.data;
     };
 
     const printOrderSheet = async (requestedColumns, requestedPageLimit) => {
@@ -4540,26 +5002,24 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // QR生成（qrcode-generator。日本語サロン名のためUTF-8バイト変換を指定）
-        let qrDataUrl = '';
-        try {
+        const sheetOcrPrintEnabled = ENABLE_SHEET_IMAGE_IMPORT && Boolean(sheetOcr);
+        const sheetOcrSheetId = sheetOcrPrintEnabled ? sheetOcr.makeSheetId() : '';
+
+        // QR生成（本店は用紙ID＋ページ、社員は従来どおりサロン名）
+        const makePrintQr = (value) => {
             qrcode.stringToBytes = qrcode.stringToBytesFuncs['UTF-8'];
             const qr = qrcode(0, 'M');
-            qr.addData(IMPORT_QR_PREFIX + currentClientName, 'Byte');
+            qr.addData(value, 'Byte');
             qr.make();
-            qrDataUrl = qr.createDataURL(6, 3);
-        } catch (e) {
-            console.error('[PrintSheet] QR generation failed:', e);
-            alert('QRコードの生成に失敗しました。');
-            return;
-        }
+            return qr.createDataURL(6, 3);
+        };
 
         const today = new Date();
         const dateStr = `${today.getFullYear()}/${today.getMonth() + 1}/${today.getDate()}`;
 
         // 選択した列数で列優先配置する。列数ごとに文字サイズと改ページ見積もりを変える。
         const cell = (it) => it
-            ? `<div class="cell"><span class="nm">${escImportHtml(it.name)}<span class="cd">CODE ${escImportHtml(it.code)}</span></span><span class="qty"></span></div>`
+            ? `<div class="cell"${sheetOcrPrintEnabled ? ` data-sheet-ocr-code="${escImportHtml(it.code)}"` : ''}><span class="nm">${escImportHtml(it.name)}<span class="cd">CODE ${escImportHtml(it.code)}</span></span><span class="qty"></span></div>`
             : '<div class="cell empty"></div>';
         const estimateCellLines = (it, L) => {
             if (!it || !it.name) return 1;
@@ -4670,10 +5130,24 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         const layout = scaledLayout(printScale);
         const metaCountLabel = `掲載 ${sheetItems.length}商品（お取引履歴より）`
-            + (printScale < 0.995 ? `／縮小 ${Math.round(printScale * 100)}%` : '');
+            + (printScale < 0.995 ? `／縮小 ${Math.round(printScale * 100)}%` : '')
+            + (sheetOcrPrintEnabled ? '／画像取込対応' : '');
+        let pageQrDataUrls;
+        try {
+            pageQrDataUrls = printPages.map((_, index) => makePrintQr(
+                sheetOcrPrintEnabled
+                    ? sheetOcr.makeQrValue(sheetOcrSheetId, index + 1)
+                    : IMPORT_QR_PREFIX + currentClientName
+            ));
+        } catch (e) {
+            console.error('[PrintSheet] QR generation failed:', e);
+            alert('QRコードの生成に失敗しました。');
+            return;
+        }
 
         const renderPage = (blocks, idx) => {
             const bodyHtml = blocks.map((block) => block.html).join('');
+            const qrDataUrl = pageQrDataUrls[idx];
             if (idx === 0) {
                 return `<section class="print-page first-page">
 <div class="first-head">
@@ -4702,12 +5176,67 @@ ${bodyHtml}
         };
         const pagesHtml = printPages.map(renderPage).join('');
 
+        const sheetOcrRegistrationScript = sheetOcrPrintEnabled ? `<script>
+(function () {
+  const button = document.getElementById('print-action-btn');
+  const normalizeBox = function (element, pageRect) {
+    const rect = element.getBoundingClientRect();
+    const mmPerPixel = 192 / pageRect.width;
+    const xMm = 9 + (rect.left - pageRect.left) * mmPerPixel;
+    const yMm = 8 + (rect.top - pageRect.top) * mmPerPixel;
+    const widthMm = rect.width * mmPerPixel;
+    const heightMm = rect.height * mmPerPixel;
+    return [
+      Math.max(0, Math.min(9999, Math.round(xMm / 210 * 10000))),
+      Math.max(0, Math.min(9999, Math.round(yMm / 297 * 10000))),
+      Math.max(1, Math.min(10000, Math.round(widthMm / 210 * 10000))),
+      Math.max(1, Math.min(10000, Math.round(heightMm / 297 * 10000)))
+    ];
+  };
+  const register = async function () {
+    try {
+      if (!window.opener || typeof window.opener.registerOrderSheetLayoutFromPrint !== 'function') {
+        throw new Error('元の発注サイトが閉じています。');
+      }
+      if (document.fonts && document.fonts.ready) await document.fonts.ready;
+      const pages = Array.from(document.querySelectorAll('.print-page')).map(function (page, pageIndex) {
+        const pageRect = page.getBoundingClientRect();
+        const products = Array.from(page.querySelectorAll('.cell[data-sheet-ocr-code]')).map(function (cell, productIndex) {
+          const quantity = cell.querySelector('.qty');
+          return {
+            cell_id: 'P' + (pageIndex + 1) + '-C' + String(productIndex + 1).padStart(3, '0'),
+            product_code: cell.dataset.sheetOcrCode,
+            row_bbox: normalizeBox(cell, pageRect),
+            qty_bbox: normalizeBox(quantity, pageRect)
+          };
+        });
+        return { page_no: pageIndex + 1, products: products };
+      });
+      await window.opener.registerOrderSheetLayoutFromPrint({
+        sheet_id: '${sheetOcrSheetId}',
+        renderer_version: '${PRINT_RENDERER_VERSION}',
+        printed_product_count: ${sheetItems.length},
+        pages: pages
+      });
+      button.disabled = false;
+      button.textContent = '🖨 印刷（画像取込対応）';
+      button.dataset.registered = '1';
+    } catch (error) {
+      button.disabled = true;
+      button.textContent = '位置情報の保存に失敗・閉じて再作成';
+      alert('画像取り込み用の位置情報を保存できませんでした。元の発注サイトを閉じずに、発注書を作り直してください。\n' + (error.message || ''));
+    }
+  };
+  setTimeout(register, 120);
+}());
+<\/script>` : '';
+
         const html = `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>発注書 - ${escImportHtml(currentClientName)}様</title>
 <style>
 @page { size: A4; margin: 8mm 9mm 6mm 9mm; }
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: "Hiragino Sans", "Yu Gothic", sans-serif; color: #111; font-size: 7pt; }
-.print-page { position: relative; min-height: 280mm; break-after: page; page-break-after: always; }
+body { width: 192mm; font-family: "Hiragino Sans", "Yu Gothic", sans-serif; color: #111; font-size: 7pt; }
+.print-page { position: relative; width: 192mm; min-height: 280mm; break-after: page; page-break-after: always; }
 .print-page:last-child { break-after: auto; page-break-after: auto; }
 .first-head { position: relative; min-height: 25mm; border-bottom: 2px solid #111; padding: 0 28mm 2mm 0; margin-bottom: 1.6mm; }
 .first-head h1 { font-size: 12pt; line-height: 1.1; }
@@ -4731,8 +5260,9 @@ body { font-family: "Hiragino Sans", "Yu Gothic", sans-serif; color: #111; font-
 .print-btn { position: fixed; top: 8px; right: 8px; padding: 10px 18px; font-size: 12pt; cursor: pointer; z-index: 10; }
 @media print { .print-btn { display: none; } }
 </style></head><body>
-<button class="print-btn" onclick="window.print()">🖨 印刷</button>
+<button id="print-action-btn" class="print-btn" onclick="window.print()"${sheetOcrPrintEnabled ? ' disabled' : ''}>${sheetOcrPrintEnabled ? '位置情報を保存中…' : '🖨 印刷'}</button>
 ${pagesHtml}
+${sheetOcrRegistrationScript}
 </body></html>`;
 
         const win = window.open('', '_blank');

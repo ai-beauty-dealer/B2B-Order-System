@@ -9,7 +9,7 @@ const [app, html, css, sw] = await Promise.all([
 ]);
 
 const start = app.indexOf('// LINE注文テキスト取込（APIなし・MASTERログイン限定）');
-const end = app.indexOf('// 📥 旧AI取り込みモード', start);
+const end = app.indexOf('// 発注書画像取込（固定座標＋Gemini数量OCR・本店MASTER限定）', start);
 assert.ok(start >= 0 && end > start, 'LINE取込の独立ブロックが必要');
 const block = app.slice(start, end);
 
@@ -63,11 +63,11 @@ test('LINE原文と商品名をHTMLとして解釈しない', () => {
     assert.doesNotMatch(block, /innerHTML\s*=.*source_text/);
 });
 
-test('PWAは照合ファイルとv2.38.1のアプリを配信する', () => {
+test('PWAはLINE照合ファイルと最新版アプリを配信する', () => {
     assert.match(html, /line-order-match\.js\?v=2\.38\.0/);
-    assert.match(html, /app\.js\?v=2\.38\.1/);
-    assert.match(html, /style\.css\?v=2\.38\.0/);
-    assert.match(sw, /CACHE_VERSION = 'v2\.38\.1'/);
+    assert.match(html, /app\.js\?v=2\.39\.0/);
+    assert.match(html, /style\.css\?v=2\.39\.0/);
+    assert.match(sw, /CACHE_VERSION = 'v2\.39\.0'/);
     assert.match(sw, /'\.\/line-order-match\.js'/);
 });
 
