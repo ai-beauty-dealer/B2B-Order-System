@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="robots" content="noindex">
     <title>AI Beauty Dealer - B2B Order System</title>
-    <link rel="stylesheet" href="style.css?v=2.37.0">
+    <link rel="stylesheet" href="style.css?v=2.38.0">
 
     <!-- PWA -->
     <link rel="manifest" href="manifest.json?v=2.37.3">
@@ -116,6 +116,9 @@
             </button>
             <button id="import-mode-btn" class="btn-secondary hidden" title="LINE文面・写メから取り込み">
                 📥 取り込み
+            </button>
+            <button id="line-import-btn" class="btn-secondary hidden" title="LINEでもらった注文文をカートへ取り込み">
+                LINE取込
             </button>
             <button id="print-sheet-btn" class="btn-secondary hidden" title="このサロン用の発注書を印刷">
                 🖨 発注書
@@ -265,13 +268,14 @@
          SWがバージョンクエリ付き資産をcache-firstで持つため、
          上げ忘れると既訪端末が古い販売担当コード表を使い続ける。 -->
     <script src="config.js?v=2.35.5"></script>
-    <script src="app.js?v=2.37.5"></script>
+    <script src="line-order-match.js?v=2.38.0"></script>
+    <script src="app.js?v=2.38.0"></script>
 
     <!-- Service Worker 登録（PWA） -->
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function () {
-                navigator.serviceWorker.register('sw.js?v=2.37.5')
+                navigator.serviceWorker.register('sw.js?v=2.38.0')
                     .catch(function (err) {
                         console.warn('SW登録に失敗（通常サイトとして続行）:', err);
                     });
@@ -297,7 +301,46 @@
     </div>
     <div id="cart-overlay" class="cart-overlay hidden"></div>
 
-    <!-- Import Modal（取り込みモード・MASTERログイン限定） -->
+    <!-- LINE注文テキスト取込（APIなし・MASTERログイン限定） -->
+    <div id="line-import-overlay" class="cart-overlay hidden"></div>
+    <div id="line-import-modal" class="import-modal line-import-modal hidden" role="dialog" aria-modal="true" aria-labelledby="line-import-title">
+        <div class="import-header">
+            <div>
+                <p class="line-import-kicker">FAVORITES FIRST / API FREE</p>
+                <h3 id="line-import-title">LINE注文を取り込む</h3>
+            </div>
+            <button id="line-import-close-btn" class="cart-close-btn" type="button" aria-label="閉じる">&times;</button>
+        </div>
+        <div id="line-import-input-step">
+            <p class="import-desc">LINEでもらった文面をそのまま貼り付けてください。お気に入りを先に照合し、見つからない商品だけ全商品から探します。<br><strong>1行につき1商品・数量</strong>で読み取ります。</p>
+            <div class="line-import-scope">
+                <span>★ お気に入り優先</span>
+                <span>全商品検索</span>
+                <span>外部AI・APIなし</span>
+            </div>
+            <textarea id="line-import-text" maxlength="4000" rows="8" aria-label="LINE注文文面"
+                placeholder="例：&#10;アルティスト CB/9 3本&#10;RV8 ×2&#10;サンドベージュ9 2本"></textarea>
+            <button id="line-import-parse-btn" class="btn-primary line-import-main-btn" type="button">お気に入り優先で商品を探す</button>
+            <p id="line-import-status" class="import-status hidden"></p>
+        </div>
+        <div id="line-import-preview-step" class="hidden">
+            <div class="line-import-metrics" aria-label="照合結果">
+                <span><strong id="line-import-matched-count">0</strong>確定</span>
+                <span><strong id="line-import-attention-count">0</strong>要確認</span>
+                <span><strong id="line-import-time">—</strong>解析時間</span>
+            </div>
+            <div id="line-import-list" class="line-import-list"></div>
+            <div class="line-import-cart-bar">
+                <p id="line-import-message">すべての行を確認してください。</p>
+                <div class="import-actions">
+                    <button id="line-import-back-btn" class="btn-secondary" type="button">文面に戻る</button>
+                    <button id="line-import-apply-btn" class="btn-primary" type="button" disabled>この数量でカートへ</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Import Modal（旧AI取り込み・停止中） -->
     <div id="import-overlay" class="cart-overlay hidden"></div>
     <div id="import-modal" class="import-modal hidden">
         <div class="import-header">

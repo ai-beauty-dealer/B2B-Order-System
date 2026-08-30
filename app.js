@@ -1,8 +1,8 @@
-// v2.37.5 (PERSISTENT-PWA-LOGIN)
+// v2.38.0 (LINE-TEXT-IMPORT)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.37.5 (PERSISTENT-PWA-LOGIN) Loaded ---');
+    console.log('--- B2B Order System v2.38.0 (LINE-TEXT-IMPORT) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -50,6 +50,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const masterReturnBtn = document.getElementById('master-return-btn');
     const codeEntryBtn = document.getElementById('code-entry-btn');
     const codeFilterBtn = document.getElementById('code-filter-btn');
+    const lineImportBtn = document.getElementById('line-import-btn');
     const directShipBtn = document.getElementById('direct-ship-btn');
     const CLIENT_TYPE_DIRECT_LABEL = '直送'; // GAS側 CLIENT_TYPE_DIRECT と対
     const totalQtySpan = document.getElementById('total-qty');
@@ -292,6 +293,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // バックエンドの ENABLE_PARSE_ORDER と対で切り替える。
     // 再開するときは true に戻すだけ。UIもモーダルもコードは残してある。
     const ENABLE_IMPORT_MODE = false;
+    // 段階導入: まず本店(default)だけで検証し、社員dealerには表示しない。
+    // 本店検証後、社員展開を承認した時点で対象dealerを明示的に追加する。
+    const ENABLE_LINE_TEXT_IMPORT = CONFIG.DEALER === 'default';
     let currentClientType = ''; // '直送' or ''
     // ClientMaster D列に登録された本来の区分。直送トグルをOFFに戻すときここへ戻す。
     // currentClientType は「今回の発注をどのシートへ送るか」で、こちらは登録値。
@@ -2484,6 +2488,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (importModeBtn) {
             importModeBtn.classList.toggle('hidden', !ENABLE_IMPORT_MODE || !isMasterSession);
         }
+        if (lineImportBtn) {
+            lineImportBtn.classList.toggle('hidden', !ENABLE_LINE_TEXT_IMPORT || !isMasterSession);
+        }
         if (printSheetBtn) {
             printSheetBtn.classList.toggle('hidden', !isMasterSession);
         }
@@ -2828,6 +2835,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (codeEntryBtn) codeEntryBtn.classList.add('hidden');
             if (codeFilterBtn) codeFilterBtn.classList.add('hidden');
             if (importModeBtn) importModeBtn.classList.add('hidden');
+            if (lineImportBtn) lineImportBtn.classList.add('hidden');
             if (printSheetBtn) printSheetBtn.classList.add('hidden');
             switchTab('tab-all');
         });
@@ -2848,6 +2856,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (codeEntryBtn) codeEntryBtn.classList.add('hidden');
         if (codeFilterBtn) codeFilterBtn.classList.add('hidden');
         if (importModeBtn) importModeBtn.classList.add('hidden');
+        if (lineImportBtn) lineImportBtn.classList.add('hidden');
         if (printSheetBtn) printSheetBtn.classList.add('hidden');
         favoriteItems = [];
         currentCart = {};
@@ -3767,7 +3776,306 @@ document.addEventListener('DOMContentLoaded', () => {
     if (scannerOverlay) scannerOverlay.addEventListener('click', stopScanner);
 
     // ==========================================
-    // 📥 取り込みモード（LINE文面 → カート・MASTERログイン限定）
+    // LINE注文テキスト取込（APIなし・MASTERログイン限定）
+    // ==========================================
+    const lineImportOverlay = document.getElementById('line-import-overlay');
+    const lineImportModal = document.getElementById('line-import-modal');
+    const lineImportCloseBtn = document.getElementById('line-import-close-btn');
+    const lineImportText = document.getElementById('line-import-text');
+    const lineImportParseBtn = document.getElementById('line-import-parse-btn');
+    const lineImportStatus = document.getElementById('line-import-status');
+    const lineImportInputStep = document.getElementById('line-import-input-step');
+    const lineImportPreviewStep = document.getElementById('line-import-preview-step');
+    const lineImportList = document.getElementById('line-import-list');
+    const lineImportMatchedCount = document.getElementById('line-import-matched-count');
+    const lineImportAttentionCount = document.getElementById('line-import-attention-count');
+    const lineImportTime = document.getElementById('line-import-time');
+    const lineImportMessage = document.getElementById('line-import-message');
+    const lineImportBackBtn = document.getElementById('line-import-back-btn');
+    const lineImportApplyBtn = document.getElementById('line-import-apply-btn');
+    const lineMatch = window.LineOrderMatch;
+
+    let lineImportEntries = [];
+    let lineImportProducts = [];
+    let lineImportFavorites = [];
+    let lineImportProductByCode = new Map();
+
+    const lineProductCode = (product) => lineMatch.productCode(product);
+    const lineProductName = (product) => lineMatch.productName(product);
+    const lineProductLabel = (product) => `${product.favorite ? '★ ' : ''}${lineProductName(product)}（${lineProductCode(product)}）`;
+
+    const buildLineImportCatalog = () => {
+        const favoriteCodes = new Set(favoriteItems.map((code) => String(code).replace(/^'/, '')));
+        const deduplicated = new Map();
+        itemsData.forEach((item) => {
+            if (!isValidCode(item.code)) return;
+            const code = String(item.code).replace(/^'/, '');
+            const product = {
+                code,
+                name: String(item.name || '').trim(),
+                favorite: favoriteCodes.has(code),
+                normalized_name: lineMatch.normalizeOrderName(item.name),
+                manufacturer: item.manufacturer || '',
+                category: item.category || ''
+            };
+            const current = deduplicated.get(code);
+            const score = Number(Boolean(product.manufacturer)) + Number(Boolean(product.category));
+            const currentScore = current
+                ? Number(Boolean(current.manufacturer)) + Number(Boolean(current.category))
+                : -1;
+            if (product.name && score > currentScore) deduplicated.set(code, product);
+        });
+        lineImportProducts = Array.from(deduplicated.values());
+        lineImportFavorites = lineImportProducts.filter((product) => product.favorite);
+        lineImportProductByCode = new Map(lineImportProducts.map((product) => [product.code, product]));
+    };
+
+    const setLineImportStatus = (message, isError = false) => {
+        if (!lineImportStatus) return;
+        lineImportStatus.textContent = message;
+        lineImportStatus.classList.toggle('import-status-error', isError);
+        lineImportStatus.classList.toggle('hidden', !message);
+    };
+
+    const lineImportCounts = () => {
+        const active = lineImportEntries.filter((entry) => !entry.excluded);
+        const ready = active.filter((entry) => entry.product
+            && Number.isInteger(entry.quantity)
+            && entry.quantity >= 1
+            && entry.quantity <= 999);
+        return { active, ready, attention: active.length - ready.length };
+    };
+
+    const updateLineImportReadiness = () => {
+        const counts = lineImportCounts();
+        lineImportMatchedCount.textContent = String(counts.ready.length);
+        lineImportAttentionCount.textContent = String(counts.attention);
+        const canApply = counts.active.length > 0 && counts.attention === 0;
+        lineImportApplyBtn.disabled = !canApply;
+        lineImportMessage.textContent = canApply
+            ? `${counts.ready.length}商品をカートへ追加できます。`
+            : counts.active.length === 0
+                ? 'カートへ追加する商品がありません。'
+                : `${counts.attention}行の商品または数量を確認してください。`;
+    };
+
+    const renderLineImportResults = (result) => {
+        lineImportEntries = result.entries.map((entry) => ({ ...entry, excluded: false }));
+        lineImportList.replaceChildren();
+
+        lineImportEntries.forEach((entry, index) => {
+            const row = document.createElement('article');
+            row.className = 'line-import-row';
+
+            const source = document.createElement('div');
+            source.className = 'line-import-source';
+            const sourceLabel = document.createElement('small');
+            sourceLabel.textContent = 'LINE原文';
+            const quote = document.createElement('q');
+            quote.textContent = entry.source_text;
+            source.append(sourceLabel, quote);
+
+            const match = document.createElement('div');
+            match.className = 'line-import-match';
+            const matchLabel = document.createElement('small');
+            matchLabel.textContent = '商品照合';
+            const name = document.createElement('strong');
+            const code = document.createElement('code');
+            const reason = document.createElement('span');
+            reason.className = 'line-import-reason';
+            match.append(matchLabel, name, code, reason);
+
+            const syncMatchView = () => {
+                name.textContent = entry.product
+                    ? `${entry.product.favorite ? '★ ' : ''}${lineProductName(entry.product)}`
+                    : '候補を選んでください';
+                code.textContent = entry.product ? `CODE ${lineProductCode(entry.product)}` : '未確定';
+                reason.textContent = entry.reason || '候補を選んでください';
+                reason.classList.toggle('is-attention', !entry.product);
+                reason.classList.toggle('is-all-product', Boolean(entry.product && !entry.product.favorite));
+                row.classList.toggle('needs-attention', !entry.product || !entry.quantity);
+            };
+            syncMatchView();
+
+            if (!entry.product) {
+                const picker = document.createElement('div');
+                picker.className = 'line-candidate-picker';
+                const search = document.createElement('input');
+                search.type = 'search';
+                search.className = 'line-candidate-search';
+                search.autocomplete = 'off';
+                search.placeholder = '商品名・コードで全商品検索';
+                search.setAttribute('aria-label', `${entry.source_text}の商品検索`);
+                const searchStatus = document.createElement('small');
+                searchStatus.className = 'line-candidate-status';
+                const select = document.createElement('select');
+                select.className = 'line-candidate-select';
+                select.setAttribute('aria-label', `${entry.source_text}の商品候補`);
+                let shownCandidates = entry.candidates || [];
+
+                const showCandidates = (candidates, searching = false) => {
+                    shownCandidates = candidates;
+                    select.replaceChildren();
+                    const blank = document.createElement('option');
+                    blank.value = '';
+                    blank.textContent = candidates.length ? '候補から選ぶ' : '該当商品なし';
+                    select.appendChild(blank);
+                    candidates.forEach((candidate) => {
+                        const option = document.createElement('option');
+                        option.value = lineProductCode(candidate);
+                        option.textContent = lineProductLabel(candidate);
+                        select.appendChild(option);
+                    });
+                    select.disabled = candidates.length === 0;
+                    searchStatus.textContent = searching
+                        ? `検索結果 ${candidates.length}件（最大50件）${candidates.length === 1 ? '／Enterでも選択' : ''}`
+                        : `★お気に入り${lineImportFavorites.length}商品を優先／全${lineImportProducts.length.toLocaleString('ja-JP')}商品`;
+                };
+
+                const clearManualProduct = () => {
+                    entry.product = null;
+                    entry.reason = '候補を選んでください';
+                    syncMatchView();
+                    updateLineImportReadiness();
+                };
+
+                showCandidates(shownCandidates);
+                search.addEventListener('input', () => {
+                    clearManualProduct();
+                    const query = search.value.trim();
+                    showCandidates(query ? lineMatch.searchProducts(query, lineImportProducts) : entry.candidates, Boolean(query));
+                });
+                search.addEventListener('keydown', (event) => {
+                    if (event.key !== 'Enter' || shownCandidates.length !== 1) return;
+                    event.preventDefault();
+                    select.value = lineProductCode(shownCandidates[0]);
+                    select.dispatchEvent(new Event('change'));
+                });
+                select.addEventListener('change', () => {
+                    entry.product = lineImportProductByCode.get(select.value) || null;
+                    entry.reason = entry.product
+                        ? entry.product.favorite ? 'お気に入りから手動選択' : '全商品から手動選択'
+                        : '候補を選んでください';
+                    syncMatchView();
+                    updateLineImportReadiness();
+                });
+                picker.append(search, searchStatus, select);
+                match.appendChild(picker);
+            }
+
+            const quantityBlock = document.createElement('div');
+            quantityBlock.className = 'line-import-quantity';
+            const quantityLabel = document.createElement('label');
+            quantityLabel.textContent = '数量';
+            quantityLabel.htmlFor = `line-import-qty-${index}`;
+            const quantity = document.createElement('input');
+            quantity.id = `line-import-qty-${index}`;
+            quantity.type = 'number';
+            quantity.inputMode = 'numeric';
+            quantity.min = '1';
+            quantity.max = '999';
+            quantity.value = entry.quantity || '';
+            quantity.className = 'line-import-qty';
+            quantity.classList.toggle('is-invalid', !entry.quantity);
+            quantity.addEventListener('input', () => {
+                const value = Number.parseInt(quantity.value, 10);
+                entry.quantity = Number.isInteger(value) && value >= 1 && value <= 999 ? value : null;
+                quantity.classList.toggle('is-invalid', !entry.quantity);
+                row.classList.toggle('needs-attention', !entry.product || !entry.quantity);
+                updateLineImportReadiness();
+            });
+            quantityBlock.append(quantityLabel, quantity);
+
+            const exclude = document.createElement('button');
+            exclude.type = 'button';
+            exclude.className = 'line-import-exclude';
+            exclude.textContent = 'この行を除外';
+            exclude.addEventListener('click', () => {
+                entry.excluded = !entry.excluded;
+                row.classList.toggle('is-excluded', entry.excluded);
+                exclude.textContent = entry.excluded ? '除外を戻す' : 'この行を除外';
+                updateLineImportReadiness();
+            });
+
+            row.append(source, match, quantityBlock, exclude);
+            lineImportList.appendChild(row);
+        });
+
+        lineImportTime.textContent = result.elapsed_ms < 1 ? '<1ms' : `${Math.round(result.elapsed_ms)}ms`;
+        lineImportInputStep.classList.add('hidden');
+        lineImportPreviewStep.classList.remove('hidden');
+        updateLineImportReadiness();
+    };
+
+    const openLineImportModal = () => {
+        if (!ENABLE_LINE_TEXT_IMPORT || !isMasterSession) return;
+        if (!lineMatch) {
+            alert('LINE取込機能を読み込めませんでした。画面を再読み込みしてください。');
+            return;
+        }
+        if (!itemsData.length) {
+            alert('商品データを読み込み中です。少し待ってからもう一度お試しください。');
+            return;
+        }
+        buildLineImportCatalog();
+        lineImportEntries = [];
+        lineImportText.value = '';
+        lineImportList.replaceChildren();
+        setLineImportStatus('');
+        lineImportInputStep.classList.remove('hidden');
+        lineImportPreviewStep.classList.add('hidden');
+        lineImportModal.classList.remove('hidden');
+        lineImportOverlay.classList.remove('hidden');
+        setTimeout(() => lineImportText.focus(), 0);
+    };
+
+    const closeLineImportModal = () => {
+        lineImportModal.classList.add('hidden');
+        lineImportOverlay.classList.add('hidden');
+    };
+
+    const parseLineImport = () => {
+        const text = lineImportText.value.trim();
+        if (!text) {
+            setLineImportStatus('LINEの注文文面を貼り付けてください。', true);
+            lineImportText.focus();
+            return;
+        }
+        setLineImportStatus('');
+        const result = lineMatch.parseLineOrderText(text, lineImportFavorites, lineImportProducts);
+        if (!result.entries.length) {
+            setLineImportStatus('商品として読み取れる行がありませんでした。', true);
+            return;
+        }
+        renderLineImportResults(result);
+    };
+
+    const applyLineImportToCart = () => {
+        const counts = lineImportCounts();
+        if (!counts.active.length || counts.attention > 0) return;
+        counts.ready.forEach((entry) => {
+            const product = entry.product;
+            const code = lineProductCode(product);
+            const existingQty = (currentCart[code] && currentCart[code].qty) || 0;
+            updateFromCart(code, lineProductName(product), existingQty + entry.quantity);
+        });
+        closeLineImportModal();
+        openCartSidebar();
+    };
+
+    if (lineImportBtn) lineImportBtn.addEventListener('click', openLineImportModal);
+    if (lineImportCloseBtn) lineImportCloseBtn.addEventListener('click', closeLineImportModal);
+    if (lineImportOverlay) lineImportOverlay.addEventListener('click', closeLineImportModal);
+    if (lineImportParseBtn) lineImportParseBtn.addEventListener('click', parseLineImport);
+    if (lineImportBackBtn) lineImportBackBtn.addEventListener('click', () => {
+        lineImportPreviewStep.classList.add('hidden');
+        lineImportInputStep.classList.remove('hidden');
+        setTimeout(() => lineImportText.focus(), 0);
+    });
+    if (lineImportApplyBtn) lineImportApplyBtn.addEventListener('click', applyLineImportToCart);
+
+    // ==========================================
+    // 📥 旧AI取り込みモード（停止中・MASTERログイン限定）
     // ==========================================
     const importModeBtn = document.getElementById('import-mode-btn');
     const importOverlay = document.getElementById('import-overlay');

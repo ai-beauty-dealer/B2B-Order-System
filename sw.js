@@ -14,7 +14,7 @@
 //
 // キャッシュ名にバージョンを持たせ、更新時に古いキャッシュを消す。
 
-const CACHE_VERSION = 'v2.37.5';
+const CACHE_VERSION = 'v2.38.0';
 const CACHE_NAME = 'b2b-order-' + CACHE_VERSION;
 
 // 起動に必要な最小資産（オフライン時のフォールバック用）
@@ -22,6 +22,7 @@ const PRECACHE_URLS = [
   './',
   './index.html',
   './app.js',
+  './line-order-match.js',
   './config.js',
   './style.css',
   './lib/html5-qrcode.min.js',

@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ja">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>LINE取込・Visual QA</title>
+    <link rel="stylesheet" href="../style.css">
+</head>
+<body style="background:#e2e8f0;min-height:100vh">
+    <div class="import-modal line-import-modal" role="dialog" aria-modal="true" aria-labelledby="preview-title">
+        <div class="import-header">
+            <div>
+                <p class="line-import-kicker">FAVORITES FIRST / API FREE</p>
+                <h3 id="preview-title">LINE注文を取り込む</h3>
+            </div>
+            <button class="cart-close-btn" type="button" aria-label="閉じる">&times;</button>
+        </div>
+        <div class="line-import-metrics">
+            <span><strong>1</strong>確定</span>
+            <span><strong>1</strong>要確認</span>
+            <span><strong>82ms</strong>解析時間</span>
+        </div>
+        <div class="line-import-list">
+            <article class="line-import-row">
+                <div class="line-import-source"><small>LINE原文</small><q>RV8 ×2</q></div>
+                <div class="line-import-match"><small>商品照合</small><strong>★ BLカラー RV8</strong><code>CODE 704062</code><span class="line-import-reason">お気に入り一致</span></div>
+                <div class="line-import-quantity"><label for="q1">数量</label><input id="q1" class="line-import-qty" type="number" value="2"></div>
+                <button class="line-import-exclude">この行を除外</button>
+            </article>
+            <article class="line-import-row needs-attention">
+                <div class="line-import-source"><small>LINE原文</small><q>アルティスト CB 2本</q></div>
+                <div class="line-import-match"><small>商品照合</small><strong>候補を選んでください</strong><code>未確定</code><span class="line-import-reason is-attention">お気に入り優先・全商品から候補</span>
+                    <div class="line-candidate-picker">
+                        <input class="line-candidate-search" type="search" value="204569" aria-label="商品検索">
+                        <small class="line-candidate-status">検索結果 1件（最大50件）／Enterでも選択</small>
+                        <select class="line-candidate-select" aria-label="商品候補"><option>★ アルティスト CB/9 80（204569）</option></select>
+                    </div>
+                </div>
+                <div class="line-import-quantity"><label for="q2">数量</label><input id="q2" class="line-import-qty" type="number" value="2"></div>
+                <button class="line-import-exclude">この行を除外</button>
+            </article>
+        </div>
+        <div class="line-import-cart-bar">
+            <p>1行の商品または数量を確認してください。</p>
+            <div class="import-actions"><button class="btn-secondary">文面に戻る</button><button class="btn-primary" disabled>この数量でカートへ</button></div>
+        </div>
+    </div>
+</body>
+</html>
