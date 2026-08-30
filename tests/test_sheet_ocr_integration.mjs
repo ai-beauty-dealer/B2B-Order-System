@@ -60,17 +60,23 @@ test('正の字と不明数量を構造化して扱う', () => {
 });
 
 test('印刷時に用紙ID・ページQR・位置JSONを登録する', () => {
-    assert.match(app, /PRINT_RENDERER_VERSION = 'b2b-print-v2\.39\.1'/);
+    assert.match(app, /PRINT_RENDERER_VERSION = 'b2b-print-v2\.39\.2'/);
     assert.match(app, /data-sheet-ocr-code/);
     assert.match(app, /registerOrderSheetLayoutFromPrint/);
     assert.match(app, /action: 'save_order_sheet_layout'/);
 });
 
-test('PWAは画像OCRヘルパーとv2.39.1を配信する', () => {
-    assert.match(html, /sheet-ocr\.js\?v=2\.39\.1/);
-    assert.match(html, /app\.js\?v=2\.39\.1/);
-    assert.match(html, /style\.css\?v=2\.39\.1/);
-    assert.match(sw, /CACHE_VERSION = 'v2\.39\.1'/);
+test('本店発注書はお気に入りを正本にし外した商品を履歴から戻さない', () => {
+    assert.match(app, /const useFavoriteOnlyPrint = ENABLE_SHEET_IMAGE_IMPORT && favoritePrintCodes\.length > 0/);
+    assert.match(app, /codes = codes\.filter\(\(code\) => favoriteSet\.has/);
+    assert.match(app, /if \(!useFavoriteOnlyPrint\) \{[\s\S]*archiveCodes\.forEach\(pushCode\)/);
+});
+
+test('PWAは画像OCRヘルパーとv2.39.2を配信する', () => {
+    assert.match(html, /sheet-ocr\.js\?v=2\.39\.2/);
+    assert.match(html, /app\.js\?v=2\.39\.2/);
+    assert.match(html, /style\.css\?v=2\.39\.2/);
+    assert.match(sw, /CACHE_VERSION = 'v2\.39\.2'/);
     assert.match(sw, /'\.\/sheet-ocr\.js'/);
 });
 

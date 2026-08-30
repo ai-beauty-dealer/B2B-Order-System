@@ -1,8 +1,8 @@
-// v2.39.1 (FIXED-LAYOUT-SHEET-OCR-MAIN-ONLY)
+// v2.39.2 (FIXED-LAYOUT-SHEET-OCR-MAIN-ONLY)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.39.1 (FIXED-LAYOUT-SHEET-OCR-MAIN-ONLY) Loaded ---');
+    console.log('--- B2B Order System v2.39.2 (FIXED-LAYOUT-SHEET-OCR-MAIN-ONLY) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -4875,7 +4875,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const printLayoutCreateBtn = document.getElementById('print-layout-create-btn');
     const IMPORT_QR_PREFIX = 'B2BORDER|'; // QRの中身: B2BORDER|サロン名（一括取り込みのサロン判定に使う）
     const importDraftKey = (salonName) => 'b2b_import_draft_' + salonName;
-    const PRINT_RENDERER_VERSION = 'b2b-print-v2.39.1';
+    const PRINT_RENDERER_VERSION = 'b2b-print-v2.39.2';
 
     const PRINT_SHEET_MAX_ITEMS = 240;
     const PRINT_ARCHIVE_MAX_PAGES = 6;      // アーカイブ履歴を遡る最大ページ数（50件×6）
@@ -4974,9 +4974,19 @@ document.addEventListener('DOMContentLoaded', () => {
             };
         };
 
-        showLoading('全履歴を集めています...');
-        const archiveCodes = await collectArchiveCodes();
-        hideLoading();
+        // 本店ではお気に入りが「印刷する商品」の正本。お気に入りから外した商品を
+        // 過去履歴が復活させないようにする（ミツアミ堂7SB/8SBで顕在化）。
+        // 社員版は従来の全履歴方式を維持し、今回の先行導入範囲を本店だけに限定する。
+        const favoritePrintCodes = (favoriteItems || [])
+            .map((code) => String(code).replace(/^'/, '').trim())
+            .filter(Boolean);
+        const useFavoriteOnlyPrint = ENABLE_SHEET_IMAGE_IMPORT && favoritePrintCodes.length > 0;
+        let archiveCodes = [];
+        if (!useFavoriteOnlyPrint) {
+            showLoading('全履歴を集めています...');
+            archiveCodes = await collectArchiveCodes();
+            hideLoading();
+        }
 
         // 商品の集め方（順序が印刷順になる）:
         //  1. 直近履歴のよく頼む順（発注回数 → 最終発注日）
@@ -4986,13 +4996,19 @@ document.addEventListener('DOMContentLoaded', () => {
         const itemByCode = {};
         itemsData.forEach((it) => { itemByCode[it.code] = it; });
         // 選抜は「重要な順」（よく頼む順→最終発注日→収集順）で行い、表示は後でカテゴリ別に並べ替える
-        const codes = Object.keys(orderFrequency)
+        let codes = Object.keys(orderFrequency)
             .sort((a, b) => (orderFrequency[b] - orderFrequency[a]) || ((lastOrderDate[b] || 0) - (lastOrderDate[a] || 0)));
+        if (useFavoriteOnlyPrint) {
+            const favoriteSet = new Set(favoritePrintCodes);
+            codes = codes.filter((code) => favoriteSet.has(String(code).replace(/^'/, '').trim()));
+        }
         const pushCode = (c) => { if (c && codes.indexOf(c) === -1) codes.push(c); };
-        (favoriteItems || []).forEach(pushCode);
-        archiveCodes.forEach(pushCode);
-        if (historyFavoritesData && historyFavoritesData[currentClientCode]) {
-            historyFavoritesData[currentClientCode].forEach(pushCode);
+        favoritePrintCodes.forEach(pushCode);
+        if (!useFavoriteOnlyPrint) {
+            archiveCodes.forEach(pushCode);
+            if (historyFavoritesData && historyFavoritesData[currentClientCode]) {
+                historyFavoritesData[currentClientCode].forEach(pushCode);
+            }
         }
         const sheetItems = codes.filter((c) => itemByCode[c]).slice(0, PRINT_SHEET_MAX_ITEMS)
             .map((c) => ({ code: c, name: itemByCode[c].name, category: itemByCode[c].category || 'その他' }));
@@ -5129,7 +5145,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
         const layout = scaledLayout(printScale);
-        const metaCountLabel = `掲載 ${sheetItems.length}商品（お取引履歴より）`
+        const metaCountLabel = `掲載 ${sheetItems.length}商品（${useFavoriteOnlyPrint ? 'お気に入り' : 'お取引履歴'}より）`
             + (printScale < 0.995 ? `／縮小 ${Math.round(printScale * 100)}%` : '')
             + (sheetOcrPrintEnabled ? '／画像取込対応' : '');
         let pageQrDataUrls;

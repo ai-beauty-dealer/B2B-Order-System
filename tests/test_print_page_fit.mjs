@@ -39,7 +39,7 @@ const buildItems = (n) => {
 };
 
 // printOrderSheet が参照する外部を全部モックして実体を取り出す
-const buildSheetHtml = async (itemCount, cols, pageLimit, sheetOcrEnabled = false) => {
+const buildSheetHtml = async (itemCount, cols, pageLimit, sheetOcrEnabled = false, favoriteCodes = []) => {
     const itemsData = buildItems(itemCount);
     const orderFrequency = {};
     const lastOrderDate = {};
@@ -50,12 +50,12 @@ const buildSheetHtml = async (itemCount, cols, pageLimit, sheetOcrEnabled = fals
         currentClientName: 'テストサロン',
         currentClientCode: 'C0001',
         itemsData, orderFrequency, lastOrderDate,
-        favoriteItems: [],
+        favoriteItems: favoriteCodes,
         historyFavoritesData: {},
         PRINT_SHEET_MAX_ITEMS: 240,
         IMPORT_QR_PREFIX: 'B2BORDER|',
         ENABLE_SHEET_IMAGE_IMPORT: sheetOcrEnabled,
-        PRINT_RENDERER_VERSION: 'b2b-print-v2.39.1',
+        PRINT_RENDERER_VERSION: 'b2b-print-v2.39.2',
         sheetOcr: {
             makeSheetId: () => 'SO-abcdefghijklmnop',
             makeQrValue: (sheetId, pageNo) => `B2BORDER2|${sheetId}|${pageNo}`,
@@ -98,6 +98,13 @@ if (!process.argv.includes('--browser')) {
     assert.doesNotThrow(() => new Function(inlineScripts[0]), '印刷画面の位置登録スクリプトに構文エラーがないこと');
     passed++;
     console.log('  ✓ 画像取込対応の位置登録スクリプト構文');
+    const favorites = buildItems(10).slice(2).map((item) => item.code);
+    const favoriteOnlyHtml = await buildSheetHtml(10, 3, 1, true, favorites);
+    assert.doesNotMatch(favoriteOnlyHtml, /data-sheet-ocr-code="1000000"/);
+    assert.doesNotMatch(favoriteOnlyHtml, /data-sheet-ocr-code="1000001"/);
+    assert.equal((favoriteOnlyHtml.match(/data-sheet-ocr-code=/g) || []).length, 8);
+    passed++;
+    console.log('  ✓ 本店はお気に入りから外した商品を履歴から復活させない');
 } else {
     assert.ok(chromePath, 'Chrome実描画テストを指定したがChromeが見つからない');
     const tempDir = mkdtempSync(join(tmpdir(), 'b2b-print-fit-'));
