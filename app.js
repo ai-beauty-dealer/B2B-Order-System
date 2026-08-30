@@ -1,8 +1,8 @@
-// v2.39.3 (MOBILE-PHOTO-LIBRARY-PICKER)
+// v2.39.4 (MITSUAMI-70-LEGACY-QR-COMPAT)
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('--- B2B Order System v2.39.3 (MOBILE-PHOTO-LIBRARY-PICKER) Loaded ---');
+    console.log('--- B2B Order System v2.39.4 (MITSUAMI-70-LEGACY-QR-COMPAT) Loaded ---');
 
     // Loading banner (non-blocking -- does not intercept any clicks)
     const loadingBanner = document.getElementById('loading-banner');
@@ -4242,7 +4242,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 const converted = await canvasToFile(fallbackCanvas, `sheet-ocr-${Date.now()}.jpg`);
                 decoded = await scanner.scanFile(converted, true);
             }
-            return sheetOcr.parseQrValue(decoded);
+            return sheetOcr.parseQrValue(decoded)
+                || sheetOcr.parseLegacyQrValue(decoded, currentClientName);
         } catch (error) {
             return null;
         } finally {
@@ -4314,11 +4315,13 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!qr) {
                 throw new Error('新しい発注書用QRを読めませんでした。このサイトから発注書を再印刷し、明るい場所で紙全体を撮影してください。');
             }
-            const response = await callSheetOcrApi({ action: 'get_order_sheet_layout', sheetId: qr.sheet_id });
+            const response = qr.legacy
+                ? await callSheetOcrApi({ action: 'get_legacy_order_sheet_layout', legacyQr: qr.legacy_qr })
+                : await callSheetOcrApi({ action: 'get_order_sheet_layout', sheetId: qr.sheet_id });
             const manifest = response.data;
             const page = sheetOcr.getManifestPage(manifest, qr.page_no, currentClientName);
             sheetOcrState.sourceCanvas = sourceCanvas;
-            sheetOcrState.qr = qr;
+            sheetOcrState.qr = { ...qr, sheet_id: manifest.sheet_id };
             sheetOcrState.manifest = manifest;
             sheetOcrState.page = page;
             sheetOcrState.corners = [];
@@ -4987,7 +4990,7 @@ document.addEventListener('DOMContentLoaded', () => {
         };
 
         // 本店ではお気に入りが「印刷する商品」の正本。お気に入りから外した商品を
-        // 過去履歴が復活させないようにする（ミツアミ堂7SB/8SBで顕在化）。
+        // 過去履歴が復活させないようにする（お気に入り解除商品で顕在化）。
         // 社員版は従来の全履歴方式を維持し、今回の先行導入範囲を本店だけに限定する。
         const favoritePrintCodes = (favoriteItems || [])
             .map((code) => String(code).replace(/^'/, '').trim())

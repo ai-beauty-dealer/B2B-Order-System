@@ -12,8 +12,16 @@ test('発注書QR v2を往復できる', () => {
 });
 
 test('旧QRや不正ページを固定座標OCRへ混ぜない', () => {
-    assert.equal(ocr.parseQrValue('B2BORDER|ミツアミ堂'), null);
+    assert.equal(ocr.parseQrValue('B2BORDER|テストサロン'), null);
     assert.equal(ocr.parseQrValue('B2BORDER2|SO-test1234567890|0'), null);
+});
+
+test('選択中サロンと一致する旧QRだけをサーバー照合へ渡す', () => {
+    assert.deepEqual(ocr.parseLegacyQrValue('B2BORDER|テストサロン', 'テストサロン'), {
+        legacy_qr: 'B2BORDER|テストサロン', page_no: 1, legacy: true
+    });
+    assert.equal(ocr.parseLegacyQrValue('B2BORDER|テストサロン', '別サロン'), null);
+    assert.equal(ocr.parseLegacyQrValue('B2BORDER2|SO-test1234567890|1', 'テストサロン'), null);
 });
 
 test('正規化bboxを画像座標へ戻す', () => {

@@ -6,6 +6,7 @@
     'use strict';
 
     const QR_PREFIX = 'B2BORDER2';
+    const LEGACY_QR_PREFIX = 'B2BORDER';
     const MARK_TYPES = new Set(['arabic_digit', 'japanese_tally', 'blank', 'unclear']);
     const CONFIDENCE_LEVELS = new Set(['high', 'medium', 'low']);
 
@@ -28,6 +29,16 @@
         const pageNo = Number(parts[2]);
         if (!Number.isInteger(pageNo) || pageNo < 1 || pageNo > 6) return null;
         return { sheet_id: parts[1], page_no: pageNo };
+    };
+
+    // 画像取込対応QRへ切り替わる直前の旧QRは、選択中サロンとの一致だけを端末で確認する。
+    // 固定レイアウトの登録有無は非公開のサーバー側で照合し、未登録用紙を誤認しない。
+    const parseLegacyQrValue = (value, expectedClientName) => {
+        const parts = String(value || '').trim().split('|');
+        if (parts.length !== 2 || parts[0] !== LEGACY_QR_PREFIX) return null;
+        const clientName = String(parts[1] || '').trim();
+        if (!clientName || clientName !== String(expectedClientName || '').trim()) return null;
+        return { legacy_qr: `${LEGACY_QR_PREFIX}|${clientName}`, page_no: 1, legacy: true };
     };
 
     const normalizedBoxToPixels = (bbox, width, height) => {
@@ -253,6 +264,7 @@
         makeSheetId,
         makeQrValue,
         parseQrValue,
+        parseLegacyQrValue,
         normalizedBoxToPixels,
         computeHomography,
         projectPoint,

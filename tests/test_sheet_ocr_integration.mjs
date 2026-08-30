@@ -72,12 +72,18 @@ test('本店発注書はお気に入りを正本にし外した商品を履歴�
     assert.match(app, /if \(!useFavoriteOnlyPrint\) \{[\s\S]*archiveCodes\.forEach\(pushCode\)/);
 });
 
-test('PWAは画像OCRヘルパーとv2.39.3を配信する', () => {
-    assert.match(html, /sheet-ocr\.js\?v=2\.39\.3/);
-    assert.match(html, /app\.js\?v=2\.39\.3/);
-    assert.match(html, /style\.css\?v=2\.39\.3/);
-    assert.match(sw, /CACHE_VERSION = 'v2\.39\.3'/);
+test('PWAは画像OCRヘルパーとv2.39.4を配信する', () => {
+    assert.match(html, /sheet-ocr\.js\?v=2\.39\.4/);
+    assert.match(html, /app\.js\?v=2\.39\.4/);
+    assert.match(html, /style\.css\?v=2\.39\.4/);
+    assert.match(sw, /CACHE_VERSION = 'v2\.39\.4'/);
     assert.match(sw, /'\.\/sheet-ocr\.js'/);
+});
+
+test('旧QRはサロン名を公開コードへ固定せずサーバーの専用位置JSONへ照合する', () => {
+    assert.doesNotMatch(helper + app, /SO-legacy-mitsuami70-v1/);
+    assert.match(block, /parseQrValue\(decoded\)[\s\S]*parseLegacyQrValue\(decoded, currentClientName\)/);
+    assert.match(block, /action: 'get_legacy_order_sheet_layout'/);
 });
 
 test('スマホの写真ライブラリとカメラを別入力にする', () => {
