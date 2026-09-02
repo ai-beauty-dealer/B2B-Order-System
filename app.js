@@ -152,6 +152,24 @@ document.addEventListener('DOMContentLoaded', () => {
     const clearResumeSession = () => {
         try { localStorage.removeItem('b2b_resume'); } catch (e) {}
     };
+    // 自動ログインが混雑・通信不良で通らなかった時の案内（記憶は残っている）
+    const showAutoLoginRetryNotice = () => {
+        try {
+            const old = document.getElementById('auto-login-retry');
+            if (old) old.remove();
+            const box = document.createElement('div');
+            box.id = 'auto-login-retry';
+            box.style.cssText = 'background:#fff8e1;border:1px solid #f0d58c;border-radius:10px;padding:14px;margin-bottom:16px;text-align:center;color:#5d4a00;font-size:0.9rem;';
+            box.innerHTML =
+                '<div style="margin-bottom:8px;">サーバーが混み合っていて自動ログインできませんでした。<br>ログイン情報は残っています。少し待ってからお試しください。</div>' +
+                '<button type="button" id="auto-login-retry-btn" style="background:#1e3a5f;color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:0.95rem;cursor:pointer;">もう一度自動ログイン</button>';
+            loginContainer.insertBefore(box, loginForm);
+            document.getElementById('auto-login-retry-btn').addEventListener('click', () => {
+                box.remove();
+                attemptAutoLogin();
+            });
+        } catch (e) { /* 案内が出せなくても手動ログインは可能 */ }
+    };
     const attemptAutoLogin = () => {
         let session = null;
         try { session = JSON.parse(localStorage.getItem('b2b_resume') || 'null'); }
@@ -201,31 +219,50 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (session.tk) {
                 // 新方式: トークンで再ログイン（パスワードは端末に無い）
+                // 記憶を消すのは GAS が code:'session_expired' を返した時だけ。
+                // 「サーバーが混み合っています」や通信エラーは一時的なので記憶を残し、
+                // 少し待って自動で再試行する（2026-09-01 朝の混雑で記憶が消えた不具合の対策）。
                 showLoading();
-                try {
-                    const response = await fetch(CONFIG.API_URL, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                        redirect: 'follow',
-                        body: JSON.stringify({ action: 'login', token: session.tk })
-                    });
-                    const result = await response.json();
-                    if (result.status === 'success') {
+                const RETRY_DELAYS_MS = [3000, 6000];
+                for (let attempt = 0; ; attempt++) {
+                    let result = null;
+                    try {
+                        const response = await fetch(CONFIG.API_URL, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                            redirect: 'follow',
+                            body: JSON.stringify({ action: 'login', token: session.tk })
+                        });
+                        result = await response.json();
+                    } catch (e) {
+                        console.error(e);
+                        result = null; // 通信エラー＝一時的
+                    }
+
+                    if (result && result.status === 'success') {
                         await processLoginResult(result, session.u);
-                    } else {
+                        return;
+                    }
+                    if (result && result.code === 'session_expired') {
                         // トークン失効: 記憶を消して静かに手動ログインへ
                         hideLoading();
                         clearResumeSession();
                         autoLoginInProgress = false;
                         if (usernameInput) usernameInput.value = session.u;
+                        return;
                     }
-                } catch (e) {
-                    // 通信エラーは一時的なので記憶は消さない
-                    console.error(e);
+                    if (attempt < RETRY_DELAYS_MS.length) {
+                        showLoading('サーバーが混み合っています。少し待って再試行中…');
+                        await new Promise(r => setTimeout(r, RETRY_DELAYS_MS[attempt]));
+                        continue;
+                    }
+                    // 再試行しても入れない: 記憶は残したまま案内を出す（次に開けば再び自動ログイン）
                     hideLoading();
                     autoLoginInProgress = false;
+                    if (usernameInput) usernameInput.value = session.u;
+                    showAutoLoginRetryNotice();
+                    return;
                 }
-                return;
             }
 
             // 旧方式の保存（平文パスワード）からの移行パス。

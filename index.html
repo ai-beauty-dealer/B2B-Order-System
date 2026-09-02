@@ -273,13 +273,13 @@
     <script src="config.js?v=2.35.5"></script>
     <script src="line-order-match.js?v=2.38.0"></script>
     <script src="sheet-ocr.js?v=2.39.4"></script>
-    <script src="app.js?v=2.39.4"></script>
+    <script src="app.js?v=2.39.5"></script>
 
     <!-- Service Worker 登録（PWA） -->
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function () {
-                navigator.serviceWorker.register('sw.js?v=2.39.4')
+                navigator.serviceWorker.register('sw.js?v=2.39.5')
                     .catch(function (err) {
                         console.warn('SW登録に失敗（通常サイトとして続行）:', err);
                     });
