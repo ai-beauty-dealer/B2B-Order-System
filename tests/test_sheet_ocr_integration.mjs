@@ -60,10 +60,31 @@ test('正の字と不明数量を構造化して扱う', () => {
 });
 
 test('印刷時に用紙ID・ページQR・位置JSONを登録する', () => {
-    assert.match(app, /PRINT_RENDERER_VERSION = 'b2b-print-v2\.39\.2'/);
+    assert.match(app, /PRINT_RENDERER_VERSION = 'b2b-print-v2\.40\.0'/);
     assert.match(app, /data-sheet-ocr-code/);
     assert.match(app, /registerOrderSheetLayoutFromPrint/);
     assert.match(app, /action: 'save_order_sheet_layout'/);
+});
+
+test('印刷時に四隅の位置合わせマークを刷り、位置JSONへanchorsを入れる', () => {
+    assert.match(app, /data-sheet-ocr-anchor="\$\{key\}"/);
+    assert.match(app, /\['tl', 'tr', 'br', 'bl'\]/);
+    assert.match(app, /anchors\[mark\.dataset\.sheetOcrAnchor\] = normalizeBox\(mark, pageRect\)/);
+    assert.match(app, /schema_version: '1\.1'/);
+    assert.match(app, /\.sheet-ocr-anchor \{ position: absolute; width: \$\{SHEET_OCR_ANCHOR_MM\}mm/);
+    assert.match(app, /PAGE1_BODY_MM = 245 - anchorReserveMm/);
+    assert.match(app, /body\.ocr \.qr-main \{ right: 9mm; \}/);
+});
+
+test('写真側は紙の四隅ではなくマーク中心へ射影し、白地タップは止める', () => {
+    assert.match(helper, /const getPageAnchors = /);
+    assert.match(helper, /const snapToDarkCentroid = /);
+    assert.match(block, /sheetOcr\.getPageAnchors\(page\)/);
+    assert.match(block, /warpPerspective\(sheetOcrState\.sourceCanvas, sheetOcrState\.corners, 1100, 1556, sheetOcrState\.anchors\)/);
+    assert.match(block, /snapToDarkCentroid\(sheetOcrState\.sourceImageData, tapped, radius\)/);
+    assert.match(block, /Math\.min\(rect\.width \/ sheetOcrPhotoCanvas\.width, rect\.height \/ sheetOcrPhotoCanvas\.height\)/);
+    assert.match(html, /■マーク（黒い四角）をタップしてください/);
+    assert.doesNotMatch(html, /紙の左上をタップ/);
 });
 
 test('本店発注書はお気に入りを正本にし外した商品を履歴から戻さない', () => {
@@ -72,18 +93,19 @@ test('本店発注書はお気に入りを正本にし外した商品を履歴�
     assert.match(app, /if \(!useFavoriteOnlyPrint\) \{[\s\S]*archiveCodes\.forEach\(pushCode\)/);
 });
 
-test('PWAは画像OCRヘルパーとv2.39.4を配信する', () => {
-    assert.match(html, /sheet-ocr\.js\?v=2\.39\.4/);
-    assert.match(html, /app\.js\?v=2\.39\.4/);
-    assert.match(html, /style\.css\?v=2\.39\.4/);
-    assert.match(sw, /CACHE_VERSION = 'v2\.39\.4'/);
+test('PWAは画像OCRヘルパーとv2.40.0を配信する', () => {
+    assert.match(html, /sheet-ocr\.js\?v=2\.40\.0/);
+    assert.match(html, /app\.js\?v=2\.40\.0/);
+    assert.match(html, /style\.css\?v=2\.40\.0/);
+    assert.match(sw, /CACHE_VERSION = 'v2\.40\.0'/);
     assert.match(sw, /'\.\/sheet-ocr\.js'/);
 });
 
-test('旧QRはサロン名を公開コードへ固定せずサーバーの専用位置JSONへ照合する', () => {
+test('旧QR（マーク無し用紙）は固定座標を当てず再印刷案内で止める', () => {
     assert.doesNotMatch(helper + app, /SO-legacy-mitsuami70-v1/);
     assert.match(block, /parseQrValue\(decoded\)[\s\S]*parseLegacyQrValue\(decoded, currentClientName\)/);
-    assert.match(block, /action: 'get_legacy_order_sheet_layout'/);
+    assert.doesNotMatch(block, /get_legacy_order_sheet_layout/);
+    assert.match(block, /if \(qr\.legacy\) \{[\s\S]*位置合わせマークの無い旧発注書/);
 });
 
 test('スマホの写真ライブラリとカメラを別入力にする', () => {

@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="robots" content="noindex">
     <title>AI Beauty Dealer - B2B Order System</title>
-    <link rel="stylesheet" href="style.css?v=2.39.4">
+    <link rel="stylesheet" href="style.css?v=2.40.0">
 
     <!-- PWA -->
     <link rel="manifest" href="manifest.json?v=2.37.3">
@@ -272,14 +272,14 @@
          上げ忘れると既訪端末が古い販売担当コード表を使い続ける。 -->
     <script src="config.js?v=2.35.5"></script>
     <script src="line-order-match.js?v=2.38.0"></script>
-    <script src="sheet-ocr.js?v=2.39.4"></script>
-    <script src="app.js?v=2.39.5"></script>
+    <script src="sheet-ocr.js?v=2.40.0"></script>
+    <script src="app.js?v=2.40.0"></script>
 
     <!-- Service Worker 登録（PWA） -->
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function () {
-                navigator.serviceWorker.register('sw.js?v=2.39.5')
+                navigator.serviceWorker.register('sw.js?v=2.40.0')
                     .catch(function (err) {
                         console.warn('SW登録に失敗（通常サイトとして続行）:', err);
                     });
@@ -378,12 +378,12 @@
         </div>
 
         <div id="sheet-ocr-corner-step" class="hidden">
-            <p class="sheet-ocr-corner-guide"><strong id="sheet-ocr-corner-message">紙の左上をタップしてください。</strong><span>左上 → 右上 → 右下 → 左下</span></p>
+            <p class="sheet-ocr-corner-guide"><strong id="sheet-ocr-corner-message">左上の■マーク（黒い四角）をタップしてください。</strong><span>■ 左上 → 右上 → 右下 → 左下</span></p>
             <div class="sheet-ocr-canvas-wrap">
-                <canvas id="sheet-ocr-photo-canvas" width="900" height="1200" aria-label="発注書写真の四隅指定"></canvas>
+                <canvas id="sheet-ocr-photo-canvas" width="900" height="1200" aria-label="発注書写真の位置合わせマーク指定"></canvas>
             </div>
             <div class="sheet-ocr-corner-actions">
-                <button id="sheet-ocr-corner-reset" class="btn-secondary" type="button">四隅をやり直す</button>
+                <button id="sheet-ocr-corner-reset" class="btn-secondary" type="button">マークをやり直す</button>
                 <button id="sheet-ocr-recognize-btn" class="btn-primary" type="button" disabled>位置補正して数量を読む</button>
             </div>
         </div>

@@ -55,7 +55,10 @@ const buildSheetHtml = async (itemCount, cols, pageLimit, sheetOcrEnabled = fals
         PRINT_SHEET_MAX_ITEMS: 240,
         IMPORT_QR_PREFIX: 'B2BORDER|',
         ENABLE_SHEET_IMAGE_IMPORT: sheetOcrEnabled,
-        PRINT_RENDERER_VERSION: 'b2b-print-v2.39.2',
+        PRINT_RENDERER_VERSION: 'b2b-print-v2.40.0',
+        SHEET_OCR_ANCHOR_MM: 5,
+        SHEET_OCR_ANCHOR_TOP_MM: 275,
+        SHEET_OCR_ANCHOR_RESERVE_MM: 5,
         sheetOcr: {
             makeSheetId: () => 'SO-abcdefghijklmnop',
             makeQrValue: (sheetId, pageNo) => `B2BORDER2|${sheetId}|${pageNo}`,
@@ -98,6 +101,14 @@ if (!process.argv.includes('--browser')) {
     assert.doesNotThrow(() => new Function(inlineScripts[0]), '印刷画面の位置登録スクリプトに構文エラーがないこと');
     passed++;
     console.log('  ✓ 画像取込対応の位置登録スクリプト構文');
+    const ocrPages = (ocrHtml.match(/class="print-page/g) || []).length;
+    assert.equal((ocrHtml.match(/data-sheet-ocr-anchor=/g) || []).length, ocrPages * 4, '画像取込対応は各ページに位置合わせマーク4つ');
+    assert.match(ocrHtml, /<body class="ocr">/);
+    assert.match(inlineScripts[0], /anchors\[mark\.dataset\.sheetOcrAnchor\]/);
+    assert.doesNotMatch(html, /data-sheet-ocr-anchor=/, '社員版（画像取込なし）にはマークを刷らない');
+    assert.doesNotMatch(html, /<body class="ocr">/);
+    passed++;
+    console.log('  ✓ 位置合わせマーク（画像取込対応のみ・各ページ4つ）');
     const favorites = buildItems(10).slice(2).map((item) => item.code);
     const favoriteOnlyHtml = await buildSheetHtml(10, 3, 1, true, favorites);
     assert.doesNotMatch(favoriteOnlyHtml, /data-sheet-ocr-code="1000000"/);

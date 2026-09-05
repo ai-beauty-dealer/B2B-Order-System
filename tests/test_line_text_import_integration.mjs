@@ -65,9 +65,9 @@ test('LINE原文と商品名をHTMLとして解釈しない', () => {
 
 test('PWAはLINE照合ファイルと最新版アプリを配信する', () => {
     assert.match(html, /line-order-match\.js\?v=2\.38\.0/);
-    assert.match(html, /app\.js\?v=2\.39\.4/);
-    assert.match(html, /style\.css\?v=2\.39\.4/);
-    assert.match(sw, /CACHE_VERSION = 'v2\.39\.4'/);
+    assert.match(html, /app\.js\?v=2\.40\.0/);
+    assert.match(html, /style\.css\?v=2\.40\.0/);
+    assert.match(sw, /CACHE_VERSION = 'v2\.40\.0'/);
     assert.match(sw, /'\.\/line-order-match\.js'/);
 });
 

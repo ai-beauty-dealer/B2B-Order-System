@@ -114,9 +114,77 @@
         return Math.abs(area / 2) > width * height * 0.12;
     };
 
-    const warpPerspective = (sourceCanvas, corners, outputWidth = 1100, outputHeight = 1556) => {
+    // 位置合わせマーク4つ（左上→右上→右下→左下）の中心を、ページ正規化座標(0〜10000)で返す。
+    // 紙の物理的な角ではなく、商品セルと同じ印刷で刷られたマークを基準にするので、
+    // プリンタの拡縮・オフセットが座標に効かない。
+    const ANCHOR_KEYS = ['tl', 'tr', 'br', 'bl'];
+    const getPageAnchors = (page) => {
+        const anchors = page && page.anchors;
+        if (!anchors || ANCHOR_KEYS.some((key) => !Array.isArray(anchors[key]) || anchors[key].length !== 4)) {
+            throw new Error('位置合わせマークの無い旧発注書です。発注書を再印刷してください（数量は手入力）。');
+        }
+        const centers = ANCHOR_KEYS.map((key) => {
+            const box = anchors[key].map(Number);
+            if (!box.every((value) => Number.isFinite(value)) || box[2] < 1 || box[3] < 1) throw new TypeError('位置合わせマークの座標が不正です');
+            return [box[0] + box[2] / 2, box[1] + box[3] / 2];
+        });
+        if (!(centers[0][0] < centers[1][0] && centers[3][0] < centers[2][0] && centers[0][1] < centers[3][1] && centers[1][1] < centers[2][1])) {
+            throw new TypeError('位置合わせマークの並びが不正です');
+        }
+        return centers;
+    };
+
+    // 写真上のタップ点を、周囲の暗い画素の重心へ吸着させる。マークの中心を狙う精度を上げ、
+    // 暗い画素が無い（紙の角・白地をタップした）場合は null を返して止める。
+    // 近くのQRや文字に引っ張られないよう、重心へ窓を移しながら数回絞り込む（mean-shift）。
+    // 窓がほぼ全部暗い（机や影をタップ）場合もマークではないので null。
+    const snapToDarkCentroid = (imageData, point, radius = 40, threshold = 110, minDarkPixels = 30) => {
+        if (!imageData || !imageData.data || !imageData.width || !imageData.height) throw new TypeError('画像データが不正です');
+        const { width, height, data } = imageData;
+        let cx = Number(point && point.x);
+        let cy = Number(point && point.y);
+        if (!Number.isFinite(cx) || !Number.isFinite(cy)) throw new TypeError('タップ座標が不正です');
+        const centroidIn = (centerX, centerY, windowRadius) => {
+            const x0 = Math.max(0, Math.round(centerX - windowRadius));
+            const x1 = Math.min(width - 1, Math.round(centerX + windowRadius));
+            const y0 = Math.max(0, Math.round(centerY - windowRadius));
+            const y1 = Math.min(height - 1, Math.round(centerY + windowRadius));
+            let sumX = 0;
+            let sumY = 0;
+            let count = 0;
+            for (let y = y0; y <= y1; y++) {
+                for (let x = x0; x <= x1; x++) {
+                    const index = (y * width + x) * 4;
+                    const luminance = 0.299 * data[index] + 0.587 * data[index + 1] + 0.114 * data[index + 2];
+                    if (luminance < threshold) {
+                        sumX += x;
+                        sumY += y;
+                        count++;
+                    }
+                }
+            }
+            const total = (x1 - x0 + 1) * (y1 - y0 + 1);
+            return count ? { x: sumX / count, y: sumY / count, count, total } : { x: centerX, y: centerY, count: 0, total };
+        };
+        let result = centroidIn(cx, cy, radius);
+        if (result.count < minDarkPixels || result.count > result.total * 0.85) return null;
+        const tightRadius = Math.max(12, Math.round(radius * 0.6));
+        for (let step = 0; step < 6; step++) {
+            const next = centroidIn(result.x, result.y, tightRadius);
+            if (next.count < minDarkPixels) break;
+            const moved = Math.hypot(next.x - result.x, next.y - result.y);
+            result = next;
+            if (moved < 0.5) break;
+        }
+        if (result.count < minDarkPixels) return null;
+        return { x: result.x, y: result.y, darkPixels: result.count };
+    };
+
+    // タップ4点を、targetPoints（ページ正規化座標）へ写像して正面画像を作る。
+    // targetPoints省略時はページ四隅（旧: 紙の四隅基準。テスト用に残す）。
+    const warpPerspective = (sourceCanvas, corners, outputWidth = 1100, outputHeight = 1556, targetPoints = null) => {
         if (!sourceCanvas || !validCornerOrder(corners, sourceCanvas.width, sourceCanvas.height)) {
-            throw new TypeError('用紙の四隅が不正です');
+            throw new TypeError('位置合わせマークの指定が不正です');
         }
         const output = document.createElement('canvas');
         output.width = outputWidth;
@@ -125,7 +193,9 @@
         const sourceContext = sourceCanvas.getContext('2d', { willReadFrequently: true });
         const sourceData = sourceContext.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
         const outputData = outputContext.createImageData(outputWidth, outputHeight);
-        const destination = [[0, 0], [outputWidth - 1, 0], [outputWidth - 1, outputHeight - 1], [0, outputHeight - 1]];
+        const destination = Array.isArray(targetPoints) && targetPoints.length === 4
+            ? targetPoints.map((point) => [point[0] / 10000 * outputWidth, point[1] / 10000 * outputHeight])
+            : [[0, 0], [outputWidth - 1, 0], [outputWidth - 1, outputHeight - 1], [0, outputHeight - 1]];
         const map = computeHomography(destination, corners.map((point) => [point.x, point.y]));
         const src = sourceData.data;
         const dst = outputData.data;
@@ -150,7 +220,7 @@
     };
 
     const getManifestPage = (manifest, pageNo, expectedClientName) => {
-        if (!manifest || manifest.schema_version !== '1.0') throw new TypeError('発注書レイアウト版が不正です');
+        if (!manifest || ['1.0', '1.1'].indexOf(String(manifest.schema_version)) === -1) throw new TypeError('発注書レイアウト版が不正です');
         if (String(manifest.client_name || '') !== String(expectedClientName || '')) throw new Error('選択中のサロンと発注書が一致しません');
         const page = Array.isArray(manifest.pages)
             ? manifest.pages.find((entry) => Number(entry.page_no) === Number(pageNo))
@@ -271,6 +341,8 @@
         validCornerOrder,
         warpPerspective,
         getManifestPage,
+        getPageAnchors,
+        snapToDarkCentroid,
         buildContactSheet,
         cropRowDataUrl,
         validateRecognition,

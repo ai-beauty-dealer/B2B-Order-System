@@ -4148,11 +4148,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const sheetOcrState = {
         sourceCanvas: null,
+        sourceImageData: null,
         rectifiedCanvas: null,
         corners: [],
         qr: null,
         manifest: null,
         page: null,
+        anchors: null,
         reviewRows: [],
         startedAt: 0,
         prepareMs: 0,
@@ -4191,11 +4193,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const resetSheetOcrState = () => {
         sheetOcrState.sourceCanvas = null;
+        sheetOcrState.sourceImageData = null;
         sheetOcrState.rectifiedCanvas = null;
         sheetOcrState.corners = [];
         sheetOcrState.qr = null;
         sheetOcrState.manifest = null;
         sheetOcrState.page = null;
+        sheetOcrState.anchors = null;
         sheetOcrState.reviewRows = [];
         sheetOcrState.startedAt = 0;
         sheetOcrState.prepareMs = 0;
@@ -4316,8 +4320,8 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         const next = sheetOcrState.corners.length;
         sheetOcrCornerMessage.textContent = next < 4
-            ? `紙の${SHEET_OCR_CORNER_LABELS[next]}をタップしてください。`
-            : '四隅を指定しました。数量を読み取れます。';
+            ? `${SHEET_OCR_CORNER_LABELS[next]}の■マーク（黒い四角）をタップしてください。`
+            : 'マーク4つを指定しました。数量を読み取れます。';
         sheetOcrRecognizeBtn.disabled = next !== 4;
     };
 
@@ -4352,15 +4356,22 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!qr) {
                 throw new Error('新しい発注書用QRを読めませんでした。このサイトから発注書を再印刷し、明るい場所で紙全体を撮影してください。');
             }
-            const response = qr.legacy
-                ? await callSheetOcrApi({ action: 'get_legacy_order_sheet_layout', legacyQr: qr.legacy_qr })
-                : await callSheetOcrApi({ action: 'get_order_sheet_layout', sheetId: qr.sheet_id });
+            if (qr.legacy) {
+                // 旧QR（サロン名だけ）の用紙は位置合わせマークが無く、版も識別できない。
+                // 固定座標を当てると別の商品に数量が付くので、自動取込せず手入力へ戻す（2026-08-30/09-05）。
+                throw new Error('位置合わせマークの無い旧発注書です。このサイトから発注書を再印刷してください（この紙の数量は手入力）。');
+            }
+            const response = await callSheetOcrApi({ action: 'get_order_sheet_layout', sheetId: qr.sheet_id });
             const manifest = response.data;
             const page = sheetOcr.getManifestPage(manifest, qr.page_no, currentClientName);
+            const anchors = sheetOcr.getPageAnchors(page);
             sheetOcrState.sourceCanvas = sourceCanvas;
+            sheetOcrState.sourceImageData = sourceCanvas.getContext('2d', { willReadFrequently: true })
+                .getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
             sheetOcrState.qr = { ...qr, sheet_id: manifest.sheet_id };
             sheetOcrState.manifest = manifest;
             sheetOcrState.page = page;
+            sheetOcrState.anchors = anchors;
             sheetOcrState.corners = [];
             sheetOcrState.prepareMs = performance.now() - sheetOcrState.startedAt;
             sheetOcrUploadStep.classList.add('hidden');
@@ -4466,7 +4477,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const recognizeSheetOcrPhoto = async () => {
         if (sheetOcrState.busy || !sheetOcrState.sourceCanvas || !sheetOcrState.page) return;
         if (!sheetOcr.validCornerOrder(sheetOcrState.corners, sheetOcrState.sourceCanvas.width, sheetOcrState.sourceCanvas.height)) {
-            showSheetOcrStatus('左上→右上→右下→左下の順で、紙の四隅を指定し直してください。', true);
+            showSheetOcrStatus('左上→右上→右下→左下の順で、■マークを指定し直してください。', true);
             return;
         }
         sheetOcrState.busy = true;
@@ -4477,7 +4488,8 @@ document.addEventListener('DOMContentLoaded', () => {
         await new Promise((resolve) => setTimeout(resolve, 30));
         try {
             const startedAt = performance.now();
-            const rectifiedCanvas = sheetOcr.warpPerspective(sheetOcrState.sourceCanvas, sheetOcrState.corners);
+            // タップした4マーク → 位置JSONのマーク中心へ写像する（紙の四隅→ページ四隅ではない）
+            const rectifiedCanvas = sheetOcr.warpPerspective(sheetOcrState.sourceCanvas, sheetOcrState.corners, 1100, 1556, sheetOcrState.anchors);
             const contactSheet = sheetOcr.buildContactSheet(rectifiedCanvas, sheetOcrState.page.products);
             const response = await callSheetOcrApi({
                 action: 'recognize_order_sheet_cells',
@@ -4560,13 +4572,34 @@ document.addEventListener('DOMContentLoaded', () => {
     if (sheetOcrCameraBtn) sheetOcrCameraBtn.addEventListener('click', () => sheetOcrCamera.click());
     if (sheetOcrCamera) sheetOcrCamera.addEventListener('change', () => loadSheetOcrPhoto(sheetOcrCamera.files && sheetOcrCamera.files[0]));
     if (sheetOcrCornerReset) sheetOcrCornerReset.addEventListener('click', resetSheetOcrCorners);
-    if (sheetOcrPhotoCanvas) sheetOcrPhotoCanvas.addEventListener('click', (event) => {
-        if (!sheetOcrState.sourceCanvas || sheetOcrState.corners.length >= 4) return;
+    // 表示中キャンバスは object-fit: contain で縮小・レターボックスされるので、
+    // 要素矩形ではなく「描画されている領域」を基準に写真座標へ換算する。
+    const sheetOcrCanvasPointFromEvent = (event) => {
         const rect = sheetOcrPhotoCanvas.getBoundingClientRect();
-        sheetOcrState.corners.push({
-            x: (event.clientX - rect.left) * sheetOcrPhotoCanvas.width / rect.width,
-            y: (event.clientY - rect.top) * sheetOcrPhotoCanvas.height / rect.height
-        });
+        const scale = Math.min(rect.width / sheetOcrPhotoCanvas.width, rect.height / sheetOcrPhotoCanvas.height);
+        const drawnWidth = sheetOcrPhotoCanvas.width * scale;
+        const drawnHeight = sheetOcrPhotoCanvas.height * scale;
+        const offsetX = (rect.width - drawnWidth) / 2;
+        const offsetY = (rect.height - drawnHeight) / 2;
+        return {
+            x: (event.clientX - rect.left - offsetX) / scale,
+            y: (event.clientY - rect.top - offsetY) / scale,
+            scale
+        };
+    };
+    if (sheetOcrPhotoCanvas) sheetOcrPhotoCanvas.addEventListener('click', (event) => {
+        if (!sheetOcrState.sourceCanvas || !sheetOcrState.sourceImageData || sheetOcrState.corners.length >= 4) return;
+        const tapped = sheetOcrCanvasPointFromEvent(event);
+        if (tapped.x < 0 || tapped.y < 0 || tapped.x >= sheetOcrPhotoCanvas.width || tapped.y >= sheetOcrPhotoCanvas.height) return;
+        // 指先のブレを吸収するため、画面上の約12px相当を写真画素で探索する（最低40px）
+        const radius = Math.max(40, Math.round(12 / tapped.scale));
+        const snapped = sheetOcr.snapToDarkCentroid(sheetOcrState.sourceImageData, tapped, radius);
+        if (!snapped) {
+            showSheetOcrStatus(`${SHEET_OCR_CORNER_LABELS[sheetOcrState.corners.length]}の■マーク（黒い四角）の中心をタップしてください。紙の角ではありません。`, true);
+            return;
+        }
+        showSheetOcrStatus('');
+        sheetOcrState.corners.push({ x: snapped.x, y: snapped.y });
         drawSheetOcrCorners();
     });
     if (sheetOcrRecognizeBtn) sheetOcrRecognizeBtn.addEventListener('click', recognizeSheetOcrPhoto);
@@ -4927,7 +4960,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const printLayoutCreateBtn = document.getElementById('print-layout-create-btn');
     const IMPORT_QR_PREFIX = 'B2BORDER|'; // QRの中身: B2BORDER|サロン名（一括取り込みのサロン判定に使う）
     const importDraftKey = (salonName) => 'b2b_import_draft_' + salonName;
-    const PRINT_RENDERER_VERSION = 'b2b-print-v2.39.2';
+    const PRINT_RENDERER_VERSION = 'b2b-print-v2.40.0';
+    // 画像取込対応の発注書は、ページ四隅に位置合わせマーク（黒い正方形）を刷る。
+    // 写真側はこのマークを基準に射影するので、プリンタの拡縮・オフセットが座標に影響しない
+    // （2026-09-05 ミツアミ堂用紙: 紙の四隅基準だと縦0.885倍の縮みで最下段が約3行ズレた）。
+    const SHEET_OCR_ANCHOR_MM = 5;        // マークの一辺
+    const SHEET_OCR_ANCHOR_TOP_MM = 275;  // 下段マークの上端（ページ枠280mm・印字可能283mm以内）
+    const SHEET_OCR_ANCHOR_RESERVE_MM = 5; // 下段マークのぶん本文予算を減らす
 
     const PRINT_SHEET_MAX_ITEMS = 240;
     const PRINT_ARCHIVE_MAX_PAGES = 6;      // アーカイブ履歴を遡る最大ページ数（50件×6）
@@ -4984,7 +5023,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         const manifest = {
             ...measuredManifest,
-            schema_version: '1.0',
+            schema_version: '1.1',
             client_name: currentClientName
         };
         const result = await callSheetOcrApi({ action: 'save_order_sheet_layout', manifest });
@@ -5007,8 +5046,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const PRINT_BODY_W_MM = 192;   // A4幅210mm - 左右余白9mm×2
         const PAIR_GAP_MM = 2.8;       // .pair の列間gap
         // 1ページで本文に使える高さ = A4印字可能283mm(297-上8-下6) - ヘッダー実測 - OS間フォント差の安全余白4mm
-        const PAGE1_BODY_MM = 245;     // 1枚目ヘッダー（タイトル・説明・大QR）実測32.4mm
-        const PAGE_CONT_BODY_MM = 262; // 2枚目以降ヘッダー（小QR）実測14.8mm
+        const sheetOcrPrintEnabled = ENABLE_SHEET_IMAGE_IMPORT && Boolean(sheetOcr);
+        const anchorReserveMm = sheetOcrPrintEnabled ? SHEET_OCR_ANCHOR_RESERVE_MM : 0;
+        const PAGE1_BODY_MM = 245 - anchorReserveMm;     // 1枚目ヘッダー（タイトル・説明・大QR）実測32.4mm
+        const PAGE_CONT_BODY_MM = 262 - anchorReserveMm; // 2枚目以降ヘッダー（小QR）実測14.8mm
         const CAT_HEAD_MM = 6.8;       // カテゴリ見出し。フォント固定なので縮小率に依存しない
 
         const scaledLayout = (s) => {
@@ -5070,8 +5111,11 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        const sheetOcrPrintEnabled = ENABLE_SHEET_IMAGE_IMPORT && Boolean(sheetOcr);
         const sheetOcrSheetId = sheetOcrPrintEnabled ? sheetOcr.makeSheetId() : '';
+        // 位置合わせマーク（左上→右上→右下→左下）。写真側のタップ順と同じ
+        const anchorsHtml = sheetOcrPrintEnabled
+            ? ['tl', 'tr', 'br', 'bl'].map((key) => `<div class="sheet-ocr-anchor anchor-${key}" data-sheet-ocr-anchor="${key}"></div>`).join('')
+            : '';
 
         // QR生成（本店は用紙ID＋ページ、社員は従来どおりサロン名）
         const makePrintQr = (value) => {
@@ -5218,6 +5262,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const qrDataUrl = pageQrDataUrls[idx];
             if (idx === 0) {
                 return `<section class="print-page first-page">
+${anchorsHtml}
 <div class="first-head">
   <div class="htxt">
     <h1>アクティム発注書</h1>
@@ -5231,6 +5276,7 @@ ${bodyHtml}
 </section>`;
             }
             return `<section class="print-page cont-page">
+${anchorsHtml}
 <div class="cont-head">
   <div class="cont-title">
     <strong>アクティム発注書</strong>
@@ -5278,9 +5324,17 @@ ${bodyHtml}
             qty_bbox: normalizeBox(quantity, pageRect)
           };
         });
-        return { page_no: pageIndex + 1, products: products };
+        const anchors = {};
+        Array.from(page.querySelectorAll('[data-sheet-ocr-anchor]')).forEach(function (mark) {
+          anchors[mark.dataset.sheetOcrAnchor] = normalizeBox(mark, pageRect);
+        });
+        if (!anchors.tl || !anchors.tr || !anchors.br || !anchors.bl) {
+          throw new Error('位置合わせマークを測れませんでした。');
+        }
+        return { page_no: pageIndex + 1, anchors: anchors, products: products };
       });
       await window.opener.registerOrderSheetLayoutFromPrint({
+        schema_version: '1.1',
         sheet_id: '${sheetOcrSheetId}',
         renderer_version: '${PRINT_RENDERER_VERSION}',
         printed_product_count: ${sheetItems.length},
@@ -5327,7 +5381,17 @@ body { width: 192mm; font-family: "Hiragino Sans", "Yu Gothic", sans-serif; colo
 .sec { font-size: 7.5pt; font-weight: bold; margin: 2.5mm 0 1mm; break-after: avoid; }
 .print-btn { position: fixed; top: 8px; right: 8px; padding: 10px 18px; font-size: 12pt; cursor: pointer; z-index: 10; }
 @media print { .print-btn { display: none; } }
-</style></head><body>
+/* 画像取込対応: 四隅の位置合わせマーク。見出し・QRはマークと重ならないよう6mm内側へ寄せる */
+.sheet-ocr-anchor { position: absolute; width: ${SHEET_OCR_ANCHOR_MM}mm; height: ${SHEET_OCR_ANCHOR_MM}mm; background: #000; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.sheet-ocr-anchor.anchor-tl { top: 0; left: 0; }
+.sheet-ocr-anchor.anchor-tr { top: 0; right: 0; }
+.sheet-ocr-anchor.anchor-br { top: ${SHEET_OCR_ANCHOR_TOP_MM}mm; right: 0; }
+.sheet-ocr-anchor.anchor-bl { top: ${SHEET_OCR_ANCHOR_TOP_MM}mm; left: 0; }
+body.ocr .first-head { padding-left: 9mm; padding-right: 37mm; }
+body.ocr .qr-main { right: 9mm; }
+body.ocr .cont-head { padding-left: 9mm; padding-right: 24mm; }
+body.ocr .qr-small { right: 9mm; }
+</style></head><body${sheetOcrPrintEnabled ? ' class="ocr"' : ''}>
 <button id="print-action-btn" class="print-btn" onclick="window.print()"${sheetOcrPrintEnabled ? ' disabled' : ''}>${sheetOcrPrintEnabled ? '位置情報を保存中…' : '🖨 印刷'}</button>
 ${pagesHtml}
 ${sheetOcrRegistrationScript}
