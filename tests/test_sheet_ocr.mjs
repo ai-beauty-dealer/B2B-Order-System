@@ -138,6 +138,8 @@ test('上端だけに線があるマスを「はみ出し」として要確認�
     ocr.flagEdgeSpill(rows, imageData, products);
     assert.equal(rows[0].spill, 'top');
     assert.equal(rows[0].confidence, 'low');
+    assert.equal(rows[0].quantity, 0, 'はみ出し行は数量0（除外）にする');
+    assert.equal(rows[0].spill_reading, '1');
     assert.equal(rows[1].spill, undefined);
     assert.equal(rows[1].confidence, 'high');
 });

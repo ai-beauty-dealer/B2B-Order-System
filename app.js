@@ -4429,13 +4429,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const reading = document.createElement('span');
             reading.className = 'sheet-ocr-reading';
             reading.textContent = row.spill
-                ? `読み取り ${row.raw_reading || row.quantity}・${row.spill === 'top' ? '上' : '下'}の行のはみ出しかも（未記入なら0）`
+                ? `${row.spill === 'top' ? '上' : '下'}の行のはみ出しと判定して除外（記入ありなら数量を入力）`
                 : row.mark_type === 'japanese_tally'
                     ? `正の字「${row.raw_reading || '記入'}」→ ${row.quantity ?? '要確認'}`
                     : row.mark_type === 'unclear'
                         ? '読み取り不明・数字を入力'
                         : `読み取り ${row.raw_reading || row.quantity || '要確認'}`;
-            reading.classList.toggle('is-attention', row.confidence !== 'high' || !row.quantity);
+            reading.classList.toggle('is-attention', !row.spill && (row.confidence !== 'high' || !row.quantity));
             product.append(name, code, strip, reading);
 
             const quantityBlock = document.createElement('div');

@@ -94,10 +94,10 @@ test('本店発注書はお気に入りを正本にし外した商品を履歴�
 });
 
 test('PWAは画像OCRヘルパーとv2.40.0を配信する', () => {
-    assert.match(html, /sheet-ocr\.js\?v=2\.40\.1/);
-    assert.match(html, /app\.js\?v=2\.40\.1/);
+    assert.match(html, /sheet-ocr\.js\?v=2\.40\.2/);
+    assert.match(html, /app\.js\?v=2\.40\.2/);
     assert.match(html, /style\.css\?v=2\.40\.0/);
-    assert.match(sw, /CACHE_VERSION = 'v2\.40\.1'/);
+    assert.match(sw, /CACHE_VERSION = 'v2\.40\.2'/);
     assert.match(sw, /'\.\/sheet-ocr\.js'/);
 });
 
@@ -135,9 +135,9 @@ test('HEICを端末内でJPEG変換しWindowsでも写真を開ける', () => {
 test('隣の行のはみ出し線は緑枠付きの切り抜きと端末側判定で要確認にする', () => {
     assert.match(helper, /const analyzeCellInk = /);
     assert.match(helper, /const flagEdgeSpill = /);
-    assert.match(helper, /strokeStyle = '#16a34a'/);
+    assert.doesNotMatch(helper, /strokeStyle = '#16a34a'/); // 隣のマスを写すとGeminiが隣の数字を読む（v2.40.1で逆効果）
     assert.match(block, /sheetOcr\.flagEdgeSpill\(/);
-    assert.match(block, /の行のはみ出しかも/);
+    assert.match(block, /の行のはみ出しと判定して除外/);
 });
 
 test('誤検出は数量0で除外でき低信頼件数を表示する', () => {
