@@ -113,6 +113,35 @@ test('マーク中心→写真タップ点の射影で、印刷の縦縮みを�
     assert.ok(Math.abs(projected[0] - 2937) < 1e-6);
 });
 
+test('上端だけに線があるマスを「はみ出し」として要確認へ落とす', () => {
+    const width = 1000, height = 1000;
+    const data = new Uint8ClampedArray(width * height * 4).fill(240);
+    const paint = (x0, x1, y0, y1) => { for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const i = (y * width + x) * 4; data[i] = 30; data[i + 1] = 30; data[i + 2] = 30; } };
+    // qty_bbox = 正規化 [1000,1000,1000,500] → 画素 (100..200, 100..150)
+    const bboxSpill = [1000, 1000, 1000, 500];
+    paint(180, 184, 100, 112); // 上端から入る縦線だけ
+    const bboxReal = [1000, 3000, 1000, 500];  // 画素 (100..200, 300..350)
+    paint(140, 146, 310, 342); // 中央に「1」
+    const imageData = { width, height, data };
+    const spill = ocr.analyzeCellInk(imageData, bboxSpill);
+    assert.ok(spill.top > 0.02 && spill.core < 0.01, `上端だけ: ${JSON.stringify(spill)}`);
+    const real = ocr.analyzeCellInk(imageData, bboxReal);
+    assert.ok(real.core > 0.01, `中央にインク: ${JSON.stringify(real)}`);
+    const products = [
+        { cell_id: 'P1-C001', qty_bbox: bboxSpill },
+        { cell_id: 'P1-C002', qty_bbox: bboxReal }
+    ];
+    const rows = [
+        { cell_id: 'P1-C001', quantity: 1, confidence: 'high', mark_type: 'arabic_digit' },
+        { cell_id: 'P1-C002', quantity: 1, confidence: 'high', mark_type: 'arabic_digit' }
+    ];
+    ocr.flagEdgeSpill(rows, imageData, products);
+    assert.equal(rows[0].spill, 'top');
+    assert.equal(rows[0].confidence, 'low');
+    assert.equal(rows[1].spill, undefined);
+    assert.equal(rows[1].confidence, 'high');
+});
+
 for (const { name, run } of tests) {
     run();
     console.log(`  ok - ${name}`);

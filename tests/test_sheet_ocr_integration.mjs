@@ -94,10 +94,10 @@ test('本店発注書はお気に入りを正本にし外した商品を履歴�
 });
 
 test('PWAは画像OCRヘルパーとv2.40.0を配信する', () => {
-    assert.match(html, /sheet-ocr\.js\?v=2\.40\.0/);
-    assert.match(html, /app\.js\?v=2\.40\.0/);
+    assert.match(html, /sheet-ocr\.js\?v=2\.40\.1/);
+    assert.match(html, /app\.js\?v=2\.40\.1/);
     assert.match(html, /style\.css\?v=2\.40\.0/);
-    assert.match(sw, /CACHE_VERSION = 'v2\.40\.0'/);
+    assert.match(sw, /CACHE_VERSION = 'v2\.40\.1'/);
     assert.match(sw, /'\.\/sheet-ocr\.js'/);
 });
 
@@ -130,6 +130,14 @@ test('HEICを端末内でJPEG変換しWindowsでも写真を開ける', () => {
     assert.match(block, /HEIC写真を端末内でJPEGへ変換/);
     assert.match(block, /sourceCanvas = await imageFileToCanvas\(browserFile\)[\s\S]*if \(!isHeicFile\(file\)\) throw nativeError/);
     assert.doesNotMatch(block, /imageBase64[\s\S]{0,300}normalizeSheetOcrImageFile/);
+});
+
+test('隣の行のはみ出し線は緑枠付きの切り抜きと端末側判定で要確認にする', () => {
+    assert.match(helper, /const analyzeCellInk = /);
+    assert.match(helper, /const flagEdgeSpill = /);
+    assert.match(helper, /strokeStyle = '#16a34a'/);
+    assert.match(block, /sheetOcr\.flagEdgeSpill\(/);
+    assert.match(block, /の行のはみ出しかも/);
 });
 
 test('誤検出は数量0で除外でき低信頼件数を表示する', () => {

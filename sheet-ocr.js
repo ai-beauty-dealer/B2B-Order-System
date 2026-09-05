@@ -254,19 +254,82 @@
             context.fillText(product.cell_id, x + 10, y + 19);
             context.strokeStyle = '#64748b';
             context.strokeRect(x + 3, y + 3, tileWidth - 6, tileHeight - 6);
-            context.drawImage(
-                rectifiedCanvas,
-                source.x,
-                source.y,
-                source.width,
-                source.height,
-                x + 9,
-                y + 31,
-                tileWidth - 18,
-                tileHeight - 39
-            );
+            // 上下に隣のマスの一部（各25%）を写し、緑枠で「このマスの範囲」を示す。
+            // 上の行の数字がはみ出して入ってきた線を、枠外から来た線として無視させるため（2026-09-06）。
+            const contextRatio = 0.25;
+            const pad = Math.round(source.height * contextRatio);
+            const srcY = Math.max(0, source.y - pad);
+            const srcH = Math.min(rectifiedCanvas.height - srcY, source.height + pad * 2);
+            const drawX = x + 9;
+            const drawY = y + 31;
+            const drawW = tileWidth - 18;
+            const drawH = tileHeight - 39;
+            context.drawImage(rectifiedCanvas, source.x, srcY, source.width, srcH, drawX, drawY, drawW, drawH);
+            const scaleY = drawH / srcH;
+            context.strokeStyle = '#16a34a';
+            context.lineWidth = 2;
+            context.strokeRect(drawX + 1, drawY + (source.y - srcY) * scaleY, drawW - 2, source.height * scaleY);
+            context.lineWidth = 1;
         });
         return canvas;
+    };
+
+    // 数量欄のインク分布。枠線を避けて内側を測り、上端・下端の帯と中央帯に分けて暗い画素の割合を返す。
+    // 中央がほぼ空で上端か下端だけに線があるなら、隣の行の数字がはみ出したもの（2026-09-06 ひとみ美容室で「4」の縦線を「1」と誤読）。
+    const analyzeCellInk = (imageData, bbox) => {
+        if (!imageData || !imageData.data) throw new TypeError('画像データが不正です');
+        const box = normalizedBoxToPixels(bbox, imageData.width, imageData.height);
+        const inset = Math.max(2, Math.round(Math.min(box.width, box.height) * 0.12));
+        const x0 = box.x + inset;
+        const x1 = Math.min(imageData.width, box.x + box.width - inset);
+        const y0 = box.y + inset;
+        const y1 = Math.min(imageData.height, box.y + box.height - inset);
+        const height = y1 - y0;
+        if (x1 - x0 < 4 || height < 6) return { top: 0, core: 0, bottom: 0, total: 0 };
+        const luminances = [];
+        for (let y = y0; y < y1; y++) {
+            for (let x = x0; x < x1; x++) {
+                const index = (y * imageData.width + x) * 4;
+                luminances.push(0.299 * imageData.data[index] + 0.587 * imageData.data[index + 1] + 0.114 * imageData.data[index + 2]);
+            }
+        }
+        const sorted = luminances.slice().sort((a, b) => a - b);
+        const paper = sorted[Math.floor(sorted.length * 0.5)];
+        const threshold = paper - 60;
+        const bandTop = y0 + Math.round(height * 0.25);
+        const bandBottom = y1 - Math.round(height * 0.25);
+        const counts = { top: 0, core: 0, bottom: 0 };
+        const sizes = { top: 0, core: 0, bottom: 0 };
+        let i = 0;
+        for (let y = y0; y < y1; y++) {
+            const band = y < bandTop ? 'top' : y >= bandBottom ? 'bottom' : 'core';
+            for (let x = x0; x < x1; x++, i++) {
+                sizes[band]++;
+                if (luminances[i] < threshold) counts[band]++;
+            }
+        }
+        return {
+            top: sizes.top ? counts.top / sizes.top : 0,
+            core: sizes.core ? counts.core / sizes.core : 0,
+            bottom: sizes.bottom ? counts.bottom / sizes.bottom : 0,
+            total: luminances.length ? (counts.top + counts.core + counts.bottom) / luminances.length : 0
+        };
+    };
+
+    // 記入ありと読まれた行のうち、インクが上端か下端の帯だけにある行へ spill フラグを立て、確認対象（low）へ落とす
+    const flagEdgeSpill = (rows, imageData, products) => {
+        const productMap = new Map((products || []).map((product) => [String(product.cell_id), product]));
+        rows.forEach((row) => {
+            const product = productMap.get(String(row.cell_id));
+            if (!product || !product.qty_bbox || !row.quantity) return;
+            const ink = analyzeCellInk(imageData, product.qty_bbox);
+            const edgeOnly = ink.core < 0.01 && (ink.top > 0.02 || ink.bottom > 0.02);
+            if (edgeOnly) {
+                row.spill = ink.top >= ink.bottom ? 'top' : 'bottom';
+                row.confidence = 'low';
+            }
+        });
+        return rows;
     };
 
     const cropRowDataUrl = (rectifiedCanvas, bbox) => {
@@ -343,6 +406,8 @@
         getManifestPage,
         getPageAnchors,
         snapToDarkCentroid,
+        analyzeCellInk,
+        flagEdgeSpill,
         buildContactSheet,
         cropRowDataUrl,
         validateRecognition,

@@ -4428,11 +4428,13 @@ document.addEventListener('DOMContentLoaded', () => {
             strip.src = sheetOcr.cropRowDataUrl(sheetOcrState.rectifiedCanvas, row.row_bbox);
             const reading = document.createElement('span');
             reading.className = 'sheet-ocr-reading';
-            reading.textContent = row.mark_type === 'japanese_tally'
-                ? `正の字「${row.raw_reading || '記入'}」→ ${row.quantity ?? '要確認'}`
-                : row.mark_type === 'unclear'
-                    ? '読み取り不明・数字を入力'
-                    : `読み取り ${row.raw_reading || row.quantity || '要確認'}`;
+            reading.textContent = row.spill
+                ? `読み取り ${row.raw_reading || row.quantity}・${row.spill === 'top' ? '上' : '下'}の行のはみ出しかも（未記入なら0）`
+                : row.mark_type === 'japanese_tally'
+                    ? `正の字「${row.raw_reading || '記入'}」→ ${row.quantity ?? '要確認'}`
+                    : row.mark_type === 'unclear'
+                        ? '読み取り不明・数字を入力'
+                        : `読み取り ${row.raw_reading || row.quantity || '要確認'}`;
             reading.classList.toggle('is-attention', row.confidence !== 'high' || !row.quantity);
             product.append(name, code, strip, reading);
 
@@ -4500,6 +4502,12 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             const cells = sheetOcr.validateRecognition(response.data, sheetOcrState.page.products);
             const reviewRows = sheetOcr.buildReviewRows(sheetOcrState.page.products, cells, itemsData);
+            // 隣の行からはみ出した線を数字と読んだ疑いのある行は、黄色の要確認へ落とす
+            sheetOcr.flagEdgeSpill(
+                reviewRows,
+                rectifiedCanvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, rectifiedCanvas.width, rectifiedCanvas.height),
+                sheetOcrState.page.products
+            );
             if (reviewRows.length === 0) throw new Error('記入された数量を検出できませんでした。四隅と写真の明るさを確認してください。');
             sheetOcrState.rectifiedCanvas = rectifiedCanvas;
             sheetOcrState.reviewRows = reviewRows;
