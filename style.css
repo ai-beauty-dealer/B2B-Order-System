@@ -1890,6 +1890,13 @@ input[type=number]::-webkit-outer-spin-button {
 
 .sheet-ocr-cart-bar p { margin: 0; color: #334155; font-size: 0.75rem; font-weight: 800; }
 .sheet-ocr-cart-bar button { min-height: 48px; }
+.sheet-ocr-cart-bar #sheet-ocr-status {
+    grid-column: 1 / -1;
+    min-width: 0;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+    text-align: left;
+}
 
 .sheet-ocr-qr-reader {
     position: fixed;
@@ -1911,7 +1918,7 @@ input[type=number]::-webkit-outer-spin-button {
     .sheet-ocr-corner-actions { grid-template-columns: 1fr; }
     .sheet-ocr-review-row { grid-template-columns: minmax(0, 1fr) 68px; padding: 9px; }
     .sheet-ocr-strip { max-height: 82px; }
-    .sheet-ocr-cart-bar { grid-template-columns: 1fr; margin-inline: -16px; padding-inline: 16px; }
+    .sheet-ocr-cart-bar { grid-template-columns: 1fr; bottom: -16px; margin: 13px -16px -16px; padding-inline: 16px; }
     .sheet-ocr-cart-bar button { width: 100%; }
 }
 

@@ -4227,6 +4227,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const resetSheetOcrState = () => {
+        if (sheetOcrStatus) sheetOcrModal.insertBefore(sheetOcrStatus, sheetOcrUploadStep);
         if (sheetOcrState.controller) sheetOcrState.controller.abort();
         clearInterval(sheetOcrState.timer);
         sheetOcrState.generation++;
@@ -4505,6 +4506,8 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const renderSheetOcrReview = () => {
+        // 案内を固定ボタンの後ろに置くと隠れるため、同じ枠の先頭へ置く。
+        if (sheetOcrStatus) sheetOcrCartMessage.parentElement.insertBefore(sheetOcrStatus, sheetOcrCartMessage);
         sheetOcrReviewList.replaceChildren();
         sheetOcrState.reviewRows.forEach((row, index) => {
             if (row.mark_type === 'blank' && row.quantity === 0 && !sheetOcrState.showBlank) return;
