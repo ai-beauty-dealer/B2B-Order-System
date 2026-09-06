@@ -4471,6 +4471,16 @@ document.addEventListener('DOMContentLoaded', () => {
             (row.quantity > 0 && row.confidence !== 'high')
         ));
         sheetOcrAttentionCount.textContent = String(attention.length);
+        const nextButton = document.getElementById('sheet-ocr-next-attention');
+        const navigationHint = document.getElementById('sheet-ocr-attention-hint');
+        if (nextButton) {
+            nextButton.disabled = attention.length === 0;
+            nextButton.textContent = attention.length === 0 ? '要確認なし'
+                : attention.length === 1 ? '要確認1件を見る' : `次の要確認へ（${attention.length}件）`;
+        }
+        if (navigationHint) navigationHint.textContent = attention.length === 0
+            ? '黄色の数量欄はありません。元画像と数量を見比べてからカートへ進んでください。'
+            : '押すと黄色の数量欄へ移動し、枠で強調します。';
         sheetOcrCartBtn.disabled = included.length === 0 || invalid.length > 0;
         sheetOcrCartMessage.textContent = invalid.length > 0
             ? `${invalid.length}商品の数量を修正してください。誤検出は0で除外できます。`
@@ -4500,6 +4510,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (row.mark_type === 'blank' && row.quantity === 0 && !sheetOcrState.showBlank) return;
             const article = document.createElement('article');
             article.className = 'sheet-ocr-review-row';
+            article.dataset.reviewIndex = String(index);
 
             const product = document.createElement('div');
             product.className = 'sheet-ocr-product';
@@ -4699,10 +4710,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const sheetOcrNextBtn = document.getElementById('sheet-ocr-next-attention');
     if (sheetOcrNextBtn) sheetOcrNextBtn.addEventListener('click', () => {
         const rows = [...sheetOcrReviewList.querySelectorAll('.needs-attention:not(.hidden)')];
-        sheetOcrState.attentionIndex = (sheetOcrState.attentionIndex + 1) % Math.max(1, rows.length);
-        const next = rows[sheetOcrState.attentionIndex];
-        if (next) { next.scrollIntoView({ block: 'center', behavior: 'smooth' }); next.querySelector('input').focus({ preventScroll: true }); }
-        else showSheetOcrStatus('要確認の数量はありません。元画像も確認してカートへ進んでください。');
+        const next = rows.find((row) => Number(row.dataset.reviewIndex) > sheetOcrState.attentionIndex) || rows[0];
+        if (!next) { updateSheetOcrReadiness(); return; }
+        sheetOcrState.attentionIndex = Number(next.dataset.reviewIndex);
+        sheetOcrReviewList.querySelectorAll('.is-attention-target').forEach((row) => row.classList.remove('is-attention-target'));
+        next.classList.add('is-attention-target');
+        const navigationHint = document.getElementById('sheet-ocr-attention-hint');
+        if (navigationHint) navigationHint.textContent = `${rows.length}件中${rows.indexOf(next) + 1}件目：${sheetOcrState.reviewRows[sheetOcrState.attentionIndex].name}の数量を確認してください。`;
+        next.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        next.querySelector('input').focus({ preventScroll: true });
     });
     if (sheetOcrCloseBtn) sheetOcrCloseBtn.addEventListener('click', closeSheetOcrModal);
     if (sheetOcrOverlay) sheetOcrOverlay.addEventListener('click', closeSheetOcrModal);

@@ -1862,6 +1862,8 @@ input[type=number]::-webkit-outer-spin-button {
     text-align: center;
 }
 .sheet-ocr-qty.is-invalid { border-color: #dc2626; background: #fef2f2; }
+.sheet-ocr-review-row.is-attention-target { outline: 3px solid #b45309; outline-offset: -3px; }
+#sheet-ocr-next-attention:disabled { opacity: 0.6; cursor: default; }
 .sheet-ocr-quantity-hint {
     display: block;
     margin-top: 3px;
