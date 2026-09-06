@@ -588,13 +588,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const cartToSave = {};
         const orderToSave = [];
         cartOrder.forEach(code => {
-            if (!String(code).startsWith('CUSTOM_ITEM_') && currentCart[code]) {
+            if (currentCart[code]) {
                 orderToSave.push(code);
                 cartToSave[code] = currentCart[code];
             }
         });
         localStorage.setItem(getCartKey(), JSON.stringify({
-            cart: cartToSave, order: orderToSave, savedAt: Date.now()
+            cart: cartToSave, order: orderToSave,
+            remarks: orderRemarks ? orderRemarks.value : '', savedAt: Date.now()
         }));
     };
 
@@ -605,6 +606,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Returns the number of restored items (0 = nothing restored)
     const restoreCartFromStorage = () => {
+        if (orderRemarks) orderRemarks.value = '';
         const saved = localStorage.getItem(getCartKey());
         if (!saved) return 0;
         try {
@@ -615,6 +617,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             currentCart = parsed.cart || {};
             cartOrder = parsed.order || [];
+            if (orderRemarks) orderRemarks.value = typeof parsed.remarks === 'string' ? parsed.remarks : '';
             return Object.values(currentCart).filter(v => v.qty > 0).length;
         } catch (e) {
             console.warn('[Cart] Failed to restore cart from storage:', e);
@@ -628,13 +631,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const banner = document.createElement('div');
         banner.id = 'cart-restore-banner';
         banner.className = 'cart-restore-banner';
-        banner.innerHTML = `<span>前回の発注を復元しました（${itemCount}点）</span><button class="cart-restore-close" aria-label="閉じる">&times;</button>`;
+        banner.innerHTML = `<span>未送信の入力を復元しました（数量入力済み ${itemCount}点）</span><button class="cart-restore-close" aria-label="閉じる">&times;</button>`;
         banner.querySelector('.cart-restore-close').addEventListener('click', () => banner.remove());
         document.body.appendChild(banner);
         setTimeout(() => { if (banner.parentNode) banner.remove(); }, 6000);
     };
 
     // --- Cart Sidebar Renderer ---
+    if (orderRemarks) orderRemarks.addEventListener('input', saveCartToStorage);
     // Sync helper: update the item card's qty input (if visible on screen)
     const syncCardQty = (code, newQty) => {
         const input = itemListContainer.querySelector(`.qty-input[data-code="${code}"]`);
@@ -1360,6 +1364,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Filter by current tab selection before rendering
         let displayItems = items.filter(item => isValidCode(item.code));
+        const tokens = (searchInput.value || '').trim().split(/[\s　]+/).map(normalizeForSearch).filter(Boolean);
+        if (tokens.length) {
+            displayItems = displayItems.filter(item => tokens.every(token =>
+                (item._searchKey || normalizeForSearch(item.name + item.code)).includes(token)));
+        }
         
         if (currentFilter === 'favorites') {
             displayItems = displayItems.filter(item => favoriteItems.includes(String(item.code)));
@@ -1392,13 +1401,32 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (displayItems.length === 0) {
-            itemListContainer.innerHTML = '<p style="text-align: center; padding: 20px; color: #64748b;">該当する商品が見つかりません。</p>';
+            const scope = [currentFilter === 'favorites' ? 'お気に入り' : '',
+                currentManufacturerFilter !== 'all' ? currentManufacturerFilter : '',
+                currentCategoryFilter !== 'all' ? currentCategoryFilter : ''].filter(Boolean);
+            const empty = document.createElement('div');
+            empty.className = 'search-empty';
+            const message = document.createElement('p');
+            message.textContent = `該当する商品が見つかりません。検索範囲：${scope.join(' / ') || '全商品'}`;
+            empty.appendChild(message);
+            const action = document.createElement('button');
+            action.type = 'button';
+            action.className = 'btn-secondary';
+            if (scope.length) {
+                action.textContent = '全商品から探す';
+                action.addEventListener('click', () => switchTab('tab-all', true));
+            } else {
+                action.textContent = '特注・その他で入力する';
+                action.addEventListener('click', () => addCustomItemBtnTop.click());
+            }
+            empty.appendChild(action);
+            itemListContainer.appendChild(empty);
             return;
         }
 
         // お気に入りタブ: カラー/パーマのグループ分けは残しつつ、
         // 各グループ内を並び替えセレクタ(currentSort)で並べる
-        if (currentFilter === 'favorites') {
+        if (currentFilter === 'favorites' && !isSearchActive) {
             displayItems = sortByCurrent(displayItems);
 
             // Grouping by Category (Color vs Perm)
@@ -1457,14 +1485,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // --- Standard List Rendering (All Tab) ---
         // Optimization: Use DocumentFragment for batch appending
-        const fragment = document.createDocumentFragment();
-        displayItems.forEach(item => {
-            const strCode = String(item.code);
-            const isFav = favoriteItems.includes(strCode);
-            const card = createItemRow(item, isFav);
-            fragment.appendChild(card);
-        });
-        itemListContainer.appendChild(fragment);
+        let rendered = 0;
+        const more = document.createElement('button');
+        more.type = 'button';
+        more.className = 'btn-secondary search-more';
+        const appendPage = () => {
+            more.remove();
+            const end = Math.min(rendered + 100, displayItems.length);
+            const fragment = document.createDocumentFragment();
+            displayItems.slice(rendered, end).forEach(item => {
+                fragment.appendChild(createItemRow(item, favoriteItems.includes(String(item.code))));
+            });
+            itemListContainer.appendChild(fragment);
+            rendered = end;
+            if (rendered < displayItems.length) {
+                more.textContent = `続きを表示（${rendered} / ${displayItems.length}件表示）`;
+                itemListContainer.appendChild(more);
+            }
+        };
+        more.addEventListener('click', appendPage);
+        appendPage();
     };
 
     // Helper to create a single item row (refactored for reuse)
@@ -1849,7 +1889,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const removeBtn = card.querySelector('.btn-remove-custom');
 
         const updateCart = (val) => {
-            if (val > 0) {
+            if (val > 0 || nameInput.value.trim()) {
                 const customName = nameInput.value.trim() || '（商品名未入力）';
                 if (!currentCart[itemCode]) {
                     cartOrder.push(itemCode);
@@ -1863,7 +1903,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         nameInput.addEventListener('input', () => {
             const val = parseInt(qtyInput.value) || 0;
-            if (val > 0) updateCart(val);
+            updateCart(val);
+            calculateTotal();
+            saveCartToStorage();
         });
 
         minusBtn.addEventListener('click', () => {
@@ -1927,7 +1969,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Start Editing Order ---
     const startEditingOrder = (orderId, items) => {
+        saveCartToStorage();
         editingOrderId = orderId;
+        if (orderRemarks) orderRemarks.value = '';
         resetCodeEntryRows();
         currentCart = {}; // Reset cart for editing
         cartOrder = []; // Reset cart order
@@ -1955,6 +1999,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Switch back to 'all' tab first so the items are rendered
         switchTab('tab-all');
+        renderCustomItemsFromCart();
         window.scrollTo(0, 0);
 
         calculateTotal();
@@ -1979,7 +2024,7 @@ document.addEventListener('DOMContentLoaded', () => {
         restoreCartFromStorage(); // Restore draft cart (no-op if cleared by successful submit)
         if (orderSubmitBtn) orderSubmitBtn.textContent = '発注する';
         if (cancelEditBtn) cancelEditBtn.classList.add('hidden');
-        if (customItemsList) customItemsList.innerHTML = '';
+        renderCustomItemsFromCart();
         calculateTotal();
         if (searchInput) searchInput.value = '';
         renderItems(itemsData);
@@ -2119,7 +2164,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- Tab Filtering ---
-    const switchTab = (tabId) => {
+    const switchTab = (tabId, preserveSearch = false) => {
+        if (searchTimeout) clearTimeout(searchTimeout);
+        if (searchWrapper) searchWrapper.classList.remove('searching');
         // Reset all
         tabAll.classList.remove('active');
         tabFavorites.classList.remove('active');
@@ -2163,7 +2210,7 @@ document.addEventListener('DOMContentLoaded', () => {
             currentFilter = tabId === 'tab-favorites' ? 'favorites' : 'all';
             currentManufacturerFilter = 'all';
             currentCategoryFilter = 'all';
-            searchInput.value = ''; // Reset search focus
+            if (!preserveSearch) searchInput.value = '';
             renderManufacturerChips();
             renderCategoryChips();
             renderItems(itemsData);
@@ -2175,9 +2222,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (tabHistory) tabHistory.addEventListener('click', () => switchTab('tab-history'));
 
     // --- Search Logic ---
-    searchInput.addEventListener('input', (e) => {
-        const rawSearch = e.target.value;
-
+    searchInput.addEventListener('input', () => {
         // Clear existing timeout (Debounce)
         if (searchTimeout) clearTimeout(searchTimeout);
         
@@ -2185,25 +2230,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (searchWrapper) searchWrapper.classList.add('searching');
 
         searchTimeout = setTimeout(() => {
-            if (rawSearch.trim() === '') {
-                renderItems(itemsData);
-            } else {
-                // Split by space for AND search
-                const searchTokens = rawSearch.trim().split(/[\s　]+/);
-
-                const filteredItems = itemsData.filter(item => {
-                    // Use pre-normalized search key for performance
-                    const searchableText = item._searchKey || (item.name + item.code).toLowerCase();
-
-                    // Return true only if ALL tokens are found (AND search)
-                    return searchTokens.every(token => {
-                        const normalizedToken = normalizeForSearch(token);
-                        if (!normalizedToken) return true;
-                        return searchableText.includes(normalizedToken);
-                    });
-                });
-                renderItems(filteredItems);
-            }
+            renderItems(itemsData);
             calculateTotal();
             if (searchWrapper) searchWrapper.classList.remove('searching');
         }, 300); // 300ms delay
@@ -2561,13 +2588,14 @@ document.addEventListener('DOMContentLoaded', () => {
         // --- ANTI-FREEZE: Delay fetchItems slightly ---
         console.log(`[DEBUG] Login successful for ${currentClientName}, starting data fetch...`);
         const restoredCount = restoreCartFromStorage();
+        renderCustomItemsFromCart();
         setTimeout(() => {
             fetchItems(forceFetchVersion, forceFetchVersion ? '最新の商品マスタに更新しています...' : null)
                 .then(() => {
                     // Sync restored cart quantities to product list inputs after render
                     Object.entries(currentCart).forEach(([code, data]) => syncCardQty(code, data.qty));
                     calculateTotal();
-                    if (restoredCount > 0) showCartRestoredBanner(restoredCount);
+                    if (cartOrder.length || (orderRemarks && orderRemarks.value)) showCartRestoredBanner(restoredCount);
                 });
             switchTab('tab-all');
         }, 50);
@@ -2827,10 +2855,6 @@ document.addEventListener('DOMContentLoaded', () => {
         masterReturnBtn.addEventListener('click', () => {
             if (!isMasterSession) return;
             if (editingOrderId !== null && !confirm('発注内容の編集中です。編集を中止してマスター画面へ戻りますか？')) return;
-            const hasUnsavedCustomItem = cartOrder.some((code) =>
-                String(code).startsWith('CUSTOM_ITEM_') && currentCart[code] && currentCart[code].qty > 0
-            );
-            if (hasUnsavedCustomItem && !confirm('特注・その他の商品は一時保存できません。破棄してマスター画面へ戻りますか？')) return;
 
             // 現在サロンの未発注カートはサロン別キーに保存し、再入室時に復元する。
             saveCartToStorage();
@@ -3002,7 +3026,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     renderItems(itemsData);
                 }
                 if (customItemsList) customItemsList.innerHTML = '';
-                clearCartFromStorage(); // Order submitted — discard persisted draft
+                if (editingOrderId === null) clearCartFromStorage(); // 新規発注の成功時だけ通常下書きを消す
                 resetEditMode();
             } else {
                 const errorMsg = result.message || '不明なエラーが発生しました。';
@@ -3071,7 +3095,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     renderItems(itemsData);
                 }
                 if (customItemsList) customItemsList.innerHTML = '';
-                clearCartFromStorage(); // Order submitted — discard persisted draft
+                if (editingOrderId === null) clearCartFromStorage(); // 履歴編集では通常下書きを残す
                 resetEditMode();
             } else {
                 const errorMsg = result.message || '不明なエラーが発生しました。';
@@ -3183,8 +3207,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                 });
 
-                // Clear order remarks
-                if (orderRemarks) orderRemarks.value = '';
+                // 未送信の備考は戻る・再確認でも保持する。
 
                 // Show Confirmation Screen, Hide Order Screen
                 orderContainer.classList.add('hidden');

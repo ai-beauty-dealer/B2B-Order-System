@@ -2640,3 +2640,19 @@ input[type=number]::-webkit-outer-spin-button {
     outline: none;
     border-color: var(--primary, #4338ca);
 }
+.search-empty {
+    padding: 24px 16px;
+    text-align: center;
+    color: #64748b;
+    overflow-wrap: anywhere;
+}
+.search-empty p { margin-bottom: 16px; line-height: 1.7; }
+.search-empty button, .search-more {
+    min-height: 44px;
+    white-space: normal;
+    border: 1px solid #94a3b8;
+    background: #fff;
+    color: #1e3a5f;
+    font-weight: 600;
+}
+.search-more { display: block; margin: 16px auto; padding: 12px 20px; }
