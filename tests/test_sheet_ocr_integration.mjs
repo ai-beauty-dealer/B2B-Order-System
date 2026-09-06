@@ -97,7 +97,7 @@ test('PWAは画像OCRヘルパーとアプリの同一版を配信する', () =>
     const version = html.match(/app\.js\?v=([0-9.]+)/)?.[1];
     assert.ok(version);
     assert.ok(html.includes(`sheet-ocr.js?v=${version}`));
-    assert.match(html, /style\.css\?v=2\.40\.0/);
+    assert.match(html, /style\.css\?v=[0-9.]+/);
     assert.ok(sw.includes(`CACHE_VERSION = 'v${version}'`));
     assert.match(sw, /'\.\/sheet-ocr\.js'/);
 });

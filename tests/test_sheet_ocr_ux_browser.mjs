@@ -60,10 +60,17 @@ const checks=String.raw`
  const blank=document.getElementById('sheet-ocr-qty-1');blank.value='4';blank.dispatchEvent(new Event('input'));
  check(sheetOcrState.reviewRows[1].quantity===4,'D-3 false blank can be recovered');
  document.getElementById('sheet-ocr-next-attention').click();check(document.activeElement.id==='sheet-ocr-qty-2','D-3 next attention focus');
+ check(document.querySelector('.is-attention-target')?.dataset.reviewIndex==='2'&&document.getElementById('sheet-ocr-attention-hint').textContent.includes('UT 商品C'),'D-6 selected target highlighted and named');
  const unclear=document.getElementById('sheet-ocr-qty-2');unclear.value='1.5';unclear.dispatchEvent(new Event('input'));
  check(sheetOcrCartBtn.disabled,'D-5 fractional quantity blocked');
  unclear.value='0';unclear.dispatchEvent(new Event('input'));
  check(!sheetOcrCartBtn.disabled,'D-3 correction enables cart');
+ check(document.getElementById('sheet-ocr-next-attention').disabled&&document.getElementById('sheet-ocr-next-attention').textContent==='要確認なし','D-6 zero attention disabled and explained nearby');
+ sheetOcrState.reviewRows[0].confidence='low';sheetOcrState.reviewRows[1].confidence='low';sheetOcrState.attentionIndex=-1;renderSheetOcrReview();
+ document.getElementById('sheet-ocr-next-attention').click();check(document.activeElement.id==='sheet-ocr-qty-0','D-6 multiple targets start at first row');
+ sheetOcrState.reviewRows[0].quantity=0;renderSheetOcrReview();document.getElementById('sheet-ocr-next-attention').click();
+ check(document.activeElement.id==='sheet-ocr-qty-1','D-6 removing previous target does not skip next row');
+ sheetOcrState.reviewRows[0].quantity=3;sheetOcrState.reviewRows[0].confidence='high';sheetOcrState.reviewRows[1].confidence='high';renderSheetOcrReview();
  check(document.getElementById('sheet-ocr-addition-summary').textContent.includes('現在2 ＋ 今回3 ＝ 合計5'),'D-4 addition preview');
  const savedRows=sheetOcrState.reviewRows;const savedCanvas=sheetOcrState.rectifiedCanvas;
  sheetOcrState.sourceCanvas=savedCanvas;sheetOcrState.page={products};sheetOcrState.qr={sheet_id:'SO-test1234567890',page_no:1};
