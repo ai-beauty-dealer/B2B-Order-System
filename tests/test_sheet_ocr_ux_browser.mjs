@@ -37,6 +37,7 @@ const checks=String.raw`
 (async()=>{try {
  await openSheetOcrModal();
  check(!sheetOcrPhotoBtn.disabled&&!sheetOcrCameraBtn.disabled,'D-1 photo enabled while status pending');
+ check(sheetOcrStatus.parentElement===sheetOcrModal,'D-7 upload status remains outside hidden review');
  const first=pending.shift();closeSheetOcrModal();await openSheetOcrModal();const second=pending.shift();
  check(first.signal.aborted,'D-2 close aborts request');
  reply(second,{gemini_configured:true});await tick();reply(first,{gemini_configured:false});await tick();
@@ -91,6 +92,10 @@ const checks=String.raw`
  applySheetOcrToCart();check(currentCart.a.qty===5,'D-4 same image needs explicit second action');
  const quantity=document.getElementById('sheet-ocr-qty-0');quantity.value='1';quantity.dispatchEvent(new Event('input'));
  applySheetOcrToCart();check(currentCart.a.qty===5,'D-4 changing quantity invalidates duplicate confirmation');
+ await new Promise(resolve=>setTimeout(resolve,400));
+ check(sheetOcrStatus.parentElement===sheetOcrCartBtn.parentElement,'D-7 message and button share footer');
+ const statusRect=sheetOcrStatus.getBoundingClientRect(),buttonRect=sheetOcrCartBtn.getBoundingClientRect();
+ check(statusRect.height>20&&statusRect.bottom<=buttonRect.top&&buttonRect.bottom<=innerHeight+1,'D-7 long message readable above visible button');
  setSheetOcrStep(4);
  check(sheetOcrModal.getBoundingClientRect().right<=innerWidth&&sheetOcrModal.scrollWidth<=sheetOcrModal.clientWidth,'mobile modal no horizontal overflow');
  document.body.dataset.result='PASS';document.getElementById('results').textContent=JSON.stringify(results);
