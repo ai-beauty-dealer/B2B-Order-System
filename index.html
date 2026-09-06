@@ -272,14 +272,14 @@
          上げ忘れると既訪端末が古い販売担当コード表を使い続ける。 -->
     <script src="config.js?v=2.35.5"></script>
     <script src="line-order-match.js?v=2.38.0"></script>
-    <script src="sheet-ocr.js?v=2.40.2"></script>
-    <script src="app.js?v=2.40.2"></script>
+    <script src="sheet-ocr.js?v=2.41.0"></script>
+    <script src="app.js?v=2.41.0"></script>
 
     <!-- Service Worker 登録（PWA） -->
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function () {
-                navigator.serviceWorker.register('sw.js?v=2.40.2')
+                navigator.serviceWorker.register('sw.js?v=2.41.0')
                     .catch(function (err) {
                         console.warn('SW登録に失敗（通常サイトとして続行）:', err);
                     });
@@ -349,7 +349,7 @@
     <div id="sheet-ocr-modal" class="import-modal sheet-ocr-modal hidden" role="dialog" aria-modal="true" aria-labelledby="sheet-ocr-title">
         <div class="import-header">
             <div>
-                <p class="sheet-ocr-kicker">LAYOUT LOCKED / GEMINI OCR</p>
+                <p class="sheet-ocr-kicker">紙の発注書から数量を入力</p>
                 <h3 id="sheet-ocr-title">発注書の写真を取り込む</h3>
             </div>
             <button id="sheet-ocr-close-btn" class="cart-close-btn" type="button" aria-label="閉じる">&times;</button>
@@ -357,7 +357,7 @@
 
         <div class="sheet-ocr-steps" aria-label="画像取り込みの進行状況">
             <span data-sheet-ocr-step="1" class="is-active">1 写真</span>
-            <span data-sheet-ocr-step="2">2 四隅</span>
+            <span data-sheet-ocr-step="2">2 ■位置合わせ</span>
             <span data-sheet-ocr-step="3">3 読取</span>
             <span data-sheet-ocr-step="4">4 確認</span>
         </div>
@@ -391,7 +391,8 @@
         <div id="sheet-ocr-processing-step" class="hidden" aria-live="polite">
             <div class="sheet-ocr-processing-mark"><span></span></div>
             <strong>数量欄だけを読み取っています</strong>
-            <p>商品名は保存済みの位置JSONから確定します。通常は数秒〜数十秒です。</p>
+            <p>写真の数量を読み取っています。完了したら元画像と見比べて確認できます。</p>
+            <p id="sheet-ocr-elapsed" role="timer">読み取りを開始しています</p>
         </div>
 
         <div id="sheet-ocr-review-step" class="hidden">
@@ -401,7 +402,12 @@
                 <span><strong id="sheet-ocr-time">—</strong>機械処理</span>
             </div>
             <p class="sheet-ocr-review-note">商品名から数量欄までの元画像と、読み取った数字を同じ行で確認してください。</p>
+            <div class="sheet-ocr-source-actions">
+                <button id="sheet-ocr-next-attention" class="btn-secondary" type="button">次の要確認へ</button>
+                <button id="sheet-ocr-show-blank" class="btn-secondary" type="button">空欄も見る</button>
+            </div>
             <div id="sheet-ocr-review-list" class="sheet-ocr-review-list"></div>
+            <div id="sheet-ocr-addition-summary" class="sheet-ocr-review-note" aria-live="polite"></div>
             <div class="sheet-ocr-cart-bar">
                 <p id="sheet-ocr-cart-message">数量を確認してください。</p>
                 <button id="sheet-ocr-cart-btn" class="btn-primary" type="button" disabled>この数量でカートへ</button>

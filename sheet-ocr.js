@@ -374,11 +374,11 @@
         return cells;
     };
 
-    const buildReviewRows = (products, cells, items) => {
+    const buildReviewRows = (products, cells, items, includeBlank = false) => {
         const productMap = new Map(products.map((product) => [String(product.cell_id), product]));
         const itemMap = new Map((items || []).map((item) => [String(item.code).replace(/^'/, ''), item]));
         return cells
-            .filter((cell) => cell.mark_type !== 'blank')
+            .filter((cell) => includeBlank || cell.mark_type !== 'blank')
             .map((cell) => {
                 const product = productMap.get(cell.cell_id);
                 const item = product ? itemMap.get(String(product.product_code)) : null;
@@ -388,7 +388,7 @@
                     code: String(product.product_code),
                     name: String(item.name || ''),
                     row_bbox: product.row_bbox,
-                    quantity: Number.isInteger(cell.quantity) && cell.quantity > 0 ? cell.quantity : null
+                    quantity: cell.mark_type === 'blank' ? 0 : Number.isInteger(cell.quantity) && cell.quantity > 0 ? cell.quantity : null
                 };
             });
     };
