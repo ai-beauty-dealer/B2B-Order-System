@@ -34,6 +34,12 @@ const DEALER_API_URLS = {
     // ,'tanaka': 'https://script.google.com/macros/s/XXXXXXXX/exec'
 };
 
+// 発注が送れなかったときに出す「担当にLINEで連絡する」の宛先（担当ごと）。
+// 空欄の担当はボタンを出さない。
+const DEALER_CONTACT_LINE_URLS = {
+    'default': ''
+};
+
 const CONFIG = (() => {
     // dealer解決の優先順位（PWA対応・R-1）:
     //   ① URLの ?dealer=（あれば最優先。記憶も更新する）
@@ -85,5 +91,5 @@ const CONFIG = (() => {
         };
     }
 
-    return { API_URL: apiUrl, DEALER: dealer };
+    return { API_URL: apiUrl, DEALER: dealer, CONTACT_LINE_URL: DEALER_CONTACT_LINE_URLS[dealer] || '' };
 })();

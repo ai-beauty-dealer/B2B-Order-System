@@ -321,6 +321,90 @@ document.addEventListener('DOMContentLoaded', () => {
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
+    // --- 発注結果の表示（空発注対策 2026-09-20） ---
+    // 9/16 ラコヘアー様: 「発注完了」と出たのにシートに行が無く、カゴも空になった。
+    // 完了は「サーバーが実際に書いた行」を受け取れたときだけ出す。
+    // rows を返さない旧GAS（未配信の担当）は従来どおり success を完了として扱う。
+    const isOrderAccepted = (result) => !!result && result.status === 'success' &&
+        (result.rows === undefined || Number(result.rows) >= 1);
+    const hasReceipt = (result) => !!result && Array.isArray(result.written) && result.written.length > 0;
+
+    // サーバーの英語エラー（Error: ...）をサロン様向けの文に直す
+    const toSalonErrorText = (message) => {
+        const text = String(message || '').replace(/^(Type)?Error:\s*/, '').trim();
+        if (!text) return '';
+        if (/Invalid (multi-)?order data format/i.test(text)) return '商品が0件のため受け付けていません。カゴの内容をご確認ください。';
+        if (/^[\x00-\x7F]+$/.test(text)) return '';  // 英語だけの文は見せない
+        return text;
+    };
+
+    const openOrderResultScreen = (html) => {
+        let screen = document.getElementById('order-result-screen');
+        if (!screen) {
+            screen = document.createElement('div');
+            screen.id = 'order-result-screen';
+            screen.className = 'order-result-screen';
+            screen.setAttribute('role', 'dialog');
+            screen.setAttribute('aria-modal', 'true');
+            document.body.appendChild(screen);
+        }
+        screen.innerHTML = `<div class="order-result-card">${html}</div>`;
+        // ログイン直後の「未送信の入力を復元しました」が受付画面に重ならないように
+        const restoreBanner = document.getElementById('cart-restore-banner');
+        if (restoreBanner) restoreBanner.remove();
+        screen.classList.remove('hidden');
+        const close = screen.querySelector('[data-close]');
+        if (close) {
+            close.addEventListener('click', () => screen.classList.add('hidden'));
+            close.focus();
+        }
+        window.scrollTo(0, 0);
+    };
+
+    // 受付画面: 受付番号・受付時刻・実際に書いた行
+    // （シートの日付タブは祝日・倉庫の締めでお届け日と一致しないため出さない）
+    const showOrderReceipt = (result, { isEditing = false, wasDirectShip = false } = {}) => {
+        const written = result.written;
+        const total = written.reduce((n, w) => n + (Number(w.qty) || 0), 0);
+        const bySalon = [];
+        written.forEach(w => {
+            let group = bySalon.find(g => g.salon === w.salon);
+            if (!group) { group = { salon: w.salon, items: [] }; bySalon.push(group); }
+            group.items.push(w);
+        });
+        const receiptNo = String(result.orderId || '').slice(-6);
+        const groupsHtml = bySalon.map(g => `
+            <section class="order-result-group">
+                ${bySalon.length > 1 || wasDirectShip ? `<h3>${escHtml(g.salon)}${wasDirectShip ? '（直送）' : ''}</h3>` : ''}
+                <ul>${g.items.map(w => `<li><span>${escHtml(w.name)}</span><strong>${escHtml(w.qty)}点</strong></li>`).join('')}</ul>
+            </section>`).join('');
+        openOrderResultScreen(`
+            <p class="order-result-badge is-ok">✓ ${isEditing ? '変更を受け付けました' : '発注を受け付けました'}</p>
+            <dl class="order-result-meta">
+                ${receiptNo ? `<div><dt>受付番号</dt><dd>${escHtml(receiptNo)}</dd></div>` : ''}
+                <div><dt>受付時刻</dt><dd>${escHtml(result.receivedAt || '')}</dd></div>
+            </dl>
+            ${groupsHtml}
+            <p class="order-result-total">合計 ${escHtml(written.length)}品目・${escHtml(total)}点</p>
+            <p class="order-result-note">この内容で届いています。控えが必要なときは、この画面を保存してください。</p>
+            <button type="button" class="btn-primary order-result-close" data-close>続けて発注する</button>
+        `);
+    };
+
+    // 送れなかったとき: カゴは残す。担当のLINEが設定されていれば連絡先も出す（本人判断 9/20）
+    const showOrderFailure = (reasonText, { maybeSent = false } = {}) => {
+        const contactUrl = (typeof CONFIG !== 'undefined' && CONFIG.CONTACT_LINE_URL) || '';
+        openOrderResultScreen(`
+            <p class="order-result-badge is-ng">送れませんでした</p>
+            <p class="order-result-lead">カゴの中身はそのまま残っています。</p>
+            ${reasonText ? `<p class="order-result-reason">${escHtml(reasonText)}</p>` : ''}
+            ${maybeSent ? '<p class="order-result-note">通信が途中で切れたため、届いている可能性もあります。送り直す前に「履歴」をご確認ください。</p>' : ''}
+            <p class="order-result-note">少し時間をおいて、もう一度お送りください。何度も送れないときは担当までご連絡ください。</p>
+            ${contactUrl ? `<a class="btn-secondary order-result-contact" href="${escHtml(contactUrl)}" target="_blank" rel="noopener">担当にLINEで連絡する</a>` : ''}
+            <button type="button" class="btn-primary order-result-close" data-close>カゴに戻る</button>
+        `);
+    };
+
     // セッショントークン（ログイン成功時にGASが発行するHMAC署名トークン）。
     // 旧方式の「パスワードをlocalStorageに保存」を置き換えるもの。
     // 全API呼び出しに同梱し、GAS側はこれでサロンを特定する。
@@ -2320,6 +2404,40 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // --- Fetch Items from API ---
+    // 商品一覧の取得失敗（対策候補7・2026-09-20）
+    // 9/16 サロン様「商品検索しても出なかった」→ 無言で空にせず知らせ、手元の一覧があれば使い続ける。
+    const setItemsFetchNotice = (message) => {
+        let notice = document.getElementById('items-fetch-notice');
+        if (!message) { if (notice) notice.remove(); return; }
+        if (!notice) {
+            notice = document.createElement('div');
+            notice.id = 'items-fetch-notice';
+            notice.className = 'items-fetch-notice';
+            notice.setAttribute('role', 'alert');
+            itemListContainer.parentNode.insertBefore(notice, itemListContainer);
+        }
+        notice.innerHTML = `<span>${escHtml(message)}</span><button type="button" class="btn-secondary items-fetch-retry">再読み込み</button>`;
+        notice.querySelector('.items-fetch-retry').addEventListener('click', () => fetchItems(true));
+    };
+
+    const handleItemsFetchFailure = () => {
+        if (!itemsData.length) {
+            try {
+                const cached = localStorage.getItem('b2b_items_cache');
+                if (cached) itemsData = JSON.parse(cached); // 期限切れでも使う
+            } catch (e) { console.warn('items cache parse failed', e); }
+        }
+        if (itemsData.length) {
+            renderManufacturerChips();
+            renderCategoryChips();
+            renderItems(itemsData);
+            setItemsFetchNotice('商品一覧を最新にできませんでした。前回の一覧を表示しています。');
+        } else {
+            itemListContainer.innerHTML = ''; // 「メーカーとカテゴリを選択」の案内は一覧が無いと誤解を招く
+            setItemsFetchNotice('商品一覧を取得できませんでした。電波の良い場所で再読み込みしてください。');
+        }
+    };
+
     const fetchItems = async (forceFetch = false, customLoadingMsg = null) => {
         if (!currentUsername) return;
 
@@ -2433,12 +2551,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     announcementBanner.classList.remove('hidden');
                 }
                 if (forceFetch) console.log('Manual refresh complete. Cache updated.');
+                setItemsFetchNotice('');
             } else {
-                alert('商品データの取得に失敗しました: ' + result.message);
+                console.error('items fetch failed:', result.message);
+                handleItemsFetchFailure();
             }
         } catch (error) {
             console.error(error);
-            alert('通信エラーが発生しました。');
+            handleItemsFetchFailure();
         } finally {
             hideLoading();
         }
@@ -2945,6 +3065,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (rememberMeCheckbox) rememberMeCheckbox.checked = true;
         }
         itemListContainer.innerHTML = '';
+        setItemsFetchNotice('');
         historyListContainer.innerHTML = '';
         totalQtySpan.textContent = '0';
         searchInput.value = '';
@@ -2985,7 +3106,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 clientType: currentClientType, // '直送' or ''
                 orders: attachIsSpecial(orders),
                 remarks: remarks,
-                staffName: staffName
+                staffName: staffName,
+                ua: navigator.userAgent
             };
 
             const requestBody = isEditing ? { ...payload, orderId: String(editingOrderId) } : payload;
@@ -2999,10 +3121,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const result = await response.json();
 
-            if (result.status === 'success') {
+            if (isOrderAccepted(result)) {
                 fetchHistory(true); // alertを閉じるのを待たず履歴更新を先行開始
-                alert((wasDirectShip ? '【直送】として送信しました。\n\n' : '') +
-                    (isEditing ? '発注内容を変更しました。' : '発注が完了しました！\n引き続き発注いただけます。'));
+                if (hasReceipt(result)) {
+                    showOrderReceipt(result, { isEditing, wasDirectShip });
+                } else {
+                    // rows を返さない旧GAS（未配信の担当）は従来の表示
+                    alert((wasDirectShip ? '【直送】として送信しました。\n\n' : '') +
+                        (isEditing ? '発注内容を変更しました。' : '発注が完了しました！\n引き続き発注いただけます。'));
+                }
                 // 直送は都度指定。送信できたら自動でOFFへ戻し、次の発注へ持ち越さない。
                 // （登録上が直送のサロンは registeredClientType が '直送' なので変わらない）
                 if (wasDirectShip) {
@@ -3029,16 +3156,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (editingOrderId === null) clearCartFromStorage(); // 新規発注の成功時だけ通常下書きを消す
                 resetEditMode();
             } else {
-                const errorMsg = result.message || '不明なエラーが発生しました。';
-                if (errorMsg.includes('サーバーが混み合っています')) {
-                    alert('【混雑中】' + errorMsg + '\n\n注文が完了していない可能性があります。数分後に再度お試しください。');
-                } else {
-                    alert('エラー: ' + errorMsg);
-                }
+                // success でも書いた行が0件なら失敗として扱い、カゴは消さない
+                const reason = result && result.status === 'success'
+                    ? '商品が0件のため受け付けていません。カゴの内容をご確認ください。'
+                    : toSalonErrorText(result && result.message);
+                showOrderFailure(reason);
             }
         } catch (error) {
             console.error(error);
-            alert('通信エラーが発生しました。\nネットワークの状態を確認するか、数分後に再度お試しください。\n（注文が完了していない可能性があります）');
+            showOrderFailure('通信が途中で切れました。電波の良い場所でお試しください。', { maybeSent: true });
         } finally {
             hideLoading();
             setSubmittingState(false, editingOrderId !== null);
@@ -3056,6 +3182,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const payload = {
                 action: 'multi_order',
                 token: sessionToken,
+                ua: navigator.userAgent,
                 orderGroups: orderGroups.map(group => ({
                     ...group,
                     orders: attachIsSpecial(group.orders)
@@ -3069,10 +3196,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify(payload)
             });
             const result = await response.json();
-            if (result.status === 'success') {
+            if (isOrderAccepted(result)) {
                 fetchHistory(true); // alertを閉じるのを待たず履歴更新を先行開始
-                alert((wasDirectShip ? '【直送】として送信しました。\n\n' : '') +
-                    (isEditing ? '発注内容を変更しました。' : '発注が完了しました！\n引き続き発注いただけます。'));
+                if (hasReceipt(result)) {
+                    showOrderReceipt(result, { isEditing, wasDirectShip });
+                } else {
+                    // rows を返さない旧GAS（未配信の担当）は従来の表示
+                    alert((wasDirectShip ? '【直送】として送信しました。\n\n' : '') +
+                        (isEditing ? '発注内容を変更しました。' : '発注が完了しました！\n引き続き発注いただけます。'));
+                }
                 // 直送は都度指定。送信できたら自動でOFFへ戻し、次の発注へ持ち越さない。
                 // （登録上が直送のサロンは registeredClientType が '直送' なので変わらない）
                 if (wasDirectShip) {
@@ -3098,16 +3230,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (editingOrderId === null) clearCartFromStorage(); // 履歴編集では通常下書きを残す
                 resetEditMode();
             } else {
-                const errorMsg = result.message || '不明なエラーが発生しました。';
-                if (errorMsg.includes('サーバーが混み合っています')) {
-                    alert('【混雑中】' + errorMsg + '\n\n注文が完了していない可能性があります。数分後に再度お試しください。');
-                } else {
-                    alert('エラー: ' + errorMsg);
-                }
+                // success でも書いた行が0件なら失敗として扱い、カゴは消さない
+                const reason = result && result.status === 'success'
+                    ? '商品が0件のため受け付けていません。カゴの内容をご確認ください。'
+                    : toSalonErrorText(result && result.message);
+                showOrderFailure(reason);
             }
         } catch (error) {
             console.error(error);
-            alert('通信エラーが発生しました。\n（注文が完了していない可能性があります）');
+            showOrderFailure('通信が途中で切れました。電波の良い場所でお試しください。', { maybeSent: true });
         } finally {
             hideLoading();
             setSubmittingState(false, editingOrderId !== null);
@@ -3120,7 +3251,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (isSubmitting) return;
             const total = parseInt(totalQtySpan.textContent);
             if (total === 0) {
-                alert('商品を1点以上選択してください。');
+                alert(editingOrderId !== null
+                    ? 'すべての数量が0のため変更できません。\n発注をまるごと取り消す場合は、履歴の「キャンセル」をお使いください。'
+                    : '商品を1点以上選択してください。');
                 return;
             }
 
