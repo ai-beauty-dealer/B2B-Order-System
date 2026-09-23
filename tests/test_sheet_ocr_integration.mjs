@@ -16,8 +16,10 @@ const block = app.slice(start, end);
 const tests = [];
 const test = (name, run) => tests.push({ name, run });
 
-test('画像取込は本店default限定で旧AI取込を再開しない', () => {
-    assert.match(app, /const ENABLE_SHEET_IMAGE_IMPORT = CONFIG\.DEALER === 'default';/);
+test('画像取込は本店＋稼働中の社員dealer限定（test-sub除外）で旧AI取込を再開しない', () => {
+    assert.match(app, /const SHEET_IMAGE_IMPORT_DEALERS = new Set\(\['default', '755', '747'\]\);/);
+    assert.match(app, /const ENABLE_SHEET_IMAGE_IMPORT = SHEET_IMAGE_IMPORT_DEALERS\.has\(CONFIG\.DEALER\);/);
+    assert.doesNotMatch(app, /SHEET_IMAGE_IMPORT_DEALERS = new Set\([^)]*test-sub/);
     assert.match(app, /const ENABLE_IMPORT_MODE = false;/);
 });
 
