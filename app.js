@@ -5277,12 +5277,19 @@ document.addEventListener('DOMContentLoaded', () => {
     const printLayoutCreateBtn = document.getElementById('print-layout-create-btn');
     const IMPORT_QR_PREFIX = 'B2BORDER|'; // QRの中身: B2BORDER|サロン名（一括取り込みのサロン判定に使う）
     const importDraftKey = (salonName) => 'b2b_import_draft_' + salonName;
-    const PRINT_RENDERER_VERSION = 'b2b-print-v2.40.0';
+    const PRINT_RENDERER_VERSION = 'b2b-print-v2.45.0';
     // 画像取込対応の発注書は、ページ四隅に位置合わせマーク（黒い正方形）を刷る。
     // 写真側はこのマークを基準に射影するので、プリンタの拡縮・オフセットが座標に影響しない
     // （2026-09-05 ミツアミ堂用紙: 紙の四隅基準だと縦0.885倍の縮みで最下段が約3行ズレた）。
     const SHEET_OCR_ANCHOR_MM = 5;        // マークの一辺
-    const SHEET_OCR_ANCHOR_TOP_MM = 275;  // 下段マークの上端（ページ枠280mm・印字可能283mm以内）
+    // 下段マークの上端。ページ枠の高さ＝この値＋マーク一辺（=274mm）。
+    // 2026-09-23: 280mmから274mmへ。@page の余白指定（上8mm・下6mm）を使わず自分の余白
+    // （10〜15mm）を当てる印刷環境（スマホのSafari等）では、280mmは余白10mmで 0.99倍×280+20 > 297
+    // となり2枚目へはみ出した（ハルズヘアー・104商品・3列・片面1枚指定で2枚）。
+    // 余白が9mmを超えると横幅192mmが用紙に入らず全体が縮小されるので、274mmなら
+    // 余白10mm: 274×0.99+20=291／12.7mm: 274×0.96+25.4=288／15mm: 274×0.94+30=287 で全部297以内。
+    // 検証: node tests/test_print_page_fit_margins.mjs --browser（余白10・12.7・15mmの実PDF枚数）
+    const SHEET_OCR_ANCHOR_TOP_MM = 269;
     const SHEET_OCR_ANCHOR_RESERVE_MM = 5; // 下段マークのぶん本文予算を減らす
 
     const PRINT_SHEET_MAX_ITEMS = 240;
@@ -5365,8 +5372,11 @@ document.addEventListener('DOMContentLoaded', () => {
         // 1ページで本文に使える高さ = A4印字可能283mm(297-上8-下6) - ヘッダー実測 - OS間フォント差の安全余白4mm
         const sheetOcrPrintEnabled = ENABLE_SHEET_IMAGE_IMPORT && Boolean(sheetOcr);
         const anchorReserveMm = sheetOcrPrintEnabled ? SHEET_OCR_ANCHOR_RESERVE_MM : 0;
-        const PAGE1_BODY_MM = 245 - anchorReserveMm;     // 1枚目ヘッダー（タイトル・説明・大QR）実測32.4mm
-        const PAGE_CONT_BODY_MM = 262 - anchorReserveMm; // 2枚目以降ヘッダー（小QR）実測14.8mm
+        // ページ枠の高さ（.print-page の min-height）。下段マークの位置から導く＝274mm。
+        // 余白指定が効かない印刷環境でもA4 1枚に収まる高さ（上の SHEET_OCR_ANCHOR_TOP_MM 参照）
+        const PRINT_PAGE_H_MM = SHEET_OCR_ANCHOR_TOP_MM + SHEET_OCR_ANCHOR_MM;
+        const PAGE1_BODY_MM = PRINT_PAGE_H_MM - 35 - anchorReserveMm;     // 1枚目ヘッダー（タイトル・説明・大QR）実測32.4mm＋余裕
+        const PAGE_CONT_BODY_MM = PRINT_PAGE_H_MM - 18 - anchorReserveMm; // 2枚目以降ヘッダー（小QR）実測14.8mm＋余裕
         const CAT_HEAD_MM = 6.8;       // カテゴリ見出し。フォント固定なので縮小率に依存しない
 
         const scaledLayout = (s) => {
@@ -5658,7 +5668,7 @@ ${bodyHtml}
         pages: pages
       });
       button.disabled = false;
-      button.textContent = '🖨 印刷（画像取込対応）';
+      button.textContent = '🖨 印刷（画像取込対応・${printPages.length}枚）';
       button.dataset.registered = '1';
     } catch (error) {
       button.disabled = true;
@@ -5675,7 +5685,7 @@ ${bodyHtml}
 @page { size: A4; margin: 8mm 9mm 6mm 9mm; }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { width: 192mm; font-family: "Hiragino Sans", "Yu Gothic", sans-serif; color: #111; font-size: 7pt; }
-.print-page { position: relative; width: 192mm; min-height: 280mm; break-after: page; page-break-after: always; }
+.print-page { position: relative; width: 192mm; min-height: ${PRINT_PAGE_H_MM}mm; break-after: page; page-break-after: always; }
 .print-page:last-child { break-after: auto; page-break-after: auto; }
 .first-head { position: relative; min-height: 25mm; border-bottom: 2px solid #111; padding: 0 28mm 2mm 0; margin-bottom: 1.6mm; }
 .first-head h1 { font-size: 12pt; line-height: 1.1; }
@@ -5709,7 +5719,7 @@ body.ocr .qr-main { right: 9mm; }
 body.ocr .cont-head { padding-left: 9mm; padding-right: 24mm; }
 body.ocr .qr-small { right: 9mm; }
 </style></head><body${sheetOcrPrintEnabled ? ' class="ocr"' : ''}>
-<button id="print-action-btn" class="print-btn" onclick="window.print()"${sheetOcrPrintEnabled ? ' disabled' : ''}>${sheetOcrPrintEnabled ? '位置情報を保存中…' : '🖨 印刷'}</button>
+<button id="print-action-btn" class="print-btn" onclick="window.print()"${sheetOcrPrintEnabled ? ' disabled' : ''}>${sheetOcrPrintEnabled ? '位置情報を保存中…' : `🖨 印刷（${printPages.length}枚）`}</button>
 ${pagesHtml}
 ${sheetOcrRegistrationScript}
 </body></html>`;
