@@ -418,8 +418,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // 検証済みの本店と稼働中の社員dealerへ展開。test-subは対象外。
     const LINE_TEXT_IMPORT_DEALERS = new Set(['default', '755', '747']);
     const ENABLE_LINE_TEXT_IMPORT = LINE_TEXT_IMPORT_DEALERS.has(CONFIG.DEALER);
-    // 画像OCRは本店で検証してから社員へ広げる。GAS側も本店sheetIdで二重制限。
-    const ENABLE_SHEET_IMAGE_IMPORT = CONFIG.DEALER === 'default';
+    // 画像OCR（四隅マーク付き発注書の印刷＋位置JSON自動登録＋写真取込）。
+    // 本店で検証後、2026-09-23に稼働中の社員dealer（755花光・747平）へ展開。
+    // test-subは対象外。GAS側も sheet_ocr.gs の許可シートIDで二重制限。
+    const SHEET_IMAGE_IMPORT_DEALERS = new Set(['default', '755', '747']);
+    const ENABLE_SHEET_IMAGE_IMPORT = SHEET_IMAGE_IMPORT_DEALERS.has(CONFIG.DEALER);
     let currentClientType = ''; // '直送' or ''
     // ClientMaster D列に登録された本来の区分。直送トグルをOFFに戻すときここへ戻す。
     // currentClientType は「今回の発注をどのシートへ送るか」で、こちらは登録値。
