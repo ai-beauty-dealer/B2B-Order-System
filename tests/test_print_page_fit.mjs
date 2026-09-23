@@ -16,7 +16,8 @@ assert.ok(printStart >= 0 && printEnd > printStart, 'printOrderSheet の実装�
 const printSource = appSource.slice(printStart, printEnd);
 const layoutsMatch = appSource.match(/const PRINT_LAYOUTS = \{[\s\S]*?\n    \};/);
 const catOrderMatch = appSource.match(/const PRINT_CATEGORY_ORDER = \[.*?\];/);
-assert.ok(layoutsMatch && catOrderMatch, 'PRINT_LAYOUTS / PRINT_CATEGORY_ORDER を取得できること');
+const anchorConsts = appSource.match(/const SHEET_OCR_ANCHOR_MM = (\d+);[\s\S]*?const SHEET_OCR_ANCHOR_TOP_MM = (\d+);[\s\S]*?const SHEET_OCR_ANCHOR_RESERVE_MM = (\d+);/);
+assert.ok(layoutsMatch && catOrderMatch && anchorConsts, 'PRINT_LAYOUTS / PRINT_CATEGORY_ORDER / マーク定数を取得できること');
 
 // ---- ダミー商品（実マスタ相当の名前の長さ・文字種のばらつき）----
 const CATS = ['カラー関連', '2剤/ブリーチ', 'パーマ関連', 'シャンプー', 'トリートメント', '業務用商品', 'コスメ関連'];
@@ -56,9 +57,9 @@ const buildSheetHtml = async (itemCount, cols, pageLimit, sheetOcrEnabled = fals
         IMPORT_QR_PREFIX: 'B2BORDER|',
         ENABLE_SHEET_IMAGE_IMPORT: sheetOcrEnabled,
         PRINT_RENDERER_VERSION: 'b2b-print-v2.40.0',
-        SHEET_OCR_ANCHOR_MM: 5,
-        SHEET_OCR_ANCHOR_TOP_MM: 275,
-        SHEET_OCR_ANCHOR_RESERVE_MM: 5,
+        SHEET_OCR_ANCHOR_MM: Number(anchorConsts[1]),
+        SHEET_OCR_ANCHOR_TOP_MM: Number(anchorConsts[2]),
+        SHEET_OCR_ANCHOR_RESERVE_MM: Number(anchorConsts[3]),
         sheetOcr: {
             makeSheetId: () => 'SO-abcdefghijklmnop',
             makeQrValue: (sheetId, pageNo) => `B2BORDER2|${sheetId}|${pageNo}`,

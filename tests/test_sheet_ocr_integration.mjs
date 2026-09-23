@@ -62,7 +62,7 @@ test('正の字と不明数量を構造化して扱う', () => {
 });
 
 test('印刷時に用紙ID・ページQR・位置JSONを登録する', () => {
-    assert.match(app, /PRINT_RENDERER_VERSION = 'b2b-print-v2\.40\.0'/);
+    assert.match(app, /PRINT_RENDERER_VERSION = 'b2b-print-v2\.45\.0'/);
     assert.match(app, /data-sheet-ocr-code/);
     assert.match(app, /registerOrderSheetLayoutFromPrint/);
     assert.match(app, /action: 'save_order_sheet_layout'/);
@@ -74,7 +74,11 @@ test('印刷時に四隅の位置合わせマークを刷り、位置JSONへanch
     assert.match(app, /anchors\[mark\.dataset\.sheetOcrAnchor\] = normalizeBox\(mark, pageRect\)/);
     assert.match(app, /schema_version: '1\.1'/);
     assert.match(app, /\.sheet-ocr-anchor \{ position: absolute; width: \$\{SHEET_OCR_ANCHOR_MM\}mm/);
-    assert.match(app, /PAGE1_BODY_MM = 245 - anchorReserveMm/);
+    // 本文予算はページ枠（下段マーク位置＋マーク一辺＝274mm）から導く。2026-09-23に280mm→274mm
+    assert.match(app, /const PRINT_PAGE_H_MM = SHEET_OCR_ANCHOR_TOP_MM \+ SHEET_OCR_ANCHOR_MM;/);
+    assert.match(app, /PAGE1_BODY_MM = PRINT_PAGE_H_MM - 35 - anchorReserveMm/);
+    assert.match(app, /min-height: \$\{PRINT_PAGE_H_MM\}mm/);
+    assert.match(app, /const SHEET_OCR_ANCHOR_TOP_MM = 269;/);
     assert.match(app, /body\.ocr \.qr-main \{ right: 9mm; \}/);
 });
 

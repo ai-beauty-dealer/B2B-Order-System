@@ -108,7 +108,8 @@ if (!process.argv.includes('--browser')) {
             assert.ok(Math.abs(tr[2] - page.page[2]) < 1, `P${index + 1}: 右上マークは右端`);
             const pageBottomMm = (page.page[3] - page.page[1]) / pxPerMm;
             assert.ok(pageBottomMm <= 283.1, `P${index + 1}: ページ枠の高さ ${pageBottomMm.toFixed(1)}mm が印字可能283mm以内`);
-            assert.ok((br[3] - page.page[1]) / pxPerMm <= 280.1, `P${index + 1}: 下段マークがページ枠280mm以内`);
+            const pageHeightMm = Number(anchorConsts[2]) + Number(anchorConsts[1]);
+            assert.ok((br[3] - page.page[1]) / pxPerMm <= pageHeightMm + 0.1, `P${index + 1}: 下段マークがページ枠${pageHeightMm}mm以内`);
             for (const key of ['tl', 'tr', 'br', 'bl']) {
                 const hit = page.content.find((r) => overlaps(page.anchors[key], r));
                 assert.ok(!hit, `P${index + 1}: マーク${key}が内容と重なる ${JSON.stringify(hit)}`);
