@@ -41,7 +41,6 @@ const DEALER_API_URLS = {
 // （端末の記憶は消していないので、このサイトでそのまま続きから使える）。
 // 上の DEALER_API_URLS の行は消さない（戻す時に使う）。
 const DEALER_MOVED_URLS = {
-    'test-sub': 'https://b2b-order-test-sub.bunchanlab.workers.dev/'
 };
 
 // 新しいサイトへ送り出す。送ったら true。
