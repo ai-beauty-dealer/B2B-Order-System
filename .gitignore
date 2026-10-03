@@ -24,6 +24,8 @@ gas-tools/
 # 外したはずのGAS内部（関数名・スクリプトプロパティ名）が本文から漏れる。
 tests/test_line_user_id_capture.mjs
 tests/test_shipping_import.mjs
+tests/test_maintenance_block.mjs
+tests/test_login_empty_password.mjs
 ut.config.yaml
 gen_history_favs.py
 app.backup.js
