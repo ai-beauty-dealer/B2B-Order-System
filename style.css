@@ -35,6 +35,9 @@
     box-sizing: border-box;
     margin: 0;
     padding: 0;
+    /* iPhone の Safari は、ボタンを続けて押すと「ダブルタップで拡大」になり画面がずれる（＋の連打）。
+       続けて押した時の拡大だけを止める（スクロールと、指2本での拡大は今までどおり） */
+    touch-action: manipulation;
 }
 
 body {
