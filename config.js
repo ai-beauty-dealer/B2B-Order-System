@@ -42,7 +42,8 @@ const DEALER_API_URLS = {
 // 上の DEALER_API_URLS の行は消さない（戻す時に使う）。
 const DEALER_MOVED_URLS = {
     'default': 'https://order.beauty-dealer-hub.com/',
-    'test-sub': 'https://b2b-order-test-sub.bunchanlab.workers.dev/'
+    'test-sub': 'https://b2b-order-test-sub.bunchanlab.workers.dev/',
+    '755': 'https://order-755.beauty-dealer-hub.com/'
 };
 
 // 新しいサイトへ送り出す。送ったら true。
