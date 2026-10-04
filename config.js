@@ -43,7 +43,8 @@ const DEALER_API_URLS = {
 const DEALER_MOVED_URLS = {
     'default': 'https://order.beauty-dealer-hub.com/',
     'test-sub': 'https://b2b-order-test-sub.bunchanlab.workers.dev/',
-    '755': 'https://order-755.beauty-dealer-hub.com/'
+    '755': 'https://order-755.beauty-dealer-hub.com/',
+    '747': 'https://order-747.beauty-dealer-hub.com/'
 };
 
 // 新しいサイトへ送り出す。送ったら true。
