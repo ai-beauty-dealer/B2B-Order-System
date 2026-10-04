@@ -17,6 +17,13 @@ const outDir = mkdtempSync(join(tmpdir(), 'b2b-order-result-'));
 const USER = 'UT-20260920-e2e-user';
 const SALON = 'UT-20260920-e2e-サロン';
 
+// 切り替えた担当の表は空にして配る。この試験が見るのは今のサイトの画面で、本店（?dealer= 無し）が
+// 新しいサイトへ移った後は、表が入ったままだと開いた途端に新しいサイトへ移ってしまう（2026-10-04）
+const MOVED_TABLE = /const DEALER_MOVED_URLS = \{[\s\S]*?\};/;
+const configSource = readFileSync(join(repo, 'config.js'), 'utf8');
+assert.ok(MOVED_TABLE.test(configSource), 'config.js に DEALER_MOVED_URLS がある');
+const configWithoutMoved = configSource.replace(MOVED_TABLE, 'const DEALER_MOVED_URLS = {};');
+
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png' };
 const server = createServer((req, res) => {
   const p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
@@ -24,7 +31,7 @@ const server = createServer((req, res) => {
   // SWは登録させない（キャッシュが通しテストに混ざるため）
   if (p.endsWith('sw.js') || !file.startsWith(repo) || !existsSync(file)) { res.writeHead(404); res.end(); return; }
   res.writeHead(200, { 'Content-Type': (types[extname(file)] || 'application/octet-stream') + '; charset=utf-8' });
-  res.end(readFileSync(file));
+  res.end(p === '/config.js' ? configWithoutMoved : readFileSync(file));
 });
 await new Promise(r => server.listen(0, '127.0.0.1', r));
 const sitePort = server.address().port;
